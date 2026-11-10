@@ -165,7 +165,9 @@ exec bash /opt/ollamabuntu/build.sh "$@"
 '@ -replace "`r`n", "`n"
 
 $started = Get-Date
-& docker run --rm @tty @mounts -w /work @envs ubuntu:24.04 bash -c $inner _ @scriptArgs
+# Le script du conteneur passe par un fichier : Windows PowerShell 5.1 déforme les guillemets d'un argument multi-ligne
+[System.IO.File]::WriteAllText((Join-Path $buildDir 'inner.sh'), $inner, $utf8)
+& docker run --rm @tty @mounts -w /work @envs ubuntu:24.04 bash /work/ollamabuntu-build/inner.sh @scriptArgs
 $rc = $LASTEXITCODE
 if ($rc -ne 0) { Stop-Build (T "la construction a échoué (code $rc) : voir les messages ci-dessus" "the build failed (code $rc): see the messages above") }
 
