@@ -899,6 +899,7 @@ function fleetAlerts(d) {
   if (d.jobs && d.jobs.length) a.push(d.jobs.length + ' tâche(s) en cours : ' + d.jobs.map((j) => j.title).join(', '));
   return a;
 }
+const fleetUnmapped = (s, mine, theirs) => (s.model_map && s.model_map['*']) ? [] : fleetMissing(mine, theirs).filter((m) => !(s.model_map || {})[m]);
 const fleetMissing = (mine, theirs) => (mine || []).filter((m) => !(theirs || []).includes(m));
 async function loadFleet() {
   let v;
@@ -915,6 +916,7 @@ async function loadFleet() {
     const acts = s.state === 'en ligne' ? Object.entries(v.actions).map(([id, label]) => el('button', { class: 'btn sm', type: 'button', text: label, onclick: () => fleetAction(s, id, label) })) : [];
     if (s.state === 'en ligne') {
       acts.push(el('button', { class: 'btn sm', type: 'button', text: s.route ? 'Désactiver la répartition' : 'Activer la répartition de charge', onclick: () => fleetRoute(s) }));
+      if (s.route) acts.push(el('button', { class: 'btn sm', type: 'button', text: 'Modèles de remplacement...', onclick: () => fleetModelMap(s) }));
       acts.push(el('button', { class: 'btn sm', type: 'button', text: 'Synchroniser...', onclick: () => fleetSync(s.id, s.name, v.sync_kinds) }));
     }
     if (s.state === 'certificat changé') acts.push(el('button', { class: 'btn sm danger', type: 'button', text: 'Examiner le nouveau certificat', onclick: () => fleetRepin(s) }));
@@ -926,8 +928,8 @@ async function loadFleet() {
         ['Dernier contact', s.last_ok ? fmtDate(s.last_ok) : '-'], ['Dernière synchronisation', s.last_sync ? fmtDate(s.last_sync.at) : 'jamais']]),
       d && (d.gpu_live || []).length ? el('div', { class: 'gpus' }, ...d.gpu_live.map((g) => el('div', { class: 'g' }, el('div', {}, el('div', { class: 'small', text: g.name }), bar(g.util || 0)), el('div', { class: 'small', text: g.util == null ? '-' : DEC(g.util.toFixed(0)) + ' %' })))) : null,
       d ? el('div', { class: 'small muted', text: 'Processeur ' + (d.cpu.usage == null ? '-' : DEC(d.cpu.usage) + ' %') + ' - mémoire ' + pct(d.memory.total - d.memory.available, d.memory.total) + ' % - disque ' + pct(d.disk.used, d.disk.total) + ' %' }) : null,
-      s.route && s.state === 'en ligne' && d && d.model_tags && fleetMissing(v.local_models, d.model_tags.map((m) => String(m.name))).length
-        ? el('div', { class: 'small error' }, el('div', { text: 'Modèles absents de ce serveur (il ne reçoit pas leurs requêtes) :' }), el('div', { text: fleetMissing(v.local_models, d.model_tags.map((m) => String(m.name))).join(', ') }), el('div', { text: 'Utilisez Synchroniser > Modèles pour les installer.' })) : null,
+      s.route && s.state === 'en ligne' && d && d.model_tags && fleetUnmapped(s, v.local_models, d.model_tags.map((m) => String(m.name))).length
+        ? el('div', { class: 'small error' }, el('div', { text: 'Modèles absents de ce serveur (il ne reçoit pas leurs requêtes) :' }), el('div', { text: fleetUnmapped(s, v.local_models, d.model_tags.map((m) => String(m.name))).join(', ') }), el('div', { text: 'Installez-les (Synchroniser > Modèles) ou choisissez un modèle de remplacement si ses GPU sont différents.' })) : null,
       alerts.length ? el('ul', { class: 'alerts' }, ...alerts.map((x) => el('li', { text: x }))) : null,
       s.error ? el('div', { class: 'small error', text: s.error }) : null,
       el('div', { class: 'actions' }, ...acts, el('a', { class: 'btn sm', href: s.url + '/', target: '_blank', rel: 'noopener', text: 'Ouvrir sa console' }),
@@ -953,6 +955,22 @@ function syncReport(results) {
     if (r.custom) parts.push(r.custom.created.length + ' modèle(s) personnalisé(s) créé(s)' + (r.custom.waiting.length ? ', ' + r.custom.waiting.length + ' en attente de leur modèle de base' : ''));
     return name + ' : ' + (parts.join(', ') || 'rien à faire');
   }).join('\n');
+}
+async function fleetModelMap(s) {
+  const ta = el('textarea', { rows: 6, class: 'mono', style: 'width:100%', placeholder: 'gemma4:12b = granite4.2:8b' });
+  ta.value = Object.entries(s.model_map || {}).map(([k, v]) => k + ' = ' + v).join('\n');
+  const go = await modal({ title: 'Modèles de remplacement de « ' + s.name + ' »',
+    message: 'Si ce serveur ne peut pas faire tourner un modèle (GPU différents), indiquez le modèle qu\'il utilisera à la place : une ligne « modèle demandé = modèle de remplacement ». Écrivez « * = modèle » pour remplacer tous les modèles absents. Les réponses viendront alors d\'un autre modèle, donc leur qualité et leur style peuvent différer.', body: ta, ok: 'Enregistrer' });
+  if (!go) return;
+  const map = {};
+  for (const line of ta.value.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const i = t.indexOf('=');
+    if (i < 1) { fail('Ligne invalide : ' + t); return; }
+    map[t.slice(0, i).trim()] = t.slice(i + 1).trim();
+  }
+  try { await api('/api/fleet/servers/modelmap', { json: { id: s.id, map } }); loadFleet(); } catch (e) { fail(e.message); }
 }
 async function fleetSync(id, name, kinds) {
   kinds = kinds || fleetState.kinds;

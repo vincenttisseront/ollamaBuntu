@@ -35,6 +35,12 @@ reset(); fl = {"local": {"load": 0.0, "loaded": []}, "servers": [srv(1, ["ob-tin
 ok(tally([pick("ob-tiny", fl) for _ in range(4)]) == {"local": 4} and router._inflight.get("local", 0) == 0, "serveur hors ligne : tout reste en local, aucune réservation perdue")
 reset(); fl = {"local": {"load": 0.0, "loaded": []}, "servers": [srv(1, ["ob-tiny:latest"])]}
 c = H.candidates(router.norm("autre"), fl); ok([x[0] for x in c] == ["local"] and not router._inflight, "modèle absent du serveur distant : local seul, aucune réservation")
+reset(); s1 = srv(1, ["granite:8b"]); s1["model_map"] = {"autre:latest": "granite:8b"}; fl = {"local": {"load": 0.0, "loaded": []}, "servers": [s1]}
+c = H.candidates(router.norm("autre"), fl); ok(sorted(x[0] for x in c) == ["local", "remote"] and [x[3]["use_model"] for x in c if x[0] == "remote"] == ["granite:8b"], "modèle de remplacement : le serveur aux GPU différents devient candidat avec son propre modèle")
+reset(); s1 = srv(1, ["granite:8b"]); s1["model_map"] = {"*": "granite:8b"}; fl = {"local": {"load": 0.0, "loaded": []}, "servers": [s1]}
+ok(len([x for x in H.candidates(router.norm("autre"), fl) if x[0] == "remote"]) == 1, "remplacement « * » : tout modèle absent est redirigé")
+reset(); s1 = srv(1, ["granite:8b"]); s1["model_map"] = {"autre:latest": "absent:1b"}; fl = {"local": {"load": 0.0, "loaded": []}, "servers": [s1]}
+ok([x[0] for x in H.candidates(router.norm("autre"), fl)] == ["local"], "remplacement absent du serveur : ignoré")
 # --- stratégie « modèle déjà chargé »
 conf("balance.json", {"strategy": "warm"}); ok(router.balance_strategy() == "warm", "stratégie lue à chaud depuis balance.json")
 reset(); fl = {"local": {"load": 5.0, "loaded": ["ob-tiny:latest"]}, "servers": [srv(1, ["ob-tiny:latest"])]}

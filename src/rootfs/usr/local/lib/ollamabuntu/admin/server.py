@@ -1803,6 +1803,30 @@ def fleet_worker():
         time.sleep(int(os.environ.get("OB_FLEET_INTERVAL", "15")))
 
 
+def fleet_set_modelmap(sid, mapping):
+    """Modèles de remplacement d'un serveur du parc (GPU différents : il ne peut pas faire tourner le même modèle)."""
+    if not isinstance(mapping, dict) or len(mapping) > 50:
+        raise ValueError("correspondances invalides")
+    clean = {}
+    for k, v in mapping.items():
+        k, v = str(k).strip(), str(v).strip()
+        if not k and not v:
+            continue
+        if (k != "*" and not MODEL_RE.match(k)) or not MODEL_RE.match(v):
+            raise ValueError("nom de modèle invalide : %s" % (k if k != "*" and not MODEL_RE.match(k) else v))
+        clean[k if k == "*" else short_name(k)] = short_name(v)
+    with _fleet_lock:
+        servers = load_fleet()
+        for x in servers:
+            if x["id"] == sid:
+                x["model_map"] = clean
+                break
+        else:
+            raise ValueError("serveur inconnu")
+        save_fleet(servers)
+    write_fleet_routes()
+
+
 def fleet_view():
     out = []
     for s in load_fleet():
@@ -1876,7 +1900,7 @@ def write_fleet_routes():
         if not s.get("route_token"):
             continue
         servers.append({"id": s["id"], "name": s["name"], "url": s["url"], "fingerprint": s["fingerprint"], "token": s["route_token"],
-                        "online": st.get("state") == "en ligne", "models": d.get("model_tags", []),
+                        "online": st.get("state") == "en ligne", "models": d.get("model_tags", []), "model_map": s.get("model_map") or {},
                         "loaded": [m.get("name") for m in (d.get("ollama") or {}).get("running", [])],
                         "load": avg_load(d.get("gpu_live"), (d.get("cpu") or {}).get("usage"))})
     try:
@@ -3650,6 +3674,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, {"ok": True, "results": fleet_sync(str(data.get("id", "")), data.get("kinds"))})
             if path == "/api/fleet/servers/route":
                 fleet_set_route(str(data.get("id", "")), bool(data.get("enabled")))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/fleet/servers/modelmap":
+                fleet_set_modelmap(str(data.get("id", "")), data.get("map"))
                 return self.send_json(200, {"ok": True})
             if path == "/api/fleet/servers/remove":
                 fleet_remove(str(data.get("id", "")))

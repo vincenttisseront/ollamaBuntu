@@ -385,6 +385,7 @@
 "Installer les mises à jour de sécurité": "Install security updates",
 "Installer les paquets de sécurité": "Install the security packages",
 "Installeur automatique d'Ubuntu Server": "Ubuntu Server automatic installer",
+"Installez-les (Synchroniser > Modèles) ou choisissez un modèle de remplacement si ses GPU sont différents.": "Install them (Synchronise > Models) or choose a replacement model if its GPUs differ.",
 "Installé": "Installed",
 "Installés": "Installed",
 "Instance": "Instance",
@@ -501,6 +502,7 @@
 "Modèles : aucun modèle embarqué dans cette ISO, modèles installés conservés": "Models: no model bundled in this ISO, installed models kept",
 "Modèles absents de ce serveur (il ne reçoit pas leurs requêtes) :": "Models missing on this server (it receives no requests for them):",
 "Modèles autorisés (aucun coché = tous)": "Allowed models (none checked = all)",
+"Modèles de remplacement...": "Replacement models...",
 "Modèles embarqués": "Bundled models",
 "Modèles embarqués dans l'ISO : ajout / mise à jour (les autres modèles sont conservés)": "Models bundled in the ISO: adding / updating (other models are kept)",
 "Modèles en commun": "Shared models",
@@ -721,6 +723,7 @@
 "Services, démarrage, journaux": "Services, boot, logs",
 "Session": "Session",
 "Session expirée : reconnectez-vous.": "Session expired: please sign in again.",
+"Si ce serveur ne peut pas faire tourner un modèle (GPU différents), indiquez le modèle qu'il utilisera à la place : une ligne « modèle demandé = modèle de remplacement ». Écrivez « * = modèle » pour remplacer tous les modèles absents. Les réponses viendront alors d'un autre modèle, donc leur qualité et leur style peuvent différer.": "If this server cannot run a model (different GPUs), enter the model it will use instead: one line “requested model = replacement model”. Write “* = model” to replace every missing model. Answers will then come from a different model, so quality and style may differ.",
 "Somme SHA-256 de l'archive incorrecte : mise à jour refusée.": "Incorrect archive SHA-256 checksum: update refused.",
 "Statut": "Status",
 "Stratégie": "Strategy",
@@ -782,7 +785,6 @@
 "Utilisateur (chat et modèles)": "User (chat and models)",
 "Utilisateurs": "Users",
 "Utiliser les modèles (chat, génération, embeddings)": "Use models (chat, generation, embeddings)",
-"Utilisez Synchroniser > Modèles pour les installer.": "Use Synchronise > Models to install them.",
 "Valeur par défaut d'Ollama": "Ollama default",
 "Validation (outils de test, non embarqués)": "Validation (test tools, not shipped)",
 "Variante d'un modèle installé avec son propre prompt système et ses paramètres (par exemple un assistant RH qui répond toujours en français, avec une température basse). Les poids ne sont pas dupliqués ; la variante s'utilise par son nom, comme tout modèle.": "A variant of an installed model with its own system prompt and settings (for example an HR assistant that always answers in French, with a low temperature). Weights are not duplicated; the variant is used by its name, like any model.",
@@ -1303,6 +1305,14 @@
 [
 ">>> Échec : (.+)",
 ">>> Failed: {1}"
+],
+[
+"Modèles de remplacement de « (.+) »",
+"Replacement models for “{1}”"
+],
+[
+"Ligne invalide : (.+)",
+"Invalid line: {1}"
 ],
 [
 "Mémoire vidéo : (.+) / (.+) \\((\\d+) %\\)",

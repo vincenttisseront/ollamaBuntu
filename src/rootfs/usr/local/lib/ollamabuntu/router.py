@@ -441,8 +441,17 @@ class Router(http.server.BaseHTTPRequestHandler):
         if model in local_models()["names"]:
             out.append(("local", model in {norm(x) for x in loc.get("loaded", [])}, float(loc.get("load") or 0), None))
         for s in fl.get("servers", []):
-            if s.get("online") and model in {norm(m.get("name") or m.get("model")) for m in s.get("models", [])}:
-                out.append(("remote", model in {norm(x) for x in s.get("loaded", [])}, float(s.get("load") or 0), s))
+            if not s.get("online"):
+                continue
+            have = {norm(m.get("name") or m.get("model")) for m in s.get("models", [])}
+            use = model if model in have else None
+            if use is None:   # correspondance choisie par l'administrateur : modèle demandé -> modèle de remplacement de ce serveur
+                mp = {norm(k): norm(v) for k, v in (s.get("model_map") or {}).items() if k != "*"}
+                sub = mp.get(model) or norm((s.get("model_map") or {}).get("*") or "")
+                if sub and sub in have:
+                    use = sub
+            if use:
+                out.append(("remote", use in {norm(x) for x in s.get("loaded", [])}, float(s.get("load") or 0), dict(s, use_model=use)))
         with _inflight_lock:
             strategy = balance_strategy()
             turn = _rr.get(model, 0)
@@ -489,8 +498,16 @@ class Router(http.server.BaseHTTPRequestHandler):
                         conn.close()
                         inflight_add(ikey, -1)
                         continue
-                    conn.request(method, "/api/fleet/ollama" + self.path, body=body,
-                                 headers=dict(headers, Authorization="Bearer " + srv["token"], **{"X-OB": "1"}))
+                    rbody = body
+                    if srv.get("use_model") and srv["use_model"] != norm(model):   # le serveur reçoit son modèle de remplacement
+                        try:
+                            d = json.loads(body)
+                            d["model"] = srv["use_model"]
+                            rbody = json.dumps(d).encode()
+                        except (ValueError, TypeError, AttributeError):
+                            rbody = body
+                    conn.request(method, "/api/fleet/ollama" + self.path, body=rbody,
+                                 headers=dict(headers, **{"Content-Length": str(len(rbody))}, Authorization="Bearer " + srv["token"], **{"X-OB": "1"}))
                     label = "serveur:" + srv["name"]
                 resp = conn.getresponse()
             except (OSError, ssl.SSLError, http.client.HTTPException) as e:
