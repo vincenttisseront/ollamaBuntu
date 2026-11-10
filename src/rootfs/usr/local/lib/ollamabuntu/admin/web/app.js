@@ -407,6 +407,43 @@ async function pullModel(given) {
 }
 $('#pull-btn').addEventListener('click', () => pullModel());
 $('#pull-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') pullModel(); });
+/* ------------------------------------------------- Hugging Face */
+function hfNum(n) { return n >= 1e6 ? DEC((n / 1e6).toFixed(1)) + ' M' : n >= 1e3 ? DEC((n / 1e3).toFixed(0)) + ' k' : String(n); }
+async function hfSearch() {
+  const msg = $('#hf-msg'), out = $('#hf-results');
+  $('#hf-quants').classList.add('hidden');
+  msg.className = 'small muted'; msg.textContent = 'Recherche en cours...'; out.replaceChildren();
+  try {
+    const r = await api('/api/hf/search?q=' + encodeURIComponent($('#hf-q').value.trim()) + '&mode=' + encodeURIComponent($('#hf-mode').value));
+    msg.textContent = r.models.length ? r.models.length + ' modèle(s), les plus téléchargés d\'abord.' : 'Aucun modèle trouvé.';
+    out.replaceChildren(...r.models.map((m) => el('div', { class: 'row', style: 'align-items:center;justify-content:space-between;padding:4px 0' },
+      el('div', {}, el('strong', { text: m.id }), ' ', m.uncensored ? pill('sans censure', 'warn') : null,
+        el('div', { class: 'small muted', text: hfNum(m.downloads) + ' téléchargements - ' + m.likes + ' J\'aime - mis à jour le ' + m.updated })),
+      el('button', { class: 'btn sm', type: 'button', text: 'Choisir', onclick: () => hfQuants(m.id) }))));
+  } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
+}
+async function hfQuants(repo) {
+  const box = $('#hf-quants'), msg = $('#hf-msg');
+  msg.className = 'small muted'; msg.textContent = 'Lecture des quantifications...';
+  try {
+    const r = await api('/api/hf/files?repo=' + encodeURIComponent(repo));
+    msg.textContent = '';
+    box.classList.remove('hidden');
+    box.replaceChildren(el('h3', { text: repo }),
+      r.uncensored ? el('p', { class: 'small error', text: 'Version sans censure : les garde-fous du modèle d\'origine sont retirés. Son usage reste soumis à la politique d\'usage de l\'IA de votre organisation.' }) : null,
+      r.quants.length ? el('div', { class: 'small muted', text: 'Plus la quantification est basse (Q2, Q3), plus le fichier est petit et la qualité réduite ; Q4_K_M est un bon compromis.' })
+        : el('div', { class: 'small error', text: 'Aucune quantification GGUF exploitable dans ce dépôt.' }),
+      el('div', { class: 'actions' }, ...r.quants.map((q) => el('button', { class: 'btn sm', type: 'button', text: q.quant + ' (' + fmtBytes(q.size) + ')', onclick: () => hfPull(repo, q.quant, r.uncensored) }))));
+    box.scrollIntoView({ block: 'nearest' });
+  } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
+}
+async function hfPull(repo, quant, uncensored) {
+  const text = 'Télécharger « hf.co/' + repo + ':' + quant + ' » depuis Hugging Face ?' + (uncensored ? ' Ce modèle est une version sans censure.' : '');
+  if (!(await ask(text))) return;
+  pullModel('hf.co/' + repo + ':' + quant);
+}
+$('#hf-search').addEventListener('click', hfSearch);
+$('#hf-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') hfSearch(); });
 $('#models-refresh').addEventListener('click', loadModels);
 
 /* -------------------------------------------------------------------- chat */

@@ -17,6 +17,7 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/gpu_auto_test.py
 	bash tests/unit/crypt_engine_test.sh
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/online_update_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/hf_test.py
 
 # Console web (jsdom requis : npm install --no-save jsdom@24)
 test-ui:

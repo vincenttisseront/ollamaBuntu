@@ -10,6 +10,7 @@
 ```sh
 make test          # ou, séparément :
 python3 tests/unit/router_balance_test.py
+python3 tests/unit/hf_test.py            # recherche Hugging Face (faux serveur local)
 python3 tests/unit/gpu_auto_test.py
 bash    tests/unit/crypt_engine_test.sh      # nécessite : cryptsetup, swtpm, tpm2-tools, clevis
 python3 tests/unit/online_update_test.py     # nécessite : openssl

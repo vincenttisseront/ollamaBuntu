@@ -79,6 +79,18 @@
         <p class="muted small">Nécessite un accès Internet depuis le serveur (registry.ollama.ai). Hugging Face : hf.co/&lt;utilisateur&gt;/&lt;dépôt&gt;:&lt;quantification&gt; (dépôts GGUF), ex. hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M.</p>
         <div id="pull-progress" class="progress hidden"><div class="bar"><i id="pull-bar"></i></div><div id="pull-status" class="muted small"></div></div>
       </div>
+      <div class="card wide" data-panel="hf" data-label="Hugging Face">
+        <h2>Hugging Face</h2>
+        <p class="muted small">Recherche de modèles au format GGUF sur huggingface.co, puis téléchargement de la quantification choisie. Les modèles « sans censure » (uncensored, abliterated...) sont masqués par défaut.</p>
+        <div class="row">
+          <input id="hf-q" placeholder="ex. llama 3.2, qwen coder, mistral">
+          <select id="hf-mode"><option value="standard">Modèles standard</option><option value="all">Standard et sans censure</option><option value="uncensored">Sans censure seulement</option></select>
+          <button id="hf-search" class="btn" type="button">Rechercher</button>
+        </div>
+        <p id="hf-msg" class="small muted"></p>
+        <div id="hf-results"></div>
+        <div id="hf-quants" class="hidden"></div>
+      </div>
       <div class="card wide" data-admin data-panel="custom" data-label="Personnalisés et préchargement">
           <h2>Modèles personnalisés</h2>
           <p class="muted small">Variante d'un modèle installé avec son propre prompt système et ses paramètres (par exemple un assistant RH qui répond toujours en français, avec une température basse). Les poids ne sont pas dupliqués ; la variante s'utilise par son nom, comme tout modèle.</p>

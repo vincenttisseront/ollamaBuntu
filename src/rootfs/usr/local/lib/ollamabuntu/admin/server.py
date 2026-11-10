@@ -2995,6 +2995,89 @@ def http_get(url, accept=None, timeout=15, data=None):
         return e.code, e.read()
 
 
+HF_BASE = os.environ.get("OB_HF", "https://huggingface.co")
+HF_REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
+UNCENSORED_RE = re.compile(r"uncensor|abliterat|unfilter|decensor|heretic|no[-_]?refusal|unrestrict", re.I)
+QUANT_RE = re.compile(r"(?:^|[-_.])((?:IQ|Q)\d(?:_[A-Z0-9]+)*|BF16|F16|F32)(?=[-_.]|$)", re.I)
+_hf_cache = {}
+
+
+def hf_get(path):
+    """Requête à l'API Hugging Face (cache de 5 minutes)."""
+    hit = _hf_cache.get(path)
+    if hit and time.time() - hit[0] < 300:
+        return hit[1]
+    try:
+        st, raw = http_get(HF_BASE + path, timeout=20)
+    except (OSError, ValueError) as e:
+        raise ValueError("Hugging Face injoignable : %s" % e)
+    if st == 404:
+        raise ValueError("dépôt introuvable sur Hugging Face")
+    if st != 200:
+        raise ValueError("Hugging Face a répondu HTTP %s" % st)
+    data = json.loads(raw)
+    if len(_hf_cache) > 200:
+        _hf_cache.clear()
+    _hf_cache[path] = (time.time(), data)
+    return data
+
+
+def hf_is_uncensored(repo_id, tags=()):
+    return bool(UNCENSORED_RE.search(repo_id) or any(UNCENSORED_RE.search(str(t)) for t in tags))
+
+
+def hf_search(q, mode):
+    """Modèles GGUF de Hugging Face. mode : standard (sans les versions sans censure), all, uncensored (seulement celles-ci)."""
+    q = str(q or "").strip()[:80]
+    if mode not in ("standard", "all", "uncensored"):
+        mode = "standard"
+    if q and not re.match(r"^[\w .:/+-]+$", q):
+        raise ValueError("recherche invalide")
+    queries = [q]
+    if mode == "uncensored":
+        queries = ([q] if q else []) + ["uncensored", "abliterated", "unfiltered"]
+    words = [w.lower() for w in q.split()]
+    found = {}
+    for term in queries:
+        url = "/api/models?filter=gguf&sort=downloads&direction=-1&limit=%d" % (60 if mode == "uncensored" else 30)
+        if term:
+            url += "&search=" + urllib.parse.quote(term)
+        for m in hf_get(url):
+            rid = str(m.get("id") or m.get("modelId") or "")
+            if not HF_REPO_RE.match(rid) or m.get("private") or m.get("gated"):
+                continue
+            unc = hf_is_uncensored(rid, m.get("tags") or [])
+            if (mode == "standard" and unc) or (mode == "uncensored" and not unc):
+                continue
+            if words and not all(w in rid.lower() for w in words):
+                continue
+            found.setdefault(rid, {"id": rid, "downloads": int(m.get("downloads") or 0), "likes": int(m.get("likes") or 0),
+                                   "updated": str(m.get("lastModified") or "")[:10], "uncensored": unc})
+    return {"models": sorted(found.values(), key=lambda x: -x["downloads"])[:40], "mode": mode}
+
+
+def hf_files(repo):
+    """Quantifications GGUF d'un dépôt Hugging Face, avec leur taille (fichiers multiples additionnés)."""
+    repo = str(repo or "").strip()
+    if not HF_REPO_RE.match(repo):
+        raise ValueError("nom de dépôt invalide (utilisateur/dépôt)")
+    info = hf_get("/api/models/%s?blobs=true" % repo)
+    if info.get("gated"):
+        raise ValueError("dépôt à accès restreint (compte Hugging Face requis) : non téléchargeable ici")
+    quants = {}
+    for f in info.get("siblings") or []:
+        name = str(f.get("rfilename") or "")
+        if not name.lower().endswith(".gguf") or "mmproj" in name.lower():
+            continue
+        m = QUANT_RE.search(os.path.basename(name))
+        if not m:
+            continue
+        q = quants.setdefault(m.group(1).upper(), {"quant": m.group(1).upper(), "size": 0, "files": 0})
+        q["size"] += int(f.get("size") or 0)
+        q["files"] += 1
+    return {"id": repo, "uncensored": hf_is_uncensored(repo, info.get("tags") or []), "quants": sorted(quants.values(), key=lambda x: x["size"])}
+
+
 def ubuntu_scores(obj, out):
     """Collecte récursive des niveaux de priorité Ubuntu ({"type": "Ubuntu", "score": "high"})."""
     if isinstance(obj, dict):
@@ -3415,7 +3498,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -3554,6 +3637,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, pending_updates(refresh))
             if path == "/api/update/online":
                 return self.send_json(200, updater.view())
+            if path in ("/api/hf/search", "/api/hf/files"):
+                try:
+                    if path == "/api/hf/search":
+                        return self.send_json(200, hf_search((query.get("q") or [""])[0], (query.get("mode") or ["standard"])[0]))
+                    return self.send_json(200, hf_files((query.get("repo") or [""])[0]))
+                except ValueError as e:
+                    return self.send_json(400, {"error": str(e)})
             if path == "/api/models/insights":
                 return self.send_json(200, model_insights(refresh))
             if path == "/api/webui":
