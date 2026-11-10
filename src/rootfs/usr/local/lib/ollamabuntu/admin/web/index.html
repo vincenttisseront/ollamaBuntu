@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OllamaBuntu - Administration</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<button id="lang-switch" class="lang-switch no-i18n" type="button">EN</button>
+<div id="login" class="login hidden">
+  <form id="login-form" class="card login-card" autocomplete="on">
+    <img src="/logo.svg" alt="" class="login-logo">
+    <h1>Ollama<span>Buntu</span></h1>
+    <p class="muted">Console d'administration</p>
+    <label>Identifiant<input name="user" autocomplete="username" required></label>
+    <label>Mot de passe<input name="password" type="password" autocomplete="current-password" required></label>
+    <button type="submit" class="btn primary wide">Se connecter</button>
+    <p id="login-error" class="error"></p>
+    <p id="login-version" class="muted small"></p>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <header class="top">
+    <div class="brand"><img src="/logo.svg" alt=""><span>Ollama<b>Buntu</b></span><span id="ver" class="ver"></span></div>
+    <nav id="nav">
+      <a href="#dashboard" data-admin>Tableau de bord</a>
+      <a href="#models">Modèles</a>
+      <a href="#chat">Chat</a>
+      <a href="#gpu" data-admin>GPU</a>
+      <a href="#system" data-admin>Système</a>
+      <a href="#security" data-admin>Sécurité</a>
+      <a href="#fleet" data-admin>Serveurs</a>
+      <a href="#webui" data-admin>Open WebUI</a>
+      <a href="#users" data-admin>Utilisateurs</a>
+      <a href="#logs" data-admin>Journaux</a>
+      <a href="#about">À propos</a>
+    </nav>
+    <div class="who"><a href="#account" id="who" class="who-link" title="Mon compte"></a><button id="logout" class="btn ghost" type="button">Déconnexion</button></div>
+  </header>
+  <div id="banner" class="banner hidden"><span id="banner-text"></span><button id="banner-btn" class="btn" type="button">Redémarrer le serveur</button></div>
+
+  <main>
+    <section id="view-dashboard" class="view">
+      <div class="section-title"><h1 id="dash-host">Tableau de bord</h1><span id="dash-version" class="muted"></span></div>
+      <div class="grid kpis" id="dash-grid"></div>
+      <div class="card">
+        <div class="card-head"><h2>Performances</h2>
+          <div class="seg" id="perf-range" role="group" aria-label="Période affichée">
+            <button type="button" data-span="900">15 min</button><button type="button" data-span="3600" class="on">1 h</button><button type="button" data-span="21600">6 h</button><button type="button" data-span="86400">24 h</button>
+          </div></div>
+        <div class="charts" id="perf-charts"></div>
+        <p class="muted small" id="perf-note"></p>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Dernières requêtes</h2><a href="#logs/requests" class="small">Toutes les requêtes</a></div>
+        <div id="dash-requests"></div>
+        <p id="dash-req-note" class="muted small hidden"></p>
+      </div>
+    </section>
+
+    <section id="view-models" class="view hidden">
+      <div class="section-title"><h1>Modèles</h1>
+        <div class="row"><button id="models-refresh" class="btn" type="button">Actualiser</button><button id="insights-refresh" class="btn" type="button" data-admin>Interroger le registre</button></div></div>
+      <div id="capacity" class="card" data-admin></div>
+      <div class="grid" data-admin>
+      <div class="card" data-panel="add" data-label="Ajouter un modèle">
+        <h2>Télécharger un modèle</h2>
+        <div class="row">
+          <input id="pull-name" list="model-suggestions" placeholder="ex. llama3.2:3b, qwen2.5:7b, mistral, gemma3:4b">
+          <datalist id="model-suggestions">
+            <option value="llama3.2:3b"><option value="llama3.1:8b"><option value="qwen2.5:7b"><option value="qwen2.5-coder:7b">
+            <option value="mistral"><option value="gemma3:4b"><option value="phi4-mini"><option value="nomic-embed-text">
+          </datalist>
+          <button id="pull-btn" class="btn primary" type="button">Télécharger</button>
+        </div>
+        <p class="muted small">Nécessite un accès Internet depuis le serveur (registry.ollama.ai). Hugging Face : hf.co/&lt;utilisateur&gt;/&lt;dépôt&gt;:&lt;quantification&gt; (dépôts GGUF), ex. hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M.</p>
+        <div id="pull-progress" class="progress hidden"><div class="bar"><i id="pull-bar"></i></div><div id="pull-status" class="muted small"></div></div>
+      </div>
+      <div class="card wide" data-admin data-panel="custom" data-label="Personnalisés et préchargement">
+          <h2>Modèles personnalisés</h2>
+          <p class="muted small">Variante d'un modèle installé avec son propre prompt système et ses paramètres (par exemple un assistant RH qui répond toujours en français, avec une température basse). Les poids ne sont pas dupliqués ; la variante s'utilise par son nom, comme tout modèle.</p>
+          <form id="cm-form" class="pool-form">
+            <div class="row"><label>Nom<input name="name" required maxlength="80" placeholder="ex. assistant-rh"></label><label>Modèle de base<select name="base" required></select></label></div>
+            <label>Prompt système<textarea name="system" rows="4" placeholder="ex. Tu es l'assistant RH de l'entreprise. Réponds en français, de façon concise et factuelle."></textarea></label>
+            <div class="row">
+              <label>Température<input name="temperature" type="number" step="0.05" min="0" max="2" placeholder="par défaut"></label>
+              <label>Contexte (jetons)<input name="num_ctx" type="number" step="256" min="256" max="262144" placeholder="par défaut"></label>
+              <label>Top-p<input name="top_p" type="number" step="0.05" min="0" max="1" placeholder="par défaut"></label>
+              <label>Pénalité de répétition<input name="repeat_penalty" type="number" step="0.05" min="0.5" max="2" placeholder="par défaut"></label>
+            </div>
+            <div class="row"><button class="btn primary" type="submit">Créer ou mettre à jour</button><span id="cm-msg" class="small"></span></div>
+          </form>
+          <div id="cm-list"></div>
+          <h3 class="mt">Préchargement</h3>
+          <p class="muted small">Modèles gardés en mémoire en permanence et rechargés automatiquement après un redémarrage : pas d'attente au premier appel.</p>
+          <div id="pl-list" class="checks"></div>
+          <div class="row"><button id="pl-save" class="btn" type="button">Enregistrer le préchargement</button><span id="pl-msg" class="small"></span></div>
+      </div>
+      <div class="card" data-panel="add" data-label="Ajouter un modèle">
+        <h2>Vérifier un modèle avant de le télécharger</h2>
+        <div class="row"><input id="check-name" placeholder="ex. gpt-oss:20b, qwen3.5:9b"><button id="check-btn" class="btn" type="button">Vérifier</button></div>
+        <div id="check-result" class="small"></div>
+      </div>
+      </div>
+      <div class="card" data-panel="installed" data-label="Installés"><h2>Modèles installés</h2><div id="models-table"></div></div>
+      <div class="card" data-panel="context" data-label="Taille du contexte">
+        <h2>Taille du contexte</h2>
+        <p class="muted small">Nombre de jetons qu'un modèle garde en tête pour une conversation : questions, réponses et documents fournis. Plus il est grand, plus le modèle se souvient, mais plus il occupe de mémoire vidéo ; au-delà de la mémoire de la carte, il déborde sur celle du serveur et ralentit fortement.</p>
+        <div class="row ctxbar">
+          <label>Par défaut pour tous les modèles <select id="ctx-default"><option value="">Valeur par défaut d'Ollama</option><option value="2048">2 K jetons</option><option value="4096">4 K jetons</option><option value="8192">8 K jetons</option><option value="16384">16 K jetons</option><option value="32768">32 K jetons</option><option value="65536">64 K jetons</option><option value="131072">128 K jetons</option><option value="262144">256 K jetons</option></select></label>
+          <button id="ctx-default-save" class="btn" type="button">Appliquer</button>
+          <span id="ctx-default-msg" class="small" aria-live="polite"></span>
+        </div>
+        <p class="muted small">S'applique aussi à l'API compatible OpenAI. Appliquer redémarre Ollama.</p>
+        <h3>Par modèle</h3>
+        <div id="ctx-models"></div>
+        <p class="muted small" id="ctx-note">La valeur d'un modèle s'applique à toutes les requêtes de l'API d'Ollama (console, Open WebUI, applications), sauf si la requête précise sa propre taille. La mémoire est estimée pour une requête à la fois.</p>
+      </div>
+      <div class="card" data-admin data-panel="catalog" data-label="Recommandés"><h2>Recommandés pour ce serveur</h2><p id="catalog-note" class="muted small"></p><div id="catalog"></div></div>
+    </section>
+
+    <section id="view-chat" class="view hidden">
+      <div class="chat card">
+        <div class="toolbar">
+          <select id="chat-model"></select>
+          <select id="chat-ctx" aria-label="Taille du contexte de la conversation" title="Taille du contexte de la conversation"><option value="">Contexte : réglage du modèle</option><option value="2048">2 K jetons</option><option value="4096">4 K jetons</option><option value="8192">8 K jetons</option><option value="16384">16 K jetons</option><option value="32768">32 K jetons</option><option value="65536">64 K jetons</option><option value="131072">128 K jetons</option><option value="262144">256 K jetons</option></select>
+          <button id="chat-clear" class="btn" type="button">Nouvelle conversation</button>
+          <span id="chat-info" class="muted small"></span>
+        </div>
+        <div id="chat-log" class="chat-log"><p class="muted center">Choisissez un modèle et posez votre question.</p></div>
+        <div class="chat-input">
+          <textarea id="chat-text" placeholder="Votre message (Entrée pour envoyer, Maj+Entrée pour aller à la ligne)"></textarea>
+          <button id="chat-send" class="btn primary" type="button">Envoyer</button>
+          <button id="chat-stop" class="btn hidden" type="button">Arrêter</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-gpu" class="view hidden">
+      <div class="section-title"><h1>GPU et accélération</h1><button id="gpu-refresh" class="btn" type="button">Actualiser</button></div>
+      <div id="gpu-summary" class="card"></div>
+      <div id="gpu-devices" data-panel="cards" data-label="Cartes" class="grid"></div>
+      <div class="card" data-panel="placement" data-label="Groupes et épinglage">
+        <h2>Groupes de GPU</h2>
+        <p class="muted small">Réservez des cartes à certains modèles : chaque groupe est une instance Ollama qui ne voit que ses cartes, et les requêtes (console, Open WebUI, API) sont orientées automatiquement vers le bon groupe. Les modèles hors groupe utilisent les cartes restantes.</p>
+        <div id="pools-list"></div>
+        <form id="pool-form" class="pool-form">
+          <h3 id="pool-form-title">Nouveau groupe</h3>
+          <label>Nom du groupe<input name="name" maxlength="40" required placeholder="ex. Gros modèles"></label>
+          <div><div class="small muted">GPU réservés au groupe</div><div id="pool-gpus" class="checks"></div></div>
+          <div><div class="small muted">Modèles servis par ce groupe</div><div id="pool-models" class="checks"></div></div>
+          <div class="row"><button class="btn primary" type="submit" id="pool-submit">Créer le groupe</button><button class="btn hidden" type="button" id="pool-cancel">Annuler</button><span id="pool-msg" class="small"></span></div>
+        </form>
+      </div>
+      <div class="card" data-panel="placement" data-label="Groupes et épinglage">
+        <h2>Épingler un modèle sur un GPU</h2>
+        <p class="muted small">Crée une variante « modèle:tag-gpuN » qui se charge toujours sur ce GPU, sans le réserver (les autres modèles peuvent aussi l'utiliser). Les poids ne sont pas dupliqués. Utilisez le nom de la variante dans vos applications.</p>
+        <div class="row">
+          <select id="pin-model" aria-label="Modèle"></select>
+          <select id="pin-gpu" aria-label="GPU"></select>
+          <button id="pin-btn" class="btn primary" type="button">Créer la variante</button>
+          <span id="pin-msg" class="small"></span>
+        </div>
+        <div id="pins-list"></div>
+      </div>
+      <div class="card" data-panel="advanced" data-label="Paramètres avancés">
+        <h2>Paramètres avancés d'Ollama</h2>
+        <p class="muted small">Laissez vide pour la valeur par défaut. L'enregistrement redémarre Ollama.</p>
+        <form id="env-form"><div id="env-fields" class="env-grid"></div>
+          <div class="row"><button class="btn primary" type="submit">Enregistrer et redémarrer Ollama</button><span id="env-msg" class="small"></span></div>
+        </form>
+      </div>
+    </section>
+
+    <section id="view-system" class="view hidden">
+      <div class="section-title"><h1>Système</h1></div>
+      <div class="grid">
+        <div class="card" data-panel="overview" data-label="Vue d'ensemble">
+          <h2>Ollama</h2>
+          <p id="sys-ollama" class="muted"></p>
+          <div class="row"><button class="btn" data-action="restart-ollama" type="button">Redémarrer Ollama</button></div>
+        </div>
+        <div class="card wide" id="pub-card" data-panel="api" data-label="Publication de l'API">
+          <h2>Publication de l'API Ollama</h2>
+          <p class="muted small">Sur le serveur lui-même (console, Open WebUI, scripts locaux), l'API reste accessible sans clé sur 127.0.0.1:11434. Cette carte règle l'accès depuis le réseau.</p>
+          <div id="pub-warn"></div>
+          <form id="pub-form" class="pool-form">
+            <label class="check"><input type="checkbox" name="enabled"> Publier l'API sur le réseau</label>
+            <div class="row">
+              <label>Protocole <select name="tls"><option value="1">HTTPS (recommandé)</option><option value="0">HTTP (en clair)</option></select></label>
+              <label>Port <input name="port" type="number" min="1024" max="65535" required></label>
+            </div>
+            <label class="check"><input type="checkbox" name="auth"> Exiger une clé d'API (en-tête Authorization: Bearer)</label>
+            <div id="pub-anon"><div class="small muted">Droits accordés sans clé</div><div id="pub-anon-perms" class="checks"></div></div>
+            <label>Réseaux autorisés (un par ligne, vide = tous)<textarea name="allow" rows="3" placeholder="10.0.0.0/8&#10;192.168.1.20"></textarea></label>
+            <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="pub-msg" class="small"></span></div>
+          </form>
+          <div id="pub-urls" class="small"></div>
+          <h3 class="mt">Clés d'API</h3>
+          <div id="pub-keys"></div>
+          <form id="key-form" class="pool-form">
+            <h3>Nouvelle clé</h3>
+            <label>Nom de l'application ou du service<input name="name" maxlength="40" required placeholder="ex. Appli RH"></label>
+            <div><div class="small muted">Droits</div><div id="key-perms" class="checks"></div></div>
+            <div><div class="small muted">Modèles autorisés (aucun coché = tous)</div><div id="key-models" class="checks"></div></div>
+            <div><div class="small muted">Interdire</div><div id="key-deny" class="checks"></div></div>
+            <div class="row"><button class="btn primary" type="submit">Créer la clé</button><span id="key-msg" class="small"></span></div>
+          </form>
+        </div>
+        <div class="card" data-panel="central" data-label="Gestion centralisée">
+          <h2>Gestion centralisée</h2>
+          <p class="muted small">Autorisez une console OllamaBuntu principale à superviser ce serveur (état, charge, alertes) et à y lancer des actions de maintenance (redémarrer Ollama, rechercher et installer les correctifs de sécurité). Elle n'a accès ni aux comptes, ni aux réglages, ni aux conversations.</p>
+          <div id="fm-fp" class="small"></div>
+          <div id="fm-list"></div>
+          <div class="row"><input id="fm-name" maxlength="40" placeholder="Nom de la console principale" aria-label="Nom de la console principale"><button id="fm-add" class="btn primary" type="button">Autoriser une console principale</button><span id="fm-msg" class="small"></span></div>
+        </div>
+        <div class="card" data-panel="overview" data-label="Vue d'ensemble">
+          <h2>Maintenance</h2>
+          <p id="sys-update-note" class="small"></p>
+          <div class="row">
+            <button class="btn danger" data-power="reboot" type="button">Redémarrer le serveur</button>
+            <button class="btn danger" data-power="poweroff" type="button">Éteindre le serveur</button>
+          </div>
+        </div>
+        <div class="card" data-panel="appliance" data-label="Appliance">
+          <h2>Mise à jour depuis Internet</h2>
+          <p class="muted small">Cherche les versions d'OllamaBuntu publiées sur GitHub, vérifie leur signature, puis met l'appliance à jour sans passer par l'ISO. Comptes, réglages, modèles et données sont conservés. Rien n'est contacté tant que vous ne cliquez pas sur « Rechercher une mise à jour », sauf si la vérification automatique est activée.</p>
+          <div id="ou-state"></div>
+          <div id="ou-notes" class="small"></div>
+          <div class="row">
+            <button id="ou-check" class="btn" type="button">Rechercher une mise à jour</button>
+            <button id="ou-apply" class="btn primary hidden" type="button">Mettre à jour</button>
+            <span id="ou-msg" class="small"></span>
+          </div>
+          <details class="fold mt">
+            <summary>Réglages de la mise à jour en ligne</summary>
+            <form id="ou-form" class="pool-form">
+              <label class="check"><input type="checkbox" name="auto_check"> Rechercher automatiquement une nouvelle version chaque jour</label>
+              <label>Dépôt GitHub <input name="repo" maxlength="201" required placeholder="propriétaire/dépôt" autocomplete="off"></label>
+              <label>Versions proposées <select name="channel"><option value="stable">Versions stables</option><option value="preview">Versions stables et préversions</option></select></label>
+              <label>Jeton d'accès en lecture (dépôt privé seulement) <input name="token" type="password" autocomplete="new-password" placeholder="Aucun jeton enregistré"></label>
+              <div class="row"><button class="btn primary" type="submit">Enregistrer</button><button id="ou-token-clear" class="btn" type="button">Retirer le jeton</button><span id="ou-cfg-msg" class="small"></span></div>
+            </form>
+            <p class="muted small">Le jeton n'est envoyé qu'à api.github.com, jamais affiché ensuite, et conservé dans un fichier réservé à root.</p>
+          </details>
+        </div>
+        <div class="card" data-panel="appliance" data-label="Appliance"><h2>À propos</h2><dl id="about" class="kv"></dl>
+          <h2 class="mt">Mise à jour depuis un CD/ISO ou une clé USB</h2>
+          <p class="muted small">Connectez une ISO OllamaBuntu plus récente au serveur : lecteur virtuel (VMware, iDRAC, iLO...), clé USB écrite avec l'ISO (Rufus en mode DD, balenaEtcher) ou clé USB contenant le fichier .iso. La version la plus récente trouvée est appliquée ; comptes, réglages, modèles et données sont conservés. Vous pouvez aussi démarrer le serveur sur la clé et choisir « Mettre à jour ».</p>
+          <div class="row"><button id="appliance-update" class="btn primary" type="button">Mettre à jour depuis le CD/ISO ou la clé USB</button></div>
+          <div id="update-history" class="small muted"></div>
+        </div>
+      </div>
+      <div class="card" data-panel="updates" data-label="Mises à jour">
+        <div class="section-title"><h2>Mises à jour du système</h2>
+          <div class="row">
+            <button class="btn" data-job="apt-refresh" type="button">Rechercher maintenant</button>
+            <button class="btn primary" data-job="update-security" type="button">Installer les mises à jour de sécurité</button>
+            <button class="btn" data-job="update-os" type="button">Tout mettre à jour</button>
+          </div></div>
+        <div id="updates"><p class="muted">Analyse en cours...</p></div>
+      </div>
+    </section>
+
+    <section id="view-webui" class="view hidden">
+      <div class="section-title"><h1>Open WebUI</h1><button id="webui-refresh" class="btn" type="button">Actualiser</button></div>
+      <div class="grid">
+        <div id="webui-status" class="card"></div>
+        <div id="webui-deploy" class="card hidden">
+          <h2>Déployer Open WebUI</h2>
+          <p class="muted small">Interface de chat complète (historique, documents, comptes) branchée sur l'Ollama de ce serveur, publiée en HTTPS sur le port 8443. Nécessite un accès Internet (Docker et une image de plusieurs Go) et 10 Go libres.</p>
+          <form id="webui-form" autocomplete="off">
+            <label>E-mail de l'administrateur Open WebUI<input name="email" type="email" required placeholder="prenom.nom@entreprise.com"></label>
+            <label>Nom affiché<input name="name" value="Administrateur"></label>
+            <label>Mot de passe<input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
+            <label>Confirmation<input name="confirm" type="password" minlength="8" required autocomplete="new-password"></label>
+            <div class="row"><button class="btn primary" type="submit">Déployer</button><span id="webui-msg" class="small"></span></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-users" class="view hidden">
+      <div class="section-title"><h1>Utilisateurs</h1></div>
+      <div class="card" data-panel="new" data-label="Nouveau compte">
+        <h2>Nouveau compte</h2>
+        <form id="user-form" class="user-form" autocomplete="off">
+          <label>Identifiant<input name="user" required pattern="[a-z][a-z0-9_\-]{0,31}" placeholder="ex. jdupont"></label>
+          <label>Mot de passe<input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
+          <label>Confirmation<input name="confirm" type="password" minlength="8" required autocomplete="new-password"></label>
+          <label>Rôle<select name="role"><option value="utilisateur">Utilisateur (chat et modèles)</option><option value="admin">Administrateur (tout)</option></select></label>
+          <label class="check"><input type="checkbox" name="linux"> Compte Linux (console + SSH ; sudo pour un administrateur)</label>
+          <div class="row"><button class="btn primary" type="submit">Créer le compte</button><span id="user-msg" class="small"></span></div>
+        </form>
+      </div>
+      <div class="card" data-panel="list" data-label="Comptes"><h2>Comptes</h2><div id="users-table"></div></div>
+    </section>
+
+    <section id="view-account" class="view hidden">
+      <div class="section-title"><h1>Mon compte</h1></div>
+      <div class="grid">
+        <div class="card">
+          <h2>Changer mon mot de passe</h2>
+          <form id="pw-form">
+            <label>Mot de passe actuel<input type="password" name="current" autocomplete="current-password" required></label>
+            <label>Nouveau mot de passe<input type="password" name="new" autocomplete="new-password" minlength="8" required></label>
+            <label>Confirmation<input type="password" name="confirm" autocomplete="new-password" minlength="8" required></label>
+            <button class="btn primary" type="submit">Changer le mot de passe</button>
+            <p id="pw-msg" class="small"></p>
+          </form>
+        </div>
+        <div class="card"><h2>Session</h2><dl id="account-info" class="kv"></dl></div>
+      </div>
+    </section>
+
+    <section id="view-fleet" class="view hidden">
+      <div class="section-title"><h1>Serveurs</h1><div class="row"><button id="fleet-sync-all" class="btn" type="button">Synchroniser tout le parc...</button><button id="fleet-refresh" class="btn" type="button">Actualiser</button></div></div>
+      <p id="fleet-summary" data-panel="fleet" data-label="Parc" class="muted"></p>
+      <div id="fleet-grid" data-panel="fleet" data-label="Parc" class="grid"></div>
+      <div class="card" data-panel="balance" data-label="Répartition de charge">
+        <div class="card-head"><h2>Répartition de charge</h2><button id="bal-test" class="btn" type="button">Tester la répartition</button></div>
+        <p class="muted small">Quand plusieurs serveurs ont le même modèle, cette console envoie chaque requête à l'un d'eux. Un serveur n'est utilisé que si la répartition y est activée, s'il est en ligne et s'il a le modèle demandé.</p>
+        <div class="row"><label>Stratégie <select id="bal-strategy"><option value="spread">Répartir : le serveur le moins occupé, à tour de rôle</option><option value="warm">Privilégier le modèle déjà chargé en mémoire</option></select></label><span id="bal-msg" class="small" aria-live="polite"></span></div>
+        <p class="muted small" id="bal-strategy-help"></p>
+        <ul id="bal-issues" class="alerts"></ul>
+      </div>
+      <div class="card" data-panel="balance" data-label="Répartition de charge">
+        <h2>État par serveur</h2>
+        <div id="bal-servers"></div>
+        <h3>Modèles</h3>
+        <div id="bal-models"></div>
+      </div>
+      <div class="card" data-panel="add" data-label="Ajouter un serveur">
+        <h2>Ajouter un serveur</h2>
+        <p class="muted small">Sur le serveur à ajouter : Système &gt; Gestion centralisée &gt; « Autoriser une console principale », puis copiez le jeton affiché. Ce serveur pourra alors être supervisé d'ici (état, charge, alertes) et recevoir des actions de maintenance ; ses comptes, réglages et conversations restent inaccessibles.</p>
+        <form id="fleet-form" class="pool-form">
+          <div class="row"><label>Nom<input name="name" required maxlength="40" placeholder="ex. GPU-Paris-01"></label><label>Adresse<input name="url" required placeholder="https://10.0.0.21"></label></div>
+          <label>Jeton<input name="token" required autocomplete="off" spellcheck="false" placeholder="obf_..."></label>
+          <label class="check"><input type="checkbox" name="route" checked> Activer aussi la répartition de charge (le serveur délivre un jeton limité à l'utilisation des modèles)</label>
+          <div class="row"><button class="btn primary" type="submit">Vérifier et ajouter</button><span id="fleet-msg" class="small"></span></div>
+        </form>
+      </div>
+    </section>
+
+    <section id="view-security" class="view hidden">
+      <div class="section-title"><h1>Sécurité</h1><button id="sec-refresh" class="btn" type="button">Actualiser</button></div>
+      <div class="card" data-panel="policy" data-label="Usages de l'IA">
+        <h2>Usages de l'IA</h2>
+        <p class="muted small">Ce que l'IA peut faire et atteindre. Ollama génère du texte et des embeddings, et analyse les images ou vidéos fournies (modèles de vision) ; il ne génère ni images ni vidéos. Ces règles sont aussi appliquées par le routeur, quel que soit le client.</p>
+        <form id="pol-form" class="pool-form">
+          <label class="check"><input type="checkbox" name="cloud"> Fonctions cloud d'Ollama : modèles « :cloud » exécutés chez Ollama et recherche web via ollama.com (les données quittent le serveur)</label>
+          <label class="check"><input type="checkbox" name="ollama_internet"> Ollama peut accéder à Internet (sinon : seuls les téléchargements de modèles lancés depuis cette console, le temps du téléchargement)</label>
+          <div id="pol-webui"><div class="small muted">Open WebUI : fonctions autorisées</div><div id="pol-webui-list" class="checks col"></div>
+            <label class="check"><input type="checkbox" name="webui_locked"> Verrouiller : les administrateurs d'Open WebUI ne peuvent pas modifier ces réglages</label></div>
+          <div class="row"><button class="btn primary" type="submit">Appliquer</button><span id="pol-msg" class="small"></span></div>
+        </form>
+      </div>
+      <div class="card" data-panel="audit" data-label="Contrôles">
+        <h2>Contrôles de durcissement</h2>
+        <p class="muted small">État lu sur le système en fonctionnement.</p>
+        <div id="sec-audit"></div>
+        <div class="row"><button id="sec-install" class="btn primary hidden" data-job="install-security" type="button">Installer les paquets de sécurité</button></div>
+      </div>
+      <div class="grid">
+        <div class="card" data-panel="fw" data-label="Pare-feu">
+          <h2>Pare-feu</h2>
+          <div id="fw-state"></div>
+          <div id="fw-ports"></div>
+          <form id="fw-form" class="pool-form">
+            <label>Réseaux d'administration autorisés (SSH et console), un par ligne, vide = tous<textarea name="admin" rows="3" placeholder="10.0.0.0/8&#10;192.168.1.20"></textarea></label>
+            <label class="check"><input type="checkbox" name="log"> Journaliser les connexions refusées (débit limité)</label>
+            <label class="check"><input type="checkbox" name="enabled"> Pare-feu actif</label>
+            <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="fw-msg" class="small"></span></div>
+          </form>
+          <p class="muted small">En cas de perte d'accès : menu console du serveur, « Pare-feu : autoriser l'administration depuis tous les réseaux ».</p>
+        </div>
+        <div class="card" data-panel="uu" data-label="Mises à jour automatiques">
+          <h2>Mises à jour de sécurité automatiques</h2>
+          <form id="uu-form" class="pool-form">
+            <label class="check"><input type="checkbox" name="enabled"> Installer automatiquement les correctifs de sécurité Ubuntu</label>
+            <label>Chaque jour vers <input type="time" name="time" required></label>
+            <label class="check"><input type="checkbox" name="reboot"> Redémarrer automatiquement si un correctif l'exige (noyau...)</label>
+            <label>Heure du redémarrage <input type="time" name="reboot_time" required></label>
+            <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="uu-msg" class="small"></span></div>
+          </form>
+          <div id="uu-info" class="small muted"></div>
+          <pre id="uu-log" class="log small"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-about" class="view hidden">
+      <div class="section-title"><h1>À propos</h1><span id="about-version" class="muted"></span></div>
+      <div class="card">
+        <h2>Logiciels libres utilisés</h2>
+        <p class="muted small">OllamaBuntu assemble et configure les projets open source suivants, sans les modifier. Merci à leurs auteurs et contributeurs.</p>
+        <div id="credits"></div>
+      </div>
+    </section>
+
+    <section id="view-logs" class="view hidden">
+      <div class="section-title"><h1>Journaux</h1></div>
+      <div class="card" data-panel="requests" data-label="Requêtes Ollama">
+        <div class="card-head"><h2>Requêtes vers les modèles</h2><label class="check"><input type="checkbox" id="req-live" checked> Actualisation automatique</label></div>
+        <p class="muted small">Toutes les requêtes passant par l'API (console, Open WebUI, applications, parc). Par défaut, seules des métadonnées sont enregistrées ; un extrait de la demande peut être ajouté ci-dessous.</p>
+        <div class="settings-row" id="req-settings">
+          <label class="check"><input type="checkbox" id="req-excerpt"> Enregistrer un extrait de la demande</label>
+          <label>Longueur <select id="req-chars"><option value="80">80 caractères</option><option value="120">120 caractères</option><option value="200">200 caractères</option><option value="300">300 caractères</option></select></label>
+          <label>Conservation <select id="req-days"><option value="1">1 jour</option><option value="7">7 jours</option><option value="30">30 jours</option><option value="90">90 jours</option></select></label>
+          <button id="req-clear" class="btn danger" type="button">Effacer l'historique</button>
+          <span id="req-settings-msg" class="small" aria-live="polite"></span>
+        </div>
+        <p class="muted small">Désactivé par défaut. Quand il est activé, le début de la dernière question de chaque requête est conservé sur ce serveur, visible des administrateurs seulement, avec masquage des clés, jetons, IBAN, numéros de carte et adresses e-mail. La conservation s'applique à tout l'historique des requêtes.</p>
+        <h3>Dernière heure, par modèle</h3>
+        <div id="req-summary"></div>
+        <h3 class="mt">Requêtes récentes</h3>
+        <div id="req-list"></div>
+      </div>
+      <div class="card" data-panel="system" data-label="Journaux système">
+        <div class="row logbar">
+          <select id="log-source">
+            <option value="ollama">Ollama</option>
+            <option value="kernel">Noyau (pilotes GPU)</option>
+            <option value="admin">Console web</option>
+            <option value="setup">Assistant de configuration</option>
+            <option value="install">Installation</option>
+            <option value="system">Système (avertissements)</option>
+          </select>
+          <button id="log-live" class="btn" type="button" aria-pressed="false">Suivi en direct</button>
+          <input id="log-filter" type="search" placeholder="Filtrer les lignes..." aria-label="Filtrer les lignes">
+          <button id="log-refresh" class="btn" type="button">Actualiser</button>
+          <span id="log-state" class="small muted" aria-live="polite"></span>
+        </div>
+        <div id="log-text" class="log tall" role="log" tabindex="0"></div>
+      </div>
+    </section>
+
+    <div id="job-card" class="card hidden">
+      <div class="section-title"><h2 id="job-title">Tâche</h2><button id="job-close" class="btn" type="button">Masquer</button></div>
+      <div id="job-queue"></div>
+      <pre id="job-log" class="log"></pre>
+    </div>
+  </main>
+</div>
+
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-text">
+  <div class="modal-box">
+    <h2 id="modal-title"></h2>
+    <p id="modal-text"></p>
+    <div id="modal-extra"></div>
+    <div class="modal-actions"><button id="modal-cancel" class="btn" type="button">Annuler</button><button id="modal-ok" class="btn primary" type="button">OK</button></div>
+  </div>
+</div>
+
+<div id="overlay" class="overlay hidden">
+  <div class="card overlay-card">
+    <div id="ov-spin" class="spinner"></div>
+    <h2 id="ov-title"></h2>
+    <p id="ov-text" class="muted"></p>
+    <button id="ov-close" class="btn hidden" type="button">Fermer</button>
+  </div>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

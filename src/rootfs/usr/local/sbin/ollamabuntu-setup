@@ -1,0 +1,659 @@
+#!/bin/bash
+# =============================================================================
+#  ollamabuntu-setup - assistant console de l'appliance OllamaBuntu
+#    --firstboot [tty]  assistant initial (lancé automatiquement en fin d'installation)
+#    menu               menu console (affiché après connexion sur la console locale)
+#    network | hostname | password    reconfiguration ponctuelle
+#    status [--short]   état de l'appliance
+# =============================================================================
+set -uo pipefail
+export LANG=C.UTF-8 LC_ALL=C.UTF-8
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export HOME=${HOME:-/root}   # la CLI ollama refuse de démarrer sans $HOME
+
+OB_VERSION="@@OB_VERSION@@"
+OB_ETC=${OB_ETC:-/etc/ollamabuntu}
+OB_STATE=${OB_STATE:-/var/lib/ollamabuntu}
+OB_LIB=${OB_LIB:-/usr/local/lib/ollamabuntu}
+NETPLAN_DIR=${NETPLAN_DIR:-/etc/netplan}
+NETPLAN_FILE="$NETPLAN_DIR/01-ollamabuntu.yaml"
+CONFIGURED_FLAG="$OB_STATE/configured"
+LOG=${OB_LOG:-/var/log/ollamabuntu-setup.log}
+OB_DRYRUN=${OB_DRYRUN:-0}          # 1 = tests : ne touche pas au réseau ni aux services
+OB_TTY=""
+BT="OllamaBuntu $OB_VERSION  -  Appliance IA (Ubuntu Server + Ollama)"
+
+NET_IF="" NET_MODE="dhcp" NET_ADDR="" NET_GW="" NET_DNS=""
+HOST_NAME="" ADMIN_USER="" ADMIN_PASS="" NET_RESULT_IP=""
+
+LOGO='       /\     /\
+      (  \___/  )     O L L A M A B U N T U
+       \  o o  /      Appliance IA - Ubuntu Server + Ollama
+        \  w  /
+         | >_|'
+
+export NEWT_COLORS='
+root=white,black
+roottext=brightred,black
+border=red,lightgray
+window=black,lightgray
+shadow=black,black
+title=red,lightgray
+button=white,red
+actbutton=white,brightred
+compactbutton=black,lightgray
+checkbox=black,lightgray
+actcheckbox=white,red
+entry=black,white
+disentry=gray,lightgray
+label=black,lightgray
+listbox=black,lightgray
+actlistbox=white,red
+sellistbox=white,red
+actsellistbox=white,brightred
+textbox=black,lightgray
+acttextbox=black,white
+helpline=white,black
+emptyscale=,gray
+fullscale=,red
+'
+
+log() { printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG" 2>/dev/null || true; }
+
+# --- boîtes de dialogue (whiptail) --------------------------------------------
+OB_LANG=$(cat "$OB_ETC/lang" 2>/dev/null || echo fr); [[ $OB_LANG == en ]] || OB_LANG=fr
+I18N=/usr/local/lib/ollamabuntu/i18n.py
+# --- chiffrement du disque (moteur : ollamabuntu-crypt) -------------------------------
+CRYPT=${OB_CRYPT_BIN:-/usr/local/sbin/ollamabuntu-crypt}
+crypt_status() { if [[ -x $CRYPT ]]; then "$CRYPT" status 2>/dev/null || echo '{"encrypted": false}'; else echo '{"encrypted": false}'; fi; }
+cj() { python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1], ""))' "$1" 2>/dev/null; }
+crypt_screens() {   # premier démarrage : phrase de passe (sans TPM), puis clé de récupération à conserver hors du serveur
+  local st pw1 pw2 rec
+  st=$(crypt_status); [[ $(cj encrypted <<<"$st") == True ]] || return 0
+  if [[ $(cj passphrase_needed <<<"$st") == True ]]; then
+    msg "Disque chiffré" "Ce serveur n'a pas de TPM utilisable : le disque est chiffré et sa phrase de passe sera demandée à chaque démarrage.\n\nChoisissez-la maintenant (12 caractères au moins). La phrase provisoire de l'ISO sera supprimée." 13
+    while :; do
+      pw1=$(W --title "Phrase de passe du disque" --passwordbox "Nouvelle phrase de passe (12 caractères au moins) :" 10 76) || { msg "Obligatoire" "Cette phrase est nécessaire : sans elle, le disque resterait protégé par la phrase provisoire de l'ISO." 9; continue; }
+      pw2=$(W --title "Phrase de passe du disque" --passwordbox "Saisissez-la à nouveau :" 9 76) || continue
+      [[ $pw1 == "$pw2" ]] || { msg "Erreur" "Les deux saisies ne sont pas identiques." 8; continue; }
+      [[ ${#pw1} -ge 12 ]] || { msg "Phrase trop courte" "La phrase doit contenir au moins 12 caractères." 8; continue; }
+      if printf '%s\n' "$pw1" | "$CRYPT" set-passphrase 2>/dev/null; then break; fi
+      msg "Erreur" "La phrase n'a pas pu être enregistrée (voir /var/log/ollamabuntu-crypt.log)." 9
+    done
+    pw1=""; pw2=""
+  fi
+  if [[ $(cj recovery_pending <<<"$st") == True ]]; then
+    rec=$("$CRYPT" recovery-show 2>/dev/null)
+    while :; do
+      msg "Clé de récupération du disque" "Notez cette clé et conservez-la HORS de ce serveur (coffre, gestionnaire de mots de passe).\n\nElle est la seule façon de rouvrir le disque si le TPM ou la phrase de passe sont perdus, et elle ne sera plus jamais affichée.\n\n   $rec\n" 17 78
+      if ask "Confirmation" "Avez-vous enregistré cette clé en dehors de ce serveur ?" "Oui, c'est fait" "Non, la réafficher"; then "$CRYPT" ack; break; fi
+    done
+  fi
+}
+menu_crypt() {
+  local st how rec c cur key
+  st=$(crypt_status)
+  if [[ $(cj tpm_bound <<<"$st") == True ]]; then how="automatique, par le TPM de ce serveur"; else how="phrase de passe saisie à chaque démarrage"; fi
+  if [[ $(cj recovery <<<"$st") == True ]]; then rec="enregistrée"; else rec="absente"; fi
+  c=$(W --title "Chiffrement du disque" --menu "Disque chiffré (LUKS2)\n\nDéverrouillage au démarrage : $how\nClé de récupération : $rec" 17 78 2 \
+      new "Créer une nouvelle clé de récupération (l'ancienne est révoquée)" back "Retour") || return 0
+  [[ $c == new ]] || return 0
+  ask "Nouvelle clé de récupération" "L'ancienne clé de récupération sera révoquée. Continuer ?" "Oui" "Non" || return 0
+  if [[ $(cj tpm_bound <<<"$st") == True ]]; then key=$("$CRYPT" recovery-new </dev/null 2>/dev/null)
+  else
+    cur=$(W --title "Phrase de passe du disque" --passwordbox "Phrase de passe actuelle du disque :" 9 76) || return 0
+    key=$(printf '%s\n' "$cur" | "$CRYPT" recovery-new 2>/dev/null); cur=""
+  fi
+  [[ -n $key ]] || { msg "Erreur" "La clé n'a pas été créée (phrase refusée ?). Rien n'a été modifié." 9; return 0; }
+  msg "Nouvelle clé de récupération" "Notez cette clé et conservez-la HORS de ce serveur.\n\nElle ne sera plus jamais affichée.\n\n   $key\n" 15 78
+}
+
+# Fenêtres : textes traduits (même catalogue que la console web) si la langue n'est pas le français
+W() {
+  if [[ $OB_LANG != fr && -x $I18N ]]; then
+    local a=()
+    mapfile -d '' -t a < <(python3 "$I18N" "$OB_LANG" "$BT" "$@")
+    whiptail --backtitle "${a[0]}" "${a[@]:1}" 3>&1 1>&2 2>&3
+  else
+    whiptail --backtitle "$BT" "$@" 3>&1 1>&2 2>&3
+  fi
+}
+T() { if [[ $OB_LANG != fr && -x $I18N ]]; then python3 "$I18N" "$OB_LANG" "$1"; else printf '%s' "$1"; fi; }
+refresh_issue() {   # bannière de connexion (/etc/issue) dans la langue de l'appliance
+  local src=/usr/share/ollamabuntu/issue.fr
+  [[ -f $src ]] || return 0
+  if [[ $OB_LANG == fr ]]; then cp -f "$src" /etc/issue; else python3 "$I18N" --file "$OB_LANG" "$src" > /etc/issue.tmp && mv -f /etc/issue.tmp /etc/issue; fi
+}
+choose_language() {   # Français / English : assistant, menu, bannière et langue par défaut de la console web
+  local rc=0 def=()
+  [[ $OB_LANG == en ]] && def=(--defaultno)
+  whiptail --backtitle "OllamaBuntu" --title "Langue / Language" --yes-button "Français" --no-button "English" "${def[@]}" \
+    --yesno "Langue de l'appliance (assistant, menu, console web)\n\nAppliance language (wizard, menu, web console)" 11 66 3>&1 1>&2 2>&3 || rc=$?
+  case $rc in 0) OB_LANG=fr ;; 1) OB_LANG=en ;; *) return 0 ;; esac
+  [[ $OB_DRYRUN == 1 ]] && return 0
+  printf '%s\n' "$OB_LANG" > "$OB_ETC/lang"; chmod 0644 "$OB_ETC/lang"
+  refresh_issue
+}
+msg()   { W --title "$1" --msgbox "$2" "${3:-14}" "${4:-76}"; }
+ask()   { W --title "$1" --yes-button "${3:-Oui}" --no-button "${4:-Non}" --yesno "$2" 12 76; }
+input() { W --title "$1" --ok-button "Suivant" --cancel-button "Retour" --inputbox "$2" 11 76 "$3"; }
+pass()  { W --title "$1" --ok-button "Suivant" --cancel-button "Retour" --passwordbox "$2" 11 76; }
+
+setup_term() {
+  local t rows cols
+  t=$(tty 2>/dev/null || true)
+  case $t in
+    /dev/ttyS*|/dev/ttyAMA*|/dev/ttyUSB*) export TERM=vt220 ;;
+    *) [[ -z ${TERM:-} || $TERM == dumb ]] && export TERM=linux ;;
+  esac
+  read -r rows cols < <(stty size 2>/dev/null || echo "0 0")
+  if [[ ${rows:-0} -lt 20 || ${cols:-0} -lt 78 ]]; then stty rows 24 cols 80 2>/dev/null || true; fi
+}
+
+quiet_console() {
+  dmesg -n 1 2>/dev/null || true
+  setterm --blank 0 --powerdown 0 2>/dev/null || true
+}
+
+wait_boot_settled() {   # laisse systemd finir le démarrage (ses messages n'écraseront pas l'écran)
+  local i
+  for ((i = 0; i < 45; i++)); do
+    systemctl list-jobs --no-legend 2>/dev/null \
+      | grep -vqE 'ollamabuntu-firstboot|getty|multi-user\.target|graphical\.target' || break
+    sleep 1
+  done
+}
+
+# --- validations ----------------------------------------------------------------
+py() { python3 -c "$@" >/dev/null 2>&1; }
+is_ipv4_cidr() { py 'import ipaddress,sys
+s=sys.argv[1]; assert "/" in s
+i=ipaddress.IPv4Interface(s); n=i.network
+if n.prefixlen < 31: assert i.ip not in (n.network_address, n.broadcast_address)
+assert not (i.ip.is_loopback or i.ip.is_multicast or i.ip.is_unspecified)' "$1"; }
+is_ipv4()     { py 'import ipaddress,sys; ipaddress.IPv4Address(sys.argv[1])' "$1"; }
+same_subnet() { py 'import ipaddress,sys
+i=ipaddress.IPv4Interface(sys.argv[1]); g=ipaddress.IPv4Address(sys.argv[2]); assert g in i.network and g != i.ip' "$1" "$2"; }
+all_ips()     { (($#)) && py 'import ipaddress,sys; [ipaddress.ip_address(a) for a in sys.argv[1:]]' "$@"; }
+net_of()      { python3 -c 'import ipaddress,sys; print(ipaddress.IPv4Interface(sys.argv[1]).network)' "$1" 2>/dev/null; }
+gw_guess()    { python3 -c 'import ipaddress,sys; print(next(ipaddress.IPv4Interface(sys.argv[1]).network.hosts()))' "$1" 2>/dev/null; }
+words()       { printf '%s' "$1" | tr ',;' '  ' | xargs; }
+valid_hostname() { [[ ${#1} -le 253 && $1 =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$ ]]; }
+valid_username() {
+  local u=$1 uid
+  [[ $u =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || return 1
+  if uid=$(getent passwd "$u" | cut -d: -f3) && [[ -n $uid ]]; then (( uid >= 1000 && uid < 60000 )); return; fi
+  ! getent group "$u" >/dev/null
+}
+kb_layout() { sed -n 's/^XKBLAYOUT="\{0,1\}\([^"]*\)"\{0,1\}/\1/p' /etc/default/keyboard 2>/dev/null | head -n1; }
+admin_user() { cat "$OB_ETC/admin-user" 2>/dev/null || echo "?"; }
+primary_ip() {
+  local ip
+  ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<NF;i++) if ($i=="src") {print $(i+1); exit}}')
+  [[ -z $ip ]] && ip=$(ip -4 -o addr show scope global 2>/dev/null | awk '{sub(/\/.*/,"",$4); print $4; exit}')
+  printf '%s' "$ip"
+}
+
+# --- réseau -----------------------------------------------------------------------
+iface_list() {
+  local d n found=0
+  for d in /sys/class/net/*; do
+    n=${d##*/}
+    case $n in lo|docker*|veth*|br-*|virbr*|lxc*|tun*|tap*|wg*|bond*|vlan*) continue ;; esac
+    [[ -e $d/device ]] || continue
+    printf '%s\n' "$n"; found=1
+  done
+  if ((found == 0)); then
+    for d in /sys/class/net/*; do n=${d##*/}; [[ $n == lo ]] || printf '%s\n' "$n"; done
+  fi
+}
+iface_desc() {
+  local n=$1 mac state ip
+  mac=$(cat "/sys/class/net/$n/address" 2>/dev/null || echo "?")
+  if [[ $(cat "/sys/class/net/$n/carrier" 2>/dev/null) == 1 ]]; then state="lien OK"; else state="pas de lien"; fi
+  ip=$(ip -4 -o addr show dev "$n" scope global 2>/dev/null | awk '{print $4; exit}')
+  printf '%s  %-11s %s' "$mac" "$state" "$ip"
+}
+
+load_network_conf() { [[ -f $OB_ETC/network.conf ]] && . "$OB_ETC/network.conf"; return 0; }
+save_network_conf() {
+  mkdir -p "$OB_ETC"
+  printf 'NET_IF=%q\nNET_MODE=%q\nNET_ADDR=%q\nNET_GW=%q\nNET_DNS=%q\n' \
+    "$NET_IF" "$NET_MODE" "$NET_ADDR" "$NET_GW" "$NET_DNS" > "$OB_ETC/network.conf"
+}
+
+ask_network() {
+  local ifs=() items=() n def="" choice
+  mapfile -t ifs < <(iface_list)
+  if ((${#ifs[@]} == 0)); then
+    msg "Réseau" "Aucune carte réseau n'a été détectée.\n\nVérifiez le matériel puis relancez plus tard :\n    sudo ollamabuntu-setup network"
+    NET_IF=""; return 0
+  fi
+  if [[ $OB_DRYRUN != 1 ]]; then
+    for n in "${ifs[@]}"; do ip link set dev "$n" up 2>/dev/null || true; done
+    W --title "Réseau" --infobox "Détection des cartes réseau..." 7 50; sleep 3
+  fi
+  for n in "${ifs[@]}"; do
+    items+=("$n" "$(iface_desc "$n")")
+    [[ -z $def && $(cat "/sys/class/net/$n/carrier" 2>/dev/null) == 1 ]] && def=$n
+  done
+  [[ -n $NET_IF ]] && printf '%s\n' "${ifs[@]}" | grep -qx "$NET_IF" && def=$NET_IF
+  choice=$(W --title "Réseau (1/2) - Carte réseau" --default-item "${def:-${ifs[0]}}" \
+    --ok-button "Suivant" --cancel-button "Retour" \
+    --menu "Carte réseau utilisée pour administrer le serveur :" 18 76 8 "${items[@]}") || return 1
+  NET_IF=$choice
+  choice=$(W --title "Réseau (2/2) - Adressage IPv4" --default-item "$NET_MODE" \
+    --ok-button "Suivant" --cancel-button "Retour" \
+    --menu "Comment la carte $NET_IF obtient-elle son adresse ?" 13 76 2 \
+    dhcp "Automatiquement (DHCP)" \
+    static "Adresse IP fixe (statique)") || return 1
+  NET_MODE=$choice
+  if [[ $NET_MODE == static ]]; then ask_static || return 1; else NET_ADDR="" NET_GW="" NET_DNS=""; fi
+  return 0
+}
+
+ask_static() {
+  local v
+  while :; do
+    v=$(input "Adresse IP fixe" "Adresse IPv4 et masque au format CIDR (exemple : 192.168.1.50/24) :" "$NET_ADDR") || return 1
+    v=${v//[[:space:]]/}
+    is_ipv4_cidr "$v" && { NET_ADDR=$v; break; }
+    msg "Adresse invalide" "« $v » n'est pas une adresse IPv4 valide au format CIDR.\n\nExemple : 192.168.1.50/24" 10
+  done
+  while :; do
+    v=$(input "Passerelle" "Passerelle par défaut (laisser vide s'il n'y en a pas) :" "${NET_GW:-$(gw_guess "$NET_ADDR")}") || return 1
+    v=${v//[[:space:]]/}
+    [[ -z $v ]] && { NET_GW=""; break; }
+    is_ipv4 "$v" && same_subnet "$NET_ADDR" "$v" && { NET_GW=$v; break; }
+    msg "Passerelle invalide" "« $v » doit être une adresse du réseau $(net_of "$NET_ADDR")." 9
+  done
+  while :; do
+    v=$(input "Serveurs DNS" "Serveurs DNS, séparés par des espaces :" "${NET_DNS:-1.1.1.1 9.9.9.9}") || return 1
+    v=$(words "$v")
+    # shellcheck disable=SC2086
+    all_ips $v && { NET_DNS=$v; break; }
+    msg "DNS invalide" "Saisissez au moins une adresse IP valide (exemple : 10.0.0.53 1.1.1.1)." 9
+  done
+}
+
+write_netplan() {
+  local d
+  echo "# Généré par OllamaBuntu (ollamabuntu-setup) le $(date '+%F %T')"
+  echo "network:"
+  echo "  version: 2"
+  echo "  renderer: networkd"
+  echo "  ethernets:"
+  echo "    $NET_IF:"
+  if [[ $NET_MODE == static ]]; then
+    echo "      dhcp4: false"
+    echo "      addresses: [\"$NET_ADDR\"]"
+    if [[ -n $NET_GW ]]; then
+      echo "      routes:"
+      echo "        - to: default"
+      echo "          via: \"$NET_GW\""
+    fi
+    if [[ -n $NET_DNS ]]; then
+      echo "      nameservers:"
+      printf '        addresses: ['
+      local first=1
+      for d in $NET_DNS; do ((first)) || printf ', '; printf '"%s"' "$d"; first=0; done
+      printf ']\n'
+    fi
+  else
+    echo "      dhcp4: true"
+  fi
+}
+
+apply_network() {
+  local bk="$NETPLAN_DIR/.ollamabuntu-backup" f
+  mkdir -p "$bk"
+  for f in "$NETPLAN_DIR"/*.yaml; do
+    [[ -e $f && $f != "$NETPLAN_FILE" ]] && mv -f "$f" "$bk/"
+  done
+  [[ -f $NETPLAN_FILE ]] && cp -f "$NETPLAN_FILE" "$bk/01-ollamabuntu.yaml.prev"
+  write_netplan > "$NETPLAN_FILE.tmp" && chmod 600 "$NETPLAN_FILE.tmp" && mv -f "$NETPLAN_FILE.tmp" "$NETPLAN_FILE"
+  if ! netplan generate; then
+    log "netplan generate a échoué"
+    [[ -f $bk/01-ollamabuntu.yaml.prev ]] && cp -f "$bk/01-ollamabuntu.yaml.prev" "$NETPLAN_FILE"
+    return 1
+  fi
+  save_network_conf
+  [[ $OB_DRYRUN == 1 ]] && return 0
+  timeout 90 netplan apply
+}
+
+wait_ip() {   # wait_ip IFACE SECONDES -> affiche l'IPv4 obtenue
+  local i ip
+  if [[ $OB_DRYRUN == 1 ]]; then echo "192.0.2.10"; return 0; fi
+  for ((i = 0; i < $2; i++)); do
+    ip=$(ip -4 -o addr show dev "$1" scope global 2>/dev/null | awk '{print $4; exit}')
+    [[ -n $ip ]] && { echo "${ip%/*}"; return 0; }
+    sleep 1
+  done
+  return 1
+}
+
+apply_network_interactive() {   # 0 = OK, 2 = l'utilisateur veut modifier la configuration
+  local choice
+  [[ -z $NET_IF ]] && return 0
+  while :; do
+    W --title "Réseau" --infobox "Configuration de $NET_IF en cours...\n\nAttente de l'adresse IP (30 secondes au maximum)." 9 76
+    NET_RESULT_IP=""
+    if apply_network >>"$LOG" 2>&1; then
+      NET_RESULT_IP=$(wait_ip "$NET_IF" 30) && return 0
+      choice=$(W --title "Réseau : pas d'adresse IP" --nocancel --ok-button "Valider" \
+        --menu "La carte $NET_IF n'a pas obtenu d'adresse IPv4\n(câble, VLAN, serveur DHCP ?).\n\nQue voulez-vous faire ?" 16 76 3 \
+        retry "Réessayer" \
+        modify "Modifier la configuration réseau" \
+        later "Continuer (configurer le réseau plus tard)") || choice=modify
+    else
+      msg "Réseau" "La configuration réseau a été refusée par netplan.\nDétails : $LOG" 9
+      choice=modify
+    fi
+    case $choice in retry) continue ;; later) return 0 ;; *) return 2 ;; esac
+  done
+}
+
+# --- nom de machine, compte -----------------------------------------------------
+ask_hostname() {
+  local v
+  while :; do
+    v=$(input "Nom de machine" "Nom du serveur (exemple : ia-prod-01 ou ia-prod-01.mondomaine.local) :" "${HOST_NAME:-$(hostname 2>/dev/null || echo ollamabuntu)}") || return 1
+    v=$(printf '%s' "$v" | tr 'A-Z' 'a-z' | tr -d '[:space:]')
+    valid_hostname "$v" && { HOST_NAME=$v; return 0; }
+    msg "Nom invalide" "« $v » n'est pas un nom de machine valide.\n\nCaractères autorisés : a-z, 0-9 et « - » (63 caractères au plus par partie,\npas de tiret au début ni à la fin)." 11
+  done
+}
+
+ask_user() {
+  local v
+  while :; do
+    v=$(input "Compte administrateur" "Identifiant (console, SSH et console d'administration web) :" "${ADMIN_USER:-admin}") || return 1
+    v=$(printf '%s' "$v" | tr -d '[:space:]')
+    valid_username "$v" && { ADMIN_USER=$v; return 0; }
+    msg "Identifiant invalide" "« $v » ne peut pas être utilisé.\n\nFormat : une lettre minuscule puis lettres, chiffres, « _ » ou « - »\n(32 caractères au plus). Les comptes système (root, ollama...) sont interdits." 11
+  done
+}
+
+ask_password() {
+  local p1 p2 kb
+  kb=$(kb_layout)
+  while :; do
+    p1=$(pass "Mot de passe" "Mot de passe de « $ADMIN_USER » (8 caractères minimum).\nClavier actif : ${kb:-?}") || return 1
+    if ((${#p1} < 8)); then msg "Mot de passe trop court" "Le mot de passe doit contenir au moins 8 caractères." 8; continue; fi
+    if [[ $p1 == "$ADMIN_USER" ]]; then msg "Mot de passe refusé" "Le mot de passe doit être différent de l'identifiant." 8; continue; fi
+    p2=$(pass "Confirmation" "Saisissez à nouveau le mot de passe :") || return 1
+    [[ $p1 == "$p2" ]] && { ADMIN_PASS=$p1; return 0; }
+    msg "Erreur" "Les deux saisies ne sont pas identiques." 8
+  done
+}
+
+apply_hostname() {
+  local fqdn=$1 short=${1%%.*} line
+  if [[ $OB_DRYRUN == 1 ]] || ! hostnamectl set-hostname "$short" 2>/dev/null; then
+    printf '%s\n' "$short" > /etc/hostname
+    [[ $OB_DRYRUN == 1 ]] || hostname "$short" 2>/dev/null || true
+  fi
+  if [[ $fqdn == "$short" ]]; then line="127.0.1.1 $short"; else line="127.0.1.1 $fqdn $short"; fi
+  if grep -q '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
+    sed -i "s/^127\.0\.1\.1[[:space:]].*/$line/" /etc/hosts
+  else
+    printf '%s\n' "$line" >> /etc/hosts
+  fi
+}
+
+apply_account() {
+  local u=$1 p=$2 groups=() g
+  for g in sudo adm ollama; do getent group "$g" >/dev/null && groups+=("$g"); done
+  local glist; glist=$(IFS=,; echo "${groups[*]}")
+  if id "$u" >/dev/null 2>&1; then
+    [[ -n $glist ]] && usermod -aG "$glist" "$u"
+  else
+    useradd -m -s /bin/bash -c "Administrateur OllamaBuntu" ${glist:+-G "$glist"} "$u"
+  fi
+  printf '%s:%s\n' "$u" "$p" | chpasswd
+  printf '%s' "$p" | python3 "$OB_LIB/admin/server.py" --set-password "$u"
+  mkdir -p "$OB_ETC"; printf '%s\n' "$u" > "$OB_ETC/admin-user"
+}
+
+apply_ssh()    { ssh-keygen -A >/dev/null 2>&1 || true; [[ $OB_DRYRUN == 1 ]] || systemctl try-restart ssh.service ssh.socket 2>/dev/null || true; }
+regen_cert()   { python3 "$OB_LIB/admin/server.py" --regen-cert; }
+start_services() {
+  [[ $OB_DRYRUN == 1 ]] && return 0
+  systemctl daemon-reload
+  systemctl enable ollama.service ollamabuntu-admin.service >/dev/null 2>&1 || true
+  systemctl is-active --quiet ollama.service || systemctl restart ollama.service
+  systemctl restart ollamabuntu-admin.service
+}
+
+gauge() { printf 'XXX\n%d\n%s\nXXX\n' "$1" "$2"; }
+
+apply_all() {   # 0 = terminé, 1 = erreur, 2 = modifier le réseau
+  local err="$OB_STATE/apply.err" rc
+  local lock=/run/ollamabuntu-setup.lock
+  [[ -d /run && -w /run ]] || lock="$OB_STATE/setup.lock"
+  # (ne jamais écrire « exec 9>... 2>/dev/null » : stderr resterait redirigé
+  #  et whiptail, qui dessine sur stderr, deviendrait invisible)
+  exec 9>"$lock"
+  if ! flock -n 9; then msg "Patientez" "Une configuration est déjà en cours sur une autre console." 8; return 1; fi
+  if [[ -f $CONFIGURED_FLAG && ${OB_FORCE:-0} != 1 ]]; then
+    msg "Déjà configuré" "L'appliance vient d'être configurée depuis une autre console." 8; exit 0
+  fi
+  apply_network_interactive; rc=$?
+  ((rc == 2)) && return 2
+  : > "$err"
+  {
+    gauge 10 "Nom de machine : $HOST_NAME";  apply_hostname "$HOST_NAME" >>"$LOG" 2>&1 || echo "nom de machine" >>"$err"
+    gauge 30 "Compte $ADMIN_USER";           apply_account "$ADMIN_USER" "$ADMIN_PASS" >>"$LOG" 2>&1 || echo "compte administrateur" >>"$err"
+    gauge 50 "Clés SSH du serveur";          apply_ssh >>"$LOG" 2>&1
+    gauge 65 "Certificat HTTPS";             regen_cert >>"$LOG" 2>&1 || echo "certificat HTTPS" >>"$err"
+    gauge 80 "Démarrage des services";       start_services >>"$LOG" 2>&1 || echo "services" >>"$err"
+    gauge 100 "Terminé"; sleep 1
+  } | W --title "Application de la configuration" --gauge "Préparation..." 8 76 0
+  if [[ -s $err ]]; then
+    msg "Erreur" "Échec de l'étape : $(paste -sd, "$err").\n\nDétails dans $LOG\nVous pouvez corriger puis réappliquer." 11
+    return 1
+  fi
+  mkdir -p "$OB_STATE"; date -Is > "$CONFIGURED_FLAG"
+  log "configuration appliquée (machine=$HOST_NAME utilisateur=$ADMIN_USER réseau=$NET_IF/$NET_MODE)"
+  return 0
+}
+
+summary_text() {
+  local net
+  if [[ -z $NET_IF ]]; then net="aucune carte réseau"
+  elif [[ $NET_MODE == dhcp ]]; then net="$NET_IF, adresse automatique (DHCP)"
+  else net="$NET_IF, $NET_ADDR\n                 passerelle : ${NET_GW:-aucune}\n                 DNS        : $NET_DNS"
+  fi
+  printf '%s' "Vérifiez la configuration avant de l'appliquer :\n\n  Réseau       : $net\n  Machine      : $HOST_NAME\n  Identifiant  : $ADMIN_USER\n  Mot de passe : ********\n"
+}
+
+final_screen() {
+  local ip fp
+  ip=${NET_RESULT_IP:-$(primary_ip)}
+  fp=$(openssl x509 -in "$OB_ETC/tls/cert.pem" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+  W --title "OllamaBuntu est prêt" --ok-button "Terminer" --msgbox "$LOGO
+
+  Administration web : https://${ip:-<adresse-ip>}/
+  Identifiant        : $ADMIN_USER
+  SSH                : ssh $ADMIN_USER@${ip:-<adresse-ip>}
+
+  Le certificat HTTPS est auto-signé (avertissement du navigateur à la
+  première connexion). Empreinte SHA-256 à comparer :
+  ${fp:0:47}
+  ${fp:48}
+
+  Connectez-vous ensuite sur cette console pour accéder au menu." 22 78
+}
+
+stop_other_firstboot() {
+  [[ $OB_DRYRUN == 1 ]] && return 0
+  local u
+  for u in $(systemctl list-units --plain --no-legend 'ollamabuntu-firstboot@*' 2>/dev/null | awk '{print $1}'); do
+    [[ $u == "ollamabuntu-firstboot@${OB_TTY}.service" ]] || systemctl --no-block stop "$u" 2>/dev/null || true
+  done
+}
+
+firstboot() {
+  [[ -f $CONFIGURED_FLAG && ${OB_FORCE:-0} != 1 ]] && exit 0
+  mkdir -p "$OB_STATE" "$OB_ETC"
+  quiet_console; setup_term
+  [[ $OB_DRYRUN == 1 ]] || wait_boot_settled
+  clear
+  HOST_NAME=$(hostname 2>/dev/null || echo ollamabuntu)
+  choose_language
+  W --title "Bienvenue" --ok-button "Commencer" --msgbox "$LOGO
+
+  L'installation est terminée. Plus que quatre réglages :
+
+     1. le réseau                 3. l'identifiant administrateur
+     2. le nom de la machine      4. son mot de passe
+
+  Ollama, la console d'administration web et les modèles sont déjà
+  installés : rien d'autre ne sera demandé." 20 78
+  crypt_screens
+  local step=net choice rc
+  while :; do
+    case $step in
+      net)  if ask_network; then step=host; else msg "Configuration obligatoire" "Ces réglages sont nécessaires pour utiliser l'appliance." 8; fi ;;
+      host) if ask_hostname; then step=user; else step=net; fi ;;
+      user) if ask_user;     then step=pass; else step=host; fi ;;
+      pass) if ask_password; then step=sum;  else step=user; fi ;;
+      sum)
+        choice=$(W --title "Récapitulatif" --ok-button "Valider" --nocancel --default-item apply \
+          --menu "$(summary_text)" 22 78 5 \
+          apply "Appliquer cette configuration" \
+          net   "Modifier le réseau" \
+          host  "Modifier le nom de machine" \
+          user  "Modifier l'identifiant" \
+          pass  "Modifier le mot de passe") || choice=sum
+        if [[ $choice == apply ]]; then
+          apply_all; rc=$?
+          case $rc in 0) break ;; 2) step=net ;; *) step=sum ;; esac
+        else
+          step=$choice
+        fi ;;
+    esac
+  done
+  final_screen
+  ADMIN_PASS=""
+  stop_other_firstboot
+  clear
+}
+
+# --- menu console -----------------------------------------------------------------
+status_short() {
+  local ip st n
+  ip=$(primary_ip)
+  st=$(systemctl is-active ollama.service 2>/dev/null); [[ $st == active ]] && st="actif" || st="ARRÊTÉ"
+  n=$(curl -s --max-time 3 http://127.0.0.1:11434/api/tags 2>/dev/null | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["models"]))' 2>/dev/null || echo "?")
+  printf '%s\n' "  Machine : $(hostname)    IP : ${ip:-aucune}" \
+                "  Administration web : https://${ip:-<ip>}/" \
+                "  Ollama : $st, $n modèle(s) installé(s)"
+}
+
+status_full() {
+  local ip gpus
+  ip=$(primary_ip)
+  gpus=$(lspci 2>/dev/null | grep -Ei 'vga|3d|display' | cut -d: -f3- | sed 's/^ */    /')
+  echo "OllamaBuntu $OB_VERSION - $(. /etc/os-release && echo "$PRETTY_NAME")"
+  echo
+  echo "Machine       : $(hostname)"
+  echo "Adresses      :"; ip -br -4 addr show scope global 2>/dev/null | sed 's/^/    /'
+  echo "Admin web     : https://${ip:-<ip>}/  ($(systemctl is-active ollamabuntu-admin 2>/dev/null))"
+  echo "Ollama        : $(systemctl is-active ollama 2>/dev/null) (version $(/usr/local/bin/ollama --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1))"
+  local models
+  models=$(/usr/local/bin/ollama list 2>/dev/null | awk 'NR>1 {printf "    %-38s %s %s\n", $1, $3, $4}' | head -n 5)
+  echo "Modèles       :"; echo "${models:-    aucun (à télécharger depuis la console web)}"
+  echo "Processeur    : $(nproc) cœurs - $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
+  echo "Mémoire       : $(free -h | awk '/^Mem/ {print $3 " utilisés / " $2}')"
+  echo "Disque /      : $(df -h / | awk 'NR==2 {print $3 " utilisés / " $2 " (" $5 ")"}')"
+  echo "GPU           :"; echo "${gpus:-    aucun}"
+  command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader 2>/dev/null | sed 's/^/    NVIDIA : /'
+}
+
+after_change() { regen_cert >>"$LOG" 2>&1; [[ $OB_DRYRUN == 1 ]] || systemctl try-restart ollamabuntu-admin.service 2>/dev/null; }
+
+menu_network() {
+  load_network_conf
+  ask_network || return 0
+  apply_network_interactive
+  after_change
+  msg "Réseau" "Configuration réseau appliquée.\n\n$(status_short)" 11
+}
+menu_hostname() {
+  HOST_NAME=$(hostname)
+  ask_hostname || return 0
+  apply_hostname "$HOST_NAME" >>"$LOG" 2>&1
+  after_change
+  msg "Nom de machine" "Nouveau nom : $HOST_NAME" 8
+}
+menu_password() {
+  ADMIN_USER=$(admin_user)
+  [[ $ADMIN_USER == "?" ]] && { msg "Compte" "Aucun compte administrateur configuré." 8; return 0; }
+  ask_password || return 0
+  if apply_account "$ADMIN_USER" "$ADMIN_PASS" >>"$LOG" 2>&1; then
+    msg "Mot de passe" "Mot de passe modifié pour la console, SSH et l'administration web." 8
+  else
+    msg "Mot de passe" "Échec de la modification (voir $LOG)." 8
+  fi
+  ADMIN_PASS=""
+}
+
+menu_main() {
+  CRYPT_ITEM=(); [[ $(cj encrypted <<<"$(crypt_status)") == True ]] && CRYPT_ITEM=(crypt "Chiffrement du disque : état et clé de récupération")
+  local c
+  setup_term
+  while :; do
+    # mise à jour appliquée pendant que le menu était ouvert : relance sur la nouvelle version
+    # (une seule relance : pas de boucle si le fichier de version était incohérent)
+    if [[ -z ${OB_MENU_RELAUNCHED:-} && $(cat "$OB_ETC/version" 2>/dev/null) != "$OB_VERSION" && -x /usr/local/sbin/ollamabuntu-setup ]]; then
+      OB_MENU_RELAUNCHED=1 exec /usr/local/sbin/ollamabuntu-setup menu
+    fi
+    c=$(W --title "Menu de l'appliance" --ok-button "Valider" --cancel-button "Shell" \
+      --menu "$(status_short)" 25 78 13 \
+      status   "Afficher l'état détaillé" \
+      network  "Configurer le réseau" \
+      hostname "Changer le nom de machine" \
+      password "Changer le mot de passe de $(admin_user)" \
+      restart  "Redémarrer Ollama et la console web" \
+      update   "Mettre à jour depuis un CD/ISO ou une clé USB" \
+      firewall "Pare-feu : autoriser l'administration depuis tous les réseaux" \
+      lang     "Langue / Language" \
+      "${CRYPT_ITEM[@]}" \
+      shell    "Ouvrir un shell Linux" \
+      logout   "Se déconnecter" \
+      reboot   "Redémarrer le serveur" \
+      poweroff "Éteindre le serveur") || c=shell
+    case $c in
+      status)   W --title "État de l'appliance" --msgbox "$(status_full)" 22 78 ;;
+      network)  menu_network ;;
+      hostname) menu_hostname ;;
+      password) menu_password ;;
+      restart)  W --infobox "Redémarrage des services..." 7 50
+                systemctl restart ollama.service ollamabuntu-admin.service 2>>"$LOG"; sleep 2 ;;
+      update)   clear; /usr/local/sbin/ollamabuntu-update || true; read -rp "$(T "Entrée pour revenir au menu...")" _ ;;
+      lang)     choose_language ;;
+      crypt)    menu_crypt ;;
+      firewall) clear; /usr/bin/python3 /usr/local/lib/ollamabuntu/admin/server.py --firewall-reset || true; read -rp "$(T "Entrée pour revenir au menu...")" _ ;;
+      shell)    clear; return 0 ;;
+      logout)   clear; return 10 ;;
+      reboot)   ask "Redémarrer" "Redémarrer le serveur maintenant ?" && { clear; systemctl reboot; return 10; } ;;
+      poweroff) ask "Éteindre" "Éteindre le serveur maintenant ?" && { clear; systemctl poweroff; return 10; } ;;
+    esac
+  done
+}
+
+need_root() { [[ $EUID -eq 0 ]] || exec sudo "$0" "$@"; }
+
+case "${1:-}" in
+  --firstboot) need_root "$@"; OB_TTY=${2:-}; firstboot ;;
+  menu)        need_root "$@"; menu_main; exit $? ;;
+  network)     need_root "$@"; setup_term; menu_network; clear ;;
+  hostname)    need_root "$@"; setup_term; menu_hostname; clear ;;
+  password)    need_root "$@"; setup_term; menu_password; clear ;;
+  status)      if [[ ${2:-} == --short ]]; then status_short; else status_full; fi ;;
+  --refresh-issue) refresh_issue ;;
+  language)    need_root "$@"; setup_term; choose_language; clear ;;
+  *)           sed -n '3,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

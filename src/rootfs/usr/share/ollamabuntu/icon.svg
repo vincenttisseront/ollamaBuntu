@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>OllamaBuntu</title>
+  <defs>
+    <linearGradient id="ob-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF8A2B"/>
+      <stop offset="0.5" stop-color="#E4471F"/>
+      <stop offset="1" stop-color="#6A1B5C"/>
+    </linearGradient>
+    <clipPath id="ob-clip"><rect width="256" height="256" rx="60"/></clipPath>
+  </defs>
+  <rect width="256" height="256" rx="60" fill="url(#ob-bg)"/>
+  <g clip-path="url(#ob-clip)">
+    <g fill="none" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="3" stroke-linecap="round">
+      <path d="M22 70 L58 92 L40 132"/>
+      <path d="M234 70 L198 92 L216 132"/>
+    </g>
+    <g fill="#FFFFFF" fill-opacity="0.35">
+      <circle cx="22" cy="70" r="6"/><circle cx="58" cy="92" r="5"/><circle cx="40" cy="132" r="6"/>
+      <circle cx="234" cy="70" r="6"/><circle cx="198" cy="92" r="5"/><circle cx="216" cy="132" r="6"/>
+    </g>
+    <g fill="#FFFFFF">
+      <path d="M92 104 C76 78 78 46 92 30 C104 44 112 72 110 100 Z"/>
+      <path d="M164 104 C180 78 178 46 164 30 C152 44 144 72 146 100 Z"/>
+      <path d="M128 80 C160 80 172 100 172 124 C172 146 168 160 162 172 L162 186 L172 270 L84 270 L94 186 L94 172 C88 160 84 146 84 124 C84 100 96 80 128 80 Z"/>
+      <circle cx="110" cy="84" r="13"/><circle cx="128" cy="78" r="14"/><circle cx="146" cy="84" r="13"/>
+    </g>
+    <g fill="#F26A24" fill-opacity="0.55">
+      <path d="M95 96 C86 78 87 56 93 44 C100 56 104 76 103 94 Z"/>
+      <path d="M161 96 C170 78 169 56 163 44 C156 56 152 76 153 94 Z"/>
+    </g>
+    <g fill="#3A0E32">
+      <ellipse cx="109" cy="124" rx="7.5" ry="9"/>
+      <ellipse cx="147" cy="124" rx="7.5" ry="9"/>
+    </g>
+    <g fill="#FFFFFF"><circle cx="111.5" cy="120.5" r="2.4"/><circle cx="149.5" cy="120.5" r="2.4"/></g>
+    <ellipse cx="128" cy="157" rx="25" ry="18" fill="#FCE4D4"/>
+    <path d="M121 149 Q128 145 135 149 Q131 156 128 156 Q125 156 121 149 Z" fill="#3A0E32"/>
+    <path d="M128 156 L128 162 M119 163 Q128 169 137 163" fill="none" stroke="#3A0E32" stroke-width="3.6" stroke-linecap="round"/>
+    <g fill="none" stroke="#E4471F" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M106 206 L120 218 L106 230"/>
+    </g>
+    <rect x="128" y="224" width="26" height="9" rx="4.5" fill="#E4471F"/>
+  </g>
+</svg>

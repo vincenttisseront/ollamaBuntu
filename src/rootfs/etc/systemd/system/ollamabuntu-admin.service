@@ -1,0 +1,18 @@
+[Unit]
+Description=OllamaBuntu - console d'administration web (HTTPS)
+After=network.target ollama.service
+Wants=ollama.service
+ConditionPathExists=|/etc/ollamabuntu/users.json
+ConditionPathExists=|/etc/ollamabuntu/admin.json
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/lib/ollamabuntu/admin/server.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

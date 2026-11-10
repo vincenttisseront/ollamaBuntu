@@ -1,0 +1,34 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+const { JSDOM } = require('jsdom');
+const BASE = 'https://127.0.0.1:18443'; let n = 0;
+const ok = (c, m) => { n++; console.log((c ? `[${String(n).padStart(2, '0')}] OK   - ` : `[${String(n).padStart(2, '0')}] ÉCHEC - `) + m); if (!c) process.exit(1); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, ms = 30000) { const t = Date.now(); while (Date.now() - t < ms) { try { if (fn()) return true; } catch (e) { } await sleep(150); } return false; }
+(async () => {
+  const html = await (await fetch(BASE + '/')).text(), js = await (await fetch(BASE + '/app.js')).text();
+  const w = new JSDOM(html, { url: BASE + '/', runScripts: 'outside-only', pretendToBeVisual: true }).window, jar = {};
+  w.fetch = async (p, o = {}) => { const h = Object.assign({}, o.headers || {}); const c = Object.entries(jar).map(([k, v]) => k + '=' + v).join('; '); if (c) h.Cookie = c;
+    const r = await fetch(new URL(p, BASE), Object.assign({}, o, { headers: h })); for (const sc of r.headers.getSetCookie()) { const [kv] = sc.split(';'); const [k, v] = kv.split('='); if (v) jar[k] = v; else delete jar[k]; } return r; };
+  w.TextDecoder = TextDecoder; w.Element.prototype.scrollIntoView = () => {}; w.eval(js);
+  const $ = (s) => w.document.querySelector(s), $$ = (s) => [...w.document.querySelectorAll(s)];
+  await until(() => !$('#login').classList.contains('hidden'));
+  const f = $('#login-form'); f.elements.user.value = 'vti'; f.elements.password.value = 'Ollama-2026!'; f.dispatchEvent(new w.Event('submit', { cancelable: true }));
+  ok(await until(() => !$('#app').classList.contains('hidden')), 'connexion');
+  ok(await until(() => $$('#dash-grid .gpu-live').length === 2), 'tableau de bord : une carte de charge par GPU mesurable (NVIDIA + AMD ; Intel non mesurable, absent)');
+  const nv = () => $$('#dash-grid .gpu-live').find((c) => /L40S/.test(c.textContent)), amd = () => $$('#dash-grid .gpu-live').find((c) => /W7800/.test(c.textContent));
+  ok(/Mémoire vidéo : 17,8 Go \/ 45,0 Go \(40 %\)/.test(nv().textContent) && /61 °C - 187 W \/ 350 W/.test(nv().textContent), 'NVIDIA : « ' + nv().textContent.replace(/\s+/g, ' ').slice(0, 120) + ' »');
+  ok(/37 % utilisation/.test(amd().textContent) && /Mémoire vidéo : 4,0 Go \/ 16,0 Go \(25 %\)/.test(amd().textContent) && /56 °C - 112 W/.test(amd().textContent), 'AMD : « ' + amd().textContent.replace(/\s+/g, ' ').slice(0, 110) + ' »');
+  const firstUtil = nv().querySelector('.big').textContent;
+  ok(await until(() => nv().querySelector('.big').textContent !== firstUtil, 15000), 'rafraîchissement : charge NVIDIA ' + firstUtil.trim() + ' -> ' + nv().querySelector('.big').textContent.trim());
+  ok(await until(() => { const d = nv().querySelector('.spark .line'); return d && (d.getAttribute('d').match(/L/g) || []).length >= 2; }, 20000), 'courbe des 5 dernières minutes tracée (' + (nv().querySelector('.spark .line').getAttribute('d').match(/[ML]/g) || []).length + ' points)');
+  const cls = nv().querySelector('.spark .line').getAttribute('class');
+  ok(/line (ok|warn|err)/.test(cls), 'couleur selon la charge : ' + cls.replace('line ', '') + ' (vert < 70 %, orange < 90 %, rouge au-delà)');
+  ok(nv().querySelector('.spark').getAttribute('aria-label') === 'Charge GPU des 5 dernières minutes', 'courbe accessible (libellé pour les lecteurs d\'écran)');
+  w.location.hash = '#gpu';
+  ok(await until(() => $$('#gpu-devices .gpu-dev').length > 0), 'onglet GPU chargé');
+  const dev = (slot) => $$('#gpu-devices .gpu-dev').find((c) => c.textContent.includes(slot));
+  ok(/Charge\d+ % - 61 °C - 187 W/.test(dev('0000:41:00.0').textContent.replace(/\s+/g, '')) || /Charge/.test(dev('0000:41:00.0').textContent) && /61 °C/.test(dev('0000:41:00.0').textContent), 'fiche NVIDIA : ligne « Charge » (utilisation, température, puissance)');
+  ok(/37 % - 56 °C - 112 W/.test(dev('0000:03:00.0').textContent) && /4,0 Go \/ 16,0 Go/.test(dev('0000:03:00.0').textContent), 'fiche AMD : charge et mémoire vidéo');
+  ok(!/Charge/.test(dev('0000:04:00.0').textContent), 'fiche Intel : pas de ligne « Charge » (non mesurable, pas de chiffre approximatif)');
+  process.exit(0);
+})().catch((e) => { console.log('ERREUR', e); process.exit(1); });

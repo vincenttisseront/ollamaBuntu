@@ -1,0 +1,19 @@
+[Unit]
+Description=Ollama - groupe de GPU %i (OllamaBuntu)
+After=network.target
+ConditionPathExists=/etc/ollamabuntu/pools/%i.env
+
+[Service]
+ExecStart=/usr/local/bin/ollama serve
+User=ollama
+Group=ollama
+Restart=always
+RestartSec=3
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="HOME=/usr/share/ollama"
+ExecStartPre=-+/usr/bin/python3 /usr/local/lib/ollamabuntu/gpu-auto.py pool:%i
+EnvironmentFile=-/run/ollamabuntu/gpu-auto-pool-%i.env
+EnvironmentFile=/etc/ollamabuntu/pools/%i.env
+
+[Install]
+WantedBy=multi-user.target

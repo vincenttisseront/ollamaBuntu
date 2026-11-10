@@ -1,0 +1,95 @@
+#!/bin/bash
+# =============================================================================
+#  ollamabuntu-update [--yes] [--list] [fichier.iso | /dev/sdX | /dev/srX]
+#  ollamabuntu-update --check | --online [--yes]    (depuis Internet : voir updater.py)
+#  Met à jour cette appliance depuis une ISO OllamaBuntu plus récente, sans
+#  réinstallation ni redémarrage du serveur. Sans argument, cherche l'ISO :
+#    - lecteurs CD physiques ou virtuels (VMware, iDRAC, iLO...) ;
+#    - clés USB écrites avec l'ISO (Rufus en mode DD, balenaEtcher) ;
+#    - fichiers ollamabuntu-*.iso copiés sur une clé USB (FAT32, exFAT, NTFS, ext4).
+#  La version la plus récente trouvée est proposée. Configuration, comptes et modèles conservés.
+# =============================================================================
+set -Eeuo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+[[ $EUID -eq 0 ]] || exec sudo "$0" "$@"
+# Mise à jour depuis Internet (versions publiées sur GitHub) : ollamabuntu-update --online [--yes] | --check
+case ${1:-} in
+  --online) shift; exec /usr/bin/python3 /usr/local/lib/ollamabuntu/admin/updater.py apply "$@" ;;
+  --check) exec /usr/bin/python3 /usr/local/lib/ollamabuntu/admin/updater.py check ;;
+esac
+# Copie en mémoire : ce script est lui-même remplacé pendant la mise à jour
+if [[ ${OB_UPDATE_RELOCATED:-} != 1 ]]; then
+  self=$(mktemp /run/ollamabuntu-update.XXXXXX)
+  cp "$0" "$self"
+  OB_UPDATE_RELOCATED=1 exec /bin/bash "$self" "$@"
+fi
+trap 'rm -f "$0"' EXIT
+LANG_OB=$(cat /etc/ollamabuntu/lang 2>/dev/null || echo fr)
+T() { if [[ $LANG_OB != fr && -x /usr/local/lib/ollamabuntu/i18n.py ]]; then python3 /usr/local/lib/ollamabuntu/i18n.py "$LANG_OB" "$1" 2>/dev/null || printf '%s' "$1"; else printf '%s' "$1"; fi; }
+die() { echo "$(T "[ERREUR] $*")" >&2; exit 1; }
+yes=0 list=0 src=""
+for a in "$@"; do
+  case $a in
+    --yes|-y) yes=1 ;;
+    --list) list=1 ;;
+    -h|--help) sed -n '3,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) src=$a ;;
+  esac
+done
+MOUNTS=() MNT=""
+cleanup() { local i; for ((i = ${#MOUNTS[@]} - 1; i >= 0; i--)); do umount "${MOUNTS[i]}" 2>/dev/null || umount -l "${MOUNTS[i]}" 2>/dev/null || true; rmdir "${MOUNTS[i]}" 2>/dev/null || true; done; }
+trap 'cleanup; rm -f "$0"' EXIT
+modprobe isofs 2>/dev/null || true
+mount_ro() {   # mount_ro SOURCE : monte en lecture seule dans $MNT (pas de sous-shell : MOUNTS doit rester à jour)
+  MNT=$(mktemp -d /run/ob-media.XXXXXX)
+  if [[ -b $1 ]]; then mount -o ro "$1" "$MNT" 2>/dev/null; else mount -o ro,loop "$1" "$MNT" 2>/dev/null; fi || { rmdir "$MNT"; MNT=""; return 1; }
+  MOUNTS+=("$MNT")
+}
+is_ob() { [[ -f $1/ollamabuntu/update.sh && -f $1/ollamabuntu/rootfs.tar ]]; }
+
+CANDS=()   # « version<TAB>point de montage<TAB>description »
+add_cand() { CANDS+=("$(cat "$2/ollamabuntu/VERSION" 2>/dev/null || echo "?")"$'\t'"$2"$'\t'"$1"); }
+scan_device() {   # périphérique : ISO écrite directement, ou fichiers .iso sur la clé
+  local dev=$1 m f
+  mount_ro "$dev" || return 0
+  m=$MNT
+  if is_ob "$m"; then add_cand "$dev" "$m"; return 0; fi
+  while IFS= read -r -d '' f; do
+    mount_ro "$f" || continue
+    if is_ob "$MNT"; then add_cand "$dev : ${f#"$m"/}" "$MNT"; fi
+  done < <(find "$m" -maxdepth 2 -type f -iname '*.iso' -size +100M -print0 2>/dev/null)
+}
+if [[ -n $src ]]; then
+  if [[ -b $src ]]; then scan_device "$src"
+  elif [[ -f $src ]]; then mount_ro "$src" || die "impossible de monter $src"; is_ob "$MNT" && add_cand "$src" "$MNT"
+  else die "introuvable : $src"; fi
+else
+  devs=()
+  for d in /dev/sr* /dev/cdrom; do [[ -b $d ]] && devs+=("$(readlink -f "$d")"); done
+  # clés et disques USB : le disque entier (ISO écrite en mode DD) et chacune de ses partitions
+  while read -r name tran type; do
+    [[ $type == disk && $tran == usb ]] || continue
+    devs+=("$name")
+    while read -r part; do [[ $part != "$name" ]] && devs+=("$part"); done < <(lsblk -rpno NAME "$name" 2>/dev/null)
+  done < <(lsblk -rdpno NAME,TRAN,TYPE 2>/dev/null)
+  for d in ${OB_UPDATE_SCAN:-}; do devs+=("$d"); done   # essais : périphériques supplémentaires
+  declare -A seen=()
+  for d in "${devs[@]}"; do [[ -n ${seen[$d]:-} ]] && continue; seen[$d]=1; scan_device "$d"; done
+fi
+((${#CANDS[@]})) || die "aucune ISO OllamaBuntu trouvée : connectez le CD/ISO virtuel ou la clé USB (ISO écrite avec Rufus/Etcher, ou fichier ollamabuntu-*.iso copié dessus), ou indiquez le chemin du fichier .iso"
+best=$(printf '%s\n' "${CANDS[@]}" | sort -t$'\t' -k1,1 -r | head -n1)
+IFS=$'\t' read -r new mnt desc <<<"$best"
+cur=$(cat /etc/ollamabuntu/version 2>/dev/null || echo "?")
+echo "$(T ">>> Supports OllamaBuntu trouvés :")"
+printf '%s\n' "${CANDS[@]}" | sort -t$'\t' -k1,1 -r | while IFS=$'\t' read -r v _ d; do echo "      $v  ($d)"; done
+echo "$(T ">>> Version installée : $cur - version retenue : $new ($desc)")"
+((list)) && exit 0
+if [[ $cur == "$new" ]]; then
+  echo "$(T ">>> Déjà à jour (même version).")"
+  [[ $yes == 1 ]] || { read -rp "$(T "Réappliquer quand même ? [o/N]") " r; [[ $r == [oOyY]* ]] || exit 0; }
+elif [[ $cur != "?" && $new < $cur ]]; then
+  echo "$(T ">>> Attention : la version du support ($new) est PLUS ANCIENNE que la version installée ($cur).")"
+  [[ $yes == 1 ]] && { echo "$(T ">>> Mise à jour automatique annulée (retour en arrière : lancez la commande à la main).")"; exit 1; }
+fi
+if [[ $yes != 1 ]]; then read -rp "$(T "Mettre à jour maintenant (les services IA redémarrent) ? [o/N]") " r; [[ $r == [oOyY]* ]] || exit 0; fi
+/bin/bash "$mnt/ollamabuntu/update.sh" --target / --source "$mnt/ollamabuntu"

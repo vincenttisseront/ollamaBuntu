@@ -1,0 +1,22 @@
+[Unit]
+Description=Ollama - serveur de modèles (OllamaBuntu)
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/ollama serve
+User=ollama
+Group=ollama
+Restart=always
+RestartSec=3
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="HOME=/usr/share/ollama"
+Environment="OLLAMA_HOST=127.0.0.1:11400"
+# GPU AMD : cibles ROCm vérifiées à chaque démarrage (contournement ou carte écartée si nécessaire)
+ExecStartPre=-+/usr/bin/python3 /usr/local/lib/ollamabuntu/gpu-auto.py main
+EnvironmentFile=-/run/ollamabuntu/gpu-auto-main.env
+EnvironmentFile=-/etc/ollamabuntu/ollama.env
+# Groupes de GPU : port interne 11400 et cartes non réservées (lu en dernier, donc prioritaire)
+EnvironmentFile=-/etc/ollamabuntu/ollama-main.env
+
+[Install]
+WantedBy=multi-user.target

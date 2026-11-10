@@ -1,0 +1,249 @@
+{
+ "items": [
+  {
+   "category": "Intelligence artificielle",
+   "name": "Ollama",
+   "role": "Moteur d'exécution des modèles (API, CLI)",
+   "url": "https://github.com/ollama/ollama",
+   "license": "MIT"
+  },
+  {
+   "category": "Intelligence artificielle",
+   "name": "llama.cpp / ggml",
+   "role": "Inférence CPU, CUDA et Vulkan (intégré à Ollama)",
+   "url": "https://github.com/ggml-org/llama.cpp",
+   "license": "MIT"
+  },
+  {
+   "category": "Intelligence artificielle",
+   "name": "Open WebUI",
+   "role": "Interface de chat déployable en option",
+   "url": "https://github.com/open-webui/open-webui",
+   "license": "Licence Open WebUI (BSD-3 avec clause de marque, voir le dépôt)"
+  },
+  {
+   "category": "Intelligence artificielle",
+   "name": "NVIDIA open GPU kernel modules",
+   "role": "Pilote NVIDIA « open », installé à la demande",
+   "url": "https://github.com/NVIDIA/open-gpu-kernel-modules",
+   "license": "MIT / GPL-2.0"
+  },
+  {
+   "category": "Intelligence artificielle",
+   "name": "Mesa",
+   "role": "Pilotes Vulkan Intel / AMD, installés à la demande",
+   "url": "https://gitlab.freedesktop.org/mesa/mesa",
+   "license": "MIT"
+  },
+  {
+   "category": "Intelligence artificielle",
+   "name": "ROCm",
+   "role": "Pile de calcul AMD, installée à la demande",
+   "url": "https://github.com/ROCm/ROCm",
+   "license": "voir le dépôt"
+  },
+  {
+   "category": "Système de base",
+   "name": "Ubuntu Server 24.04 LTS",
+   "role": "Système d'exploitation (Canonical)",
+   "url": "https://ubuntu.com/server",
+   "license": "licences multiples"
+  },
+  {
+   "category": "Système de base",
+   "name": "Linux",
+   "role": "Noyau",
+   "url": "https://github.com/torvalds/linux",
+   "license": "GPL-2.0"
+  },
+  {
+   "category": "Système de base",
+   "name": "systemd",
+   "role": "Services, démarrage, journaux",
+   "url": "https://github.com/systemd/systemd",
+   "license": "LGPL-2.1+"
+  },
+  {
+   "category": "Système de base",
+   "name": "Netplan",
+   "role": "Configuration réseau",
+   "url": "https://github.com/canonical/netplan",
+   "license": "GPL-3.0"
+  },
+  {
+   "category": "Système de base",
+   "name": "OpenSSH",
+   "role": "Accès SSH",
+   "url": "https://github.com/openssh/openssh-portable",
+   "license": "BSD"
+  },
+  {
+   "category": "Système de base",
+   "name": "OpenSSL",
+   "role": "Certificats et chiffrement TLS",
+   "url": "https://github.com/openssl/openssl",
+   "license": "Apache-2.0"
+  },
+  {
+   "category": "Système de base",
+   "name": "util-linux",
+   "role": "agetty (bannière console), lsblk, mount...",
+   "url": "https://github.com/util-linux/util-linux",
+   "license": "GPL-2.0+"
+  },
+  {
+   "category": "Système de base",
+   "name": "APT",
+   "role": "Gestion des paquets et des mises à jour",
+   "url": "https://salsa.debian.org/apt-team/apt",
+   "license": "GPL-2.0+"
+  },
+  {
+   "category": "Installation et démarrage",
+   "name": "Subiquity",
+   "role": "Installeur automatique d'Ubuntu Server",
+   "url": "https://github.com/canonical/subiquity",
+   "license": "AGPL-3.0"
+  },
+  {
+   "category": "Installation et démarrage",
+   "name": "curtin",
+   "role": "Installation sur disque (utilisé par Subiquity)",
+   "url": "https://github.com/canonical/curtin",
+   "license": "AGPL-3.0"
+  },
+  {
+   "category": "Installation et démarrage",
+   "name": "cloud-init",
+   "role": "Présent dans Ubuntu, désactivé par l'appliance",
+   "url": "https://github.com/canonical/cloud-init",
+   "license": "Apache-2.0 / GPL-3.0"
+  },
+  {
+   "category": "Installation et démarrage",
+   "name": "GRUB 2",
+   "role": "Menu de démarrage de l'ISO",
+   "url": "https://www.gnu.org/software/grub/",
+   "license": "GPL-3.0+"
+  },
+  {
+   "category": "Installation et démarrage",
+   "name": "shim",
+   "role": "Démarrage UEFI Secure Boot",
+   "url": "https://github.com/rhboot/shim",
+   "license": "BSD"
+  },
+  {
+   "category": "Console et appliance",
+   "name": "Python",
+   "role": "Console d'administration web (bibliothèque standard uniquement)",
+   "url": "https://github.com/python/cpython",
+   "license": "PSF-2.0"
+  },
+  {
+   "category": "Console et appliance",
+   "name": "newt / whiptail",
+   "role": "Assistant et menu console",
+   "url": "https://pagure.io/newt",
+   "license": "LGPL-2.0"
+  },
+  {
+   "category": "Console et appliance",
+   "name": "GNU Bash",
+   "role": "Scripts de l'appliance",
+   "url": "https://www.gnu.org/software/bash/",
+   "license": "GPL-3.0+"
+  },
+  {
+   "category": "Console et appliance",
+   "name": "Moby (Docker Engine)",
+   "role": "Exécution d'Open WebUI (option)",
+   "url": "https://github.com/moby/moby",
+   "license": "Apache-2.0"
+  },
+  {
+   "category": "Console et appliance",
+   "name": "Inter",
+   "role": "Police du logo (vectorisée)",
+   "url": "https://github.com/rsms/inter",
+   "license": "OFL-1.1"
+  },
+  {
+   "category": "Mises à jour et sécurité",
+   "name": "OSV.dev",
+   "role": "Criticité des mises à jour de sécurité",
+   "url": "https://github.com/google/osv.dev",
+   "license": "Apache-2.0"
+  },
+  {
+   "category": "Mises à jour et sécurité",
+   "name": "Ubuntu Security Notices",
+   "role": "Avis de sécurité Ubuntu (données OSV)",
+   "url": "https://github.com/canonical/ubuntu-security-notices",
+   "license": "voir le dépôt"
+  },
+  {
+   "category": "Construction de l'ISO",
+   "name": "xorriso (libisoburn)",
+   "role": "Reconstruction de l'ISO hybride BIOS/UEFI",
+   "url": "https://www.gnu.org/software/xorriso/",
+   "license": "GPL-3.0+"
+  },
+  {
+   "category": "Construction de l'ISO",
+   "name": "Zstandard",
+   "role": "Décompression des archives Ollama",
+   "url": "https://github.com/facebook/zstd",
+   "license": "BSD / GPL-2.0"
+  },
+  {
+   "category": "Construction de l'ISO",
+   "name": "curl",
+   "role": "Téléchargements (ISO Ubuntu, Ollama, modèles)",
+   "url": "https://github.com/curl/curl",
+   "license": "curl (type MIT)"
+  },
+  {
+   "category": "Construction de l'ISO",
+   "name": "GNU tar",
+   "role": "Archives de l'appliance",
+   "url": "https://www.gnu.org/software/tar/",
+   "license": "GPL-3.0+"
+  },
+  {
+   "category": "Validation (outils de test, non embarqués)",
+   "name": "QEMU",
+   "role": "Tests de démarrage BIOS/UEFI et VM",
+   "url": "https://gitlab.com/qemu-project/qemu",
+   "license": "GPL-2.0"
+  },
+  {
+   "category": "Validation (outils de test, non embarqués)",
+   "name": "EDK II (OVMF)",
+   "role": "Firmware UEFI des tests",
+   "url": "https://github.com/tianocore/edk2",
+   "license": "BSD-2-Clause-Patent"
+  },
+  {
+   "category": "Validation (outils de test, non embarqués)",
+   "name": "ShellCheck",
+   "role": "Analyse statique des scripts",
+   "url": "https://github.com/koalaman/shellcheck",
+   "license": "GPL-3.0"
+  },
+  {
+   "category": "Validation (outils de test, non embarqués)",
+   "name": "jsdom",
+   "role": "Tests de l'interface web",
+   "url": "https://github.com/jsdom/jsdom",
+   "license": "MIT"
+  },
+  {
+   "category": "Validation (outils de test, non embarqués)",
+   "name": "pyte",
+   "role": "Tests de l'assistant console (émulateur de terminal)",
+   "url": "https://github.com/selectel/pyte",
+   "license": "LGPL-3.0"
+  }
+ ]
+}

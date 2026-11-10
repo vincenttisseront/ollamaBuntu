@@ -1,0 +1,68 @@
+# Publication d'une version : pousser un tag vAAAA.MM.JJ-HHMM (voir tools/release/new-release.sh).
+# La release contient l'archive de mise à jour en ligne, sa somme SHA-256 et sa signature Ed25519 ;
+# les appliances la détectent depuis leur console web (Système > Appliance) et la vérifient avant de l'appliquer.
+name: Release
+on:
+  push:
+    tags:
+      - 'v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9][0-9][0-9]'
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Release déjà publiée depuis un poste (tools/release/publish-local.sh) ?
+        id: chk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; echo "Release déjà publiée : rien à faire."; fi
+      - uses: actions/setup-node@v4
+        if: steps.chk.outputs.exists != 'true'
+        with:
+          node-version: 22
+      - name: Tests avant publication
+        if: steps.chk.outputs.exists != 'true'
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 tools/i18n/build_catalog.py --check
+          python3 tests/unit/router_balance_test.py
+          python3 tests/unit/gpu_auto_test.py
+          python3 tests/unit/online_update_test.py
+          npm install --no-save --no-package-lock jsdom@24
+          node tests/unit/online_update_ui_test.js
+      - name: Construction et signature de l'archive
+        if: steps.chk.outputs.exists != 'true'
+        env:
+          SIGNING_KEY: ${{ secrets.OB_UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$SIGNING_KEY" ] || { echo "::error::secret OB_UPDATE_SIGNING_KEY absent : une archive non signée serait refusée par toutes les appliances"; exit 1; }
+          umask 077
+          keyfile="$RUNNER_TEMP/update-signing-key.pem"
+          printf '%s\n' "$SIGNING_KEY" > "$keyfile"
+          export OB_VERSION="${GITHUB_REF_NAME#v}" OB_SIGNING_KEY="$keyfile"
+          ./build.sh --bundle
+          rm -f "$keyfile"
+          ls -l ollamabuntu-update-*.tar.gz SHA256SUMS SHA256SUMS.sig
+      - name: Publication
+        if: steps.chk.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # message du tag (annoté) = notes de version ; « [preview] » dans ce message = préversion (canal « préversions » seulement)
+          msg="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
+          flags=()
+          if printf '%s' "$msg" | grep -q '\[preview\]'; then flags+=(--prerelease); fi
+          notes="$(printf '%s' "$msg" | sed 's/\[preview\]//g')"
+          [ -n "$(printf '%s' "$notes" | tr -d '[:space:]')" ] || notes="OllamaBuntu ${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" "${flags[@]}" --title "OllamaBuntu ${GITHUB_REF_NAME#v}" --notes "$notes" \
+            ollamabuntu-update-*.tar.gz SHA256SUMS SHA256SUMS.sig

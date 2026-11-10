@@ -1,0 +1,221 @@
+{
+ "version": "2026-11",
+ "source": "sélection OllamaBuntu ; tailles et disponibilité vérifiées en direct sur registry.ollama.ai",
+ "models": [
+  {
+   "name": "llama3.2:3b",
+   "category": "Conversation",
+   "caps": [
+    "outils"
+   ],
+   "description": "Petit modèle polyvalent de Meta, à l'aise même sur processeur."
+  },
+  {
+   "name": "qwen3.5:2b",
+   "category": "Conversation",
+   "caps": [
+    "vision",
+    "outils",
+    "raisonnement"
+   ],
+   "description": "Très léger, vision intégrée : idéal sans GPU."
+  },
+  {
+   "name": "llama3.1:8b",
+   "category": "Conversation",
+   "caps": [
+    "outils"
+   ],
+   "description": "La référence 8B, très largement prise en charge."
+  },
+  {
+   "name": "qwen3.5:9b",
+   "category": "Conversation",
+   "caps": [
+    "vision",
+    "outils",
+    "raisonnement"
+   ],
+   "description": "Polyvalent multimodal, tient dans 8 Go de VRAM."
+  },
+  {
+   "name": "granite4.2:8b",
+   "category": "Conversation",
+   "caps": [
+    "outils",
+    "raisonnement"
+   ],
+   "description": "IBM, licence Apache 2.0 : RAG d'entreprise, sorties JSON."
+  },
+  {
+   "name": "gemma4:12b",
+   "category": "Conversation",
+   "caps": [
+    "vision",
+    "audio",
+    "outils",
+    "raisonnement"
+   ],
+   "description": "Google Gemma 4 : multimodal, 12 Go de VRAM."
+  },
+  {
+   "name": "gpt-oss:20b",
+   "category": "Raisonnement",
+   "caps": [
+    "outils",
+    "raisonnement"
+   ],
+   "description": "Modèle ouvert d'OpenAI : raisonnement et agents, contexte long sobre en mémoire."
+  },
+  {
+   "name": "qwen3.8:27b",
+   "category": "Conversation",
+   "caps": [
+    "vision",
+    "outils",
+    "raisonnement"
+   ],
+   "description": "Dernier Qwen dense : vision, outils, niveaux de raisonnement."
+  },
+  {
+   "name": "gemma4:26b",
+   "category": "Conversation",
+   "caps": [
+    "vision",
+    "audio",
+    "outils",
+    "raisonnement"
+   ],
+   "description": "Mixture d'experts rapide (~4B actifs), 24 Go de VRAM."
+  },
+  {
+   "name": "qwen3.6:35b",
+   "category": "Conversation",
+   "caps": [
+    "vision",
+    "outils",
+    "raisonnement"
+   ],
+   "description": "Mixture d'experts orientée agents et code."
+  },
+  {
+   "name": "mistral-small:24b",
+   "category": "Conversation",
+   "caps": [
+    "outils"
+   ],
+   "description": "Mistral : agents, appel de fonctions, JSON."
+  },
+  {
+   "name": "llama3.3:70b",
+   "category": "Conversation",
+   "caps": [
+    "outils"
+   ],
+   "description": "70B de référence : 48 Go de VRAM ou plus."
+  },
+  {
+   "name": "gpt-oss:120b",
+   "category": "Raisonnement",
+   "caps": [
+    "outils",
+    "raisonnement"
+   ],
+   "description": "Grand modèle ouvert d'OpenAI : un GPU de 80 Go."
+  },
+  {
+   "name": "deepseek-r1:8b",
+   "category": "Raisonnement",
+   "caps": [
+    "outils",
+    "raisonnement"
+   ],
+   "description": "Distillation R1 : mathématiques, raisonnement pas à pas."
+  },
+  {
+   "name": "deepseek-r1:14b",
+   "category": "Raisonnement",
+   "caps": [
+    "outils",
+    "raisonnement"
+   ],
+   "description": "Meilleur raisonnement local pour 12 Go de VRAM."
+  },
+  {
+   "name": "qwen2.5-coder:1.5b",
+   "category": "Code",
+   "caps": [
+    "code"
+   ],
+   "description": "Complétion de code ultra-légère."
+  },
+  {
+   "name": "qwen2.5-coder:7b",
+   "category": "Code",
+   "caps": [
+    "code"
+   ],
+   "description": "Assistant de code 7B, excellent rapport taille/qualité."
+  },
+  {
+   "name": "qwen2.5-coder:14b",
+   "category": "Code",
+   "caps": [
+    "code"
+   ],
+   "description": "Code, pour 16 Go de VRAM."
+  },
+  {
+   "name": "qwen3-coder:30b",
+   "category": "Code",
+   "caps": [
+    "code",
+    "outils"
+   ],
+   "description": "Le meilleur modèle de code local sur 24 Go (mixture d'experts)."
+  },
+  {
+   "name": "devstral-small-2",
+   "category": "Code",
+   "caps": [
+    "code",
+    "vision",
+    "outils"
+   ],
+   "description": "Agent de code de Mistral (24B), licence Apache 2.0."
+  },
+  {
+   "name": "qwen3-vl:8b",
+   "category": "Vision",
+   "caps": [
+    "vision",
+    "outils"
+   ],
+   "description": "Vision : captures d'écran, documents, interfaces."
+  },
+  {
+   "name": "nomic-embed-text",
+   "category": "Embeddings",
+   "caps": [
+    "embeddings"
+   ],
+   "description": "Embeddings pour la recherche documentaire (RAG), très rapide."
+  },
+  {
+   "name": "embeddinggemma",
+   "category": "Embeddings",
+   "caps": [
+    "embeddings"
+   ],
+   "description": "Embeddings multilingues (100+ langues), dimensions réductibles."
+  },
+  {
+   "name": "bge-m3",
+   "category": "Embeddings",
+   "caps": [
+    "embeddings"
+   ],
+   "description": "Embeddings multilingues pour documents longs."
+  }
+ ]
+}

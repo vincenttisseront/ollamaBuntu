@@ -1,0 +1,203 @@
+#!/bin/bash
+# OllamaBuntu - chiffrement du disque (LUKS2) : clé de récupération, déverrouillage par TPM2, phrase de passe.
+#
+#   ollamabuntu-crypt status                  état, en JSON
+#   ollamabuntu-crypt setup [--temp-file F]   fin d'installation : clé de récupération, TPM2 si présent
+#                                             (phrase temporaire de l'installation : fichier F ou entrée standard)
+#   ollamabuntu-crypt recovery-show           clé de récupération en attente de confirmation
+#   ollamabuntu-crypt ack                     clé enregistrée par l'administrateur : copie locale effacée
+#   ollamabuntu-crypt set-passphrase          entrée standard : nouvelle phrase [, phrase actuelle]
+#   ollamabuntu-crypt recovery-new            entrée standard : phrase actuelle (inutile si TPM) ; nouvelle clé affichée une fois
+#
+# Les secrets ne passent jamais en argument de commande ni dans les journaux : fichiers temporaires en mémoire (/run), 0600.
+set -u
+STATE_DIR=${OB_CRYPT_STATE:-/var/lib/ollamabuntu-crypt}
+RECOVERY_FILE=$STATE_DIR/recovery.key
+STATE_FILE=$STATE_DIR/state.json
+LOG=${OB_CRYPT_LOG:-/var/log/ollamabuntu-crypt.log}
+CRYPTTAB=${OB_CRYPTTAB:-/etc/crypttab}
+CS=${OB_CRYPTSETUP:-cryptsetup}
+PCRS=${OB_CRYPT_PCRS:-7}   # PCR 7 : état du démarrage sécurisé ; stable lors des mises à jour du noyau
+# shellcheck disable=SC2206
+PBKDF=(${OB_CRYPT_PBKDF_ARGS:-})
+TOK_RECOVERY=10; TOK_TEMP=11; TOK_PASS=12
+
+log() { printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG" 2>/dev/null || true; }
+die() { echo "ollamabuntu-crypt : $*" >&2; log "ERREUR : $*"; exit "${2:-1}"; }
+WORK=$(mktemp -d /run/obcrypt.XXXXXX 2>/dev/null || mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+keyfile() {   # keyfile NOM SECRET [nl] -> chemin ; contenu exact, sans retour à la ligne (sauf « nl »)
+  local f=$WORK/$1
+  ( umask 077; if [[ ${3:-} == nl ]]; then printf '%s\n' "$2" >"$f"; else printf '%s' "$2" >"$f"; fi )
+  printf '%s' "$f"
+}
+read_secret() { local s; IFS= read -r s || true; printf '%s' "$s"; }
+meta() { "$CS" luksDump --dump-json-metadata "$1" 2>/dev/null; }
+slot_of() {   # numéro du keyslot que ce fichier de clé ouvre
+  local n
+  for n in 0 1 2 3 4 5 6 7; do
+    "$CS" open --test-passphrase --key-slot "$n" --key-file "$2" "$1" >/dev/null 2>&1 && { echo "$n"; return 0; }
+  done
+  return 1
+}
+free_slot() { meta "$1" | python3 -c 'import json,sys; u={int(k) for k in json.load(sys.stdin)["keyslots"]}; print(next(i for i in range(32) if i not in u))'; }
+token_slot() {   # numéro du keyslot rattaché à un jeton de ce type
+  meta "$1" | python3 -c '
+import json, sys
+for v in json.load(sys.stdin).get("tokens", {}).values():
+    if v.get("type") == sys.argv[1] and v.get("keyslots"):
+        print(v["keyslots"][0]); break' "$2"
+}
+label() {   # label DEV ID_JETON TYPE KEYSLOT
+  "$CS" token remove --token-id "$2" "$1" >/dev/null 2>&1 || true
+  printf '{"type":"%s","keyslots":["%s"]}' "$3" "$4" | "$CS" token import --token-id "$2" "$1" >>"$LOG" 2>&1
+}
+unlabel() { "$CS" token remove --token-id "$2" "$1" >/dev/null 2>&1 || true; }
+device() {
+  if [[ -n ${OB_CRYPT_DEV:-} ]]; then echo "$OB_CRYPT_DEV"; return 0; fi
+  local src
+  src=$(awk '!/^[[:space:]]*#/ && NF>=2 {print $2; exit}' "$CRYPTTAB" 2>/dev/null)
+  case $src in
+    UUID=*) src=$(blkid -U "${src#UUID=}" 2>/dev/null) ;;
+    PARTUUID=*) src=$(blkid -t "$src" -o device 2>/dev/null | head -n1) ;;
+  esac
+  if [[ -z $src ]]; then   # sans crypttab lisible : premier volume LUKS
+    src=$(lsblk -rpno NAME,FSTYPE 2>/dev/null | awk '$2=="crypto_LUKS" {print $1; exit}')
+  fi
+  [[ -n $src ]] && "$CS" isLuks "$src" 2>/dev/null && { echo "$src"; return 0; }
+  return 1
+}
+have_tpm() { command -v tpm2_getrandom >/dev/null 2>&1 && timeout 15 tpm2_getrandom 4 >/dev/null 2>&1; }
+clevis_slot() { clevis luks list -d "$1" 2>/dev/null | awk -F: '/tpm2/ {print $1; exit}'; }
+gen_recovery() { python3 -c 'import base64,secrets; k=base64.b32encode(secrets.token_bytes(32)).decode().rstrip("="); print("-".join(k[i:i+6] for i in range(0,len(k),6)))'; }
+write_state() {
+  mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR"
+  python3 - "$STATE_FILE" "$@" <<'PY'
+import json, os, sys, time
+p = sys.argv[1]
+try: d = json.load(open(p))
+except (OSError, ValueError): d = {}
+for kv in sys.argv[2:]:
+    k, _, v = kv.partition("=")
+    d[k] = True if v == "true" else False if v == "false" else v
+d["updated"] = int(time.time())
+tmp = p + ".tmp"
+with open(tmp, "w") as f: json.dump(d, f)
+os.chmod(tmp, 0o600); os.replace(tmp, p)
+PY
+}
+rebuild_initramfs() {   # le déverrouillage par TPM doit exister dès le démarrage, avant le système
+  [[ ${OB_CRYPT_NO_INITRAMFS:-0} == 1 ]] && return 0
+  local m
+  for m in tpm tpm_tis tpm_crb; do grep -qx "$m" /etc/initramfs-tools/modules 2>/dev/null || echo "$m" >>/etc/initramfs-tools/modules; done
+  update-initramfs -u -k all >>"$LOG" 2>&1 || die "reconstruction de l'initramfs impossible (voir $LOG)"
+}
+auth_by_tpm() {   # auth_by_tpm DEV -> fichier de clé obtenu du TPM (vide si impossible)
+  local cs f=$WORK/tpm-pass
+  cs=$(clevis_slot "$1"); [[ -n $cs ]] || return 1
+  clevis luks pass -d "$1" -s "$cs" >"$f" 2>>"$LOG" && [[ -s $f ]] && "$CS" open --test-passphrase --key-file "$f" "$1" >/dev/null 2>&1 && { echo "$f"; return 0; }
+  return 1
+}
+
+cmd_status() {
+  local dev tpm=false
+  dev=$(device) || { echo '{"encrypted": false}'; return 0; }
+  have_tpm && tpm=true
+  python3 - "$dev" "$tpm" "$STATE_FILE" "$RECOVERY_FILE" "$(meta "$dev")" "$(clevis luks list -d "$dev" 2>/dev/null)" <<'PY'
+import json, os, sys
+dev, tpm, state_f, rec_f, meta, clevis = sys.argv[1:7]
+try: m = json.loads(meta)
+except ValueError: m = {}
+try: st = json.load(open(state_f))
+except (OSError, ValueError): st = {}
+types = {v.get("type") for v in m.get("tokens", {}).values()}
+print(json.dumps({"encrypted": True, "device": dev, "tpm_present": tpm == "true", "tpm_bound": "tpm2" in clevis,
+                  "recovery": "ollamabuntu-recovery" in types, "recovery_pending": os.path.exists(rec_f),
+                  "passphrase_needed": "ollamabuntu-temp" in types, "passphrase_set": "ollamabuntu-passphrase" in types,
+                  "keyslots": len(m.get("keyslots", {})), "mode": st.get("mode", "")}))
+PY
+}
+
+cmd_setup() {
+  local dev tmp tf slot_t rec rf mode=passphrase bound=false cs
+  dev=$(device) || die "aucun volume LUKS trouvé"
+  [[ -n $(token_slot "$dev" ollamabuntu-recovery) ]] && die "le chiffrement est déjà configuré"
+  if [[ ${1:-} == --temp-file ]]; then tmp=$(cat "${2:?fichier manquant}" 2>/dev/null); else tmp=$(read_secret); fi
+  [[ -n $tmp ]] || die "phrase temporaire absente"
+  tf=$(keyfile temp "$tmp"); slot_t=$(slot_of "$dev" "$tf")
+  if [[ -z $slot_t ]]; then tf=$(keyfile temp-nl "$tmp" nl); slot_t=$(slot_of "$dev" "$tf") || die "la phrase temporaire n'ouvre aucun keyslot : rien n'a été modifié"; fi
+  rec=$(gen_recovery); rf=$(keyfile rec "$rec")
+  "$CS" luksAddKey "${PBKDF[@]}" --key-file "$tf" "$dev" "$rf" >>"$LOG" 2>&1 || die "ajout de la clé de récupération impossible"
+  slot_of "$dev" "$rf" >/dev/null || die "la clé de récupération ne s'ouvre pas : abandon avant toute suppression"
+  label "$dev" "$TOK_RECOVERY" ollamabuntu-recovery "$(slot_of "$dev" "$rf")" || die "étiquetage de la clé de récupération impossible"
+  if have_tpm; then
+    if clevis luks bind -d "$dev" -k "$rf" -y tpm2 "$(printf '{"pcr_bank":"sha256","pcr_ids":"%s"}' "$PCRS")" >>"$LOG" 2>&1 && [[ -n $(clevis_slot "$dev") ]] && auth_by_tpm "$dev" >/dev/null; then
+      bound=true; mode=tpm
+    else
+      log "liaison au TPM impossible : repli sur la phrase de passe"
+      cs=$(clevis_slot "$dev"); [[ -n $cs ]] && clevis luks unbind -d "$dev" -s "$cs" -f >>"$LOG" 2>&1   # aucun reste d'une liaison à moitié faite
+    fi
+  fi
+  if $bound; then
+    "$CS" luksKillSlot --batch-mode --key-file "$rf" "$dev" "$slot_t" >>"$LOG" 2>&1 || die "suppression de la phrase temporaire impossible : la clé de récupération et le TPM restent valides"
+    write_state mode=tpm tpm_bound=true temp=false recovery_acknowledged=false
+  else
+    label "$dev" "$TOK_TEMP" ollamabuntu-temp "$slot_t"
+    write_state mode=passphrase tpm_bound=false temp=true recovery_acknowledged=false
+  fi
+  mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR"
+  ( umask 077; printf '%s\n' "$rec" >"$RECOVERY_FILE" )
+  rebuild_initramfs
+  log "chiffrement configuré : mode $mode"
+}
+
+cmd_recovery_show() { [[ -f $RECOVERY_FILE ]] || exit 3; cat "$RECOVERY_FILE"; }
+cmd_ack() {
+  [[ -f $RECOVERY_FILE ]] && shred -u "$RECOVERY_FILE" 2>/dev/null || rm -f "$RECOVERY_FILE"
+  write_state recovery_acknowledged=true; log "clé de récupération confirmée par l'administrateur"
+}
+
+cmd_set_passphrase() {   # entrée : nouvelle phrase, puis (facultatif) phrase actuelle
+  local dev new cur af ns slot_new slot_t
+  dev=$(device) || die "aucun volume LUKS trouvé"
+  new=$(read_secret); cur=$(read_secret)
+  [[ ${#new} -ge 12 ]] || die "la phrase de passe doit compter au moins 12 caractères"
+  if [[ -n $cur ]]; then af=$(keyfile cur "$cur"); elif [[ -f $RECOVERY_FILE ]]; then af=$(keyfile cur "$(head -n1 "$RECOVERY_FILE")"); else die "phrase actuelle requise"; fi
+  slot_of "$dev" "$af" >/dev/null || die "la phrase actuelle est refusée"
+  ns=$(keyfile new "$new"); slot_t=$(token_slot "$dev" ollamabuntu-temp)
+  "$CS" luksAddKey "${PBKDF[@]}" --key-file "$af" "$dev" "$ns" >>"$LOG" 2>&1 || die "ajout de la phrase de passe impossible"
+  slot_new=$(slot_of "$dev" "$ns") || die "la nouvelle phrase ne s'ouvre pas : phrase temporaire conservée"
+  label "$dev" "$TOK_PASS" ollamabuntu-passphrase "$slot_new"
+  if [[ -n $slot_t ]]; then
+    "$CS" luksKillSlot --batch-mode --key-file "$ns" "$dev" "$slot_t" >>"$LOG" 2>&1 || die "suppression de la phrase temporaire impossible"
+    unlabel "$dev" "$TOK_TEMP"
+  fi
+  write_state temp=false; log "phrase de passe de démarrage définie, phrase temporaire supprimée"
+}
+
+cmd_recovery_new() {
+  local dev cur af old nf rec slot_new
+  dev=$(device) || die "aucun volume LUKS trouvé"
+  if af=$(auth_by_tpm "$dev"); then :
+  else cur=$(read_secret); [[ -n $cur ]] || die "phrase actuelle requise (pas de TPM)"; af=$(keyfile cur "$cur"); fi
+  slot_of "$dev" "$af" >/dev/null || die "phrase actuelle refusée : rien n'a été modifié"
+  old=$(token_slot "$dev" ollamabuntu-recovery)
+  rec=$(gen_recovery); nf=$(keyfile newrec "$rec")
+  "$CS" luksAddKey "${PBKDF[@]}" --key-file "$af" "$dev" "$nf" >>"$LOG" 2>&1 || die "ajout de la nouvelle clé impossible : l'ancienne reste valide"
+  slot_new=$(slot_of "$dev" "$nf") || die "la nouvelle clé ne s'ouvre pas : l'ancienne reste valide"
+  if [[ -n $old ]]; then "$CS" luksKillSlot --batch-mode --key-file "$nf" "$dev" "$old" >>"$LOG" 2>&1 || die "retrait de l'ancienne clé impossible"; fi
+  label "$dev" "$TOK_RECOVERY" ollamabuntu-recovery "$slot_new"
+  rm -f "$RECOVERY_FILE"; write_state recovery_acknowledged=true
+  log "nouvelle clé de récupération créée"; printf '%s\n' "$rec"
+}
+
+case ${1:-} in
+  status) cmd_status ;;
+  setup) shift; cmd_setup "$@" ;;
+  recovery-show) cmd_recovery_show ;;
+  ack) cmd_ack ;;
+  set-passphrase) cmd_set_passphrase ;;
+  recovery-new) cmd_recovery_new ;;
+  *) sed -n '2,12p' "$0"; exit 2 ;;
+esac

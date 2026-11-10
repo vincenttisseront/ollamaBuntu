@@ -1,0 +1,20 @@
+[Unit]
+Description=OllamaBuntu - routeur et contrôle d'accès de l'API Ollama (11434 local, publication réseau)
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/lib/ollamabuntu/router.py
+User=ollama
+Group=ollama
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+StateDirectory=ollamabuntu-router
+StateDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

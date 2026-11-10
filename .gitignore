@@ -1,0 +1,20 @@
+# Produits de construction (volumineux, regénérables)
+ollamabuntu-build/
+*.iso
+*.iso.sha256
+*.qcow2
+# Python / système
+__pycache__/
+*.pyc
+.DS_Store
+# Clés de signature des mises à jour : JAMAIS dans git (secret GitHub OB_UPDATE_SIGNING_KEY)
+.secrets/
+update-signing-key*.pem
+# Archives de mise à jour en ligne (publiées dans les releases GitHub)
+ollamabuntu-update-*.tar.gz
+SHA256SUMS
+SHA256SUMS.sig
+node_modules/
+# Certificats et clés générés par le banc de test
+tests/bench/tmp/**/router-tls/
+*.pem.test

@@ -1,0 +1,17 @@
+# OllamaBuntu - MISE À JOUR d'une appliance existante (aucune installation).
+# early-commands met à jour le système trouvé sur les disques puis redémarre.
+# Sécurité : la section storage ne correspond à aucun disque. Si, par extraordinaire,
+# l'installeur poursuivait, il s'arrêterait en erreur sans rien effacer.
+version: 1
+early-commands:
+  - bash /cdrom/ollamabuntu/update.sh --live
+refresh-installer:
+  update: false
+storage:
+  layout:
+    name: lvm
+    match:
+      serial: OLLAMABUNTU-UPDATE-NEVER-MATCHES
+user-data:
+  users: []
+shutdown: reboot

@@ -1,0 +1,38 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Outils
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+      - name: Syntaxe des scripts (shellcheck)
+        run: make lint
+      - name: Catalogue de traduction à jour
+        run: make i18n-check
+      - name: Tests portables
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 tests/unit/router_balance_test.py
+          python3 tests/unit/gpu_auto_test.py
+          python3 tests/unit/online_update_test.py
+      - name: Console web (jsdom)
+        run: |
+          npm install --no-save --no-package-lock jsdom@24
+          node tests/unit/online_update_ui_test.js
+      - name: Archive de mise à jour en ligne (construction à blanc, non signée)
+        run: |
+          OB_VERSION=2026.01.01-0000 ./build.sh --bundle
+          tar -tzf ollamabuntu-update-2026.01.01-0000.tar.gz

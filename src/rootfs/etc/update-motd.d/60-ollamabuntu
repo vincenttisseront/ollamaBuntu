@@ -1,0 +1,4 @@
+#!/bin/sh
+echo
+/usr/local/sbin/ollamabuntu-setup status --short 2>/dev/null || true
+echo "  Menu de l'appliance : ollamabuntu-menu"

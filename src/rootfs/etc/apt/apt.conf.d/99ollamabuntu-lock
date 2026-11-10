@@ -1,0 +1,3 @@
+// OllamaBuntu : attendre le verrou APT (jusqu'à 15 min, par ex. pendant unattended-upgrades)
+// plutôt qu'échouer. Les tâches de la console s'exécutent en outre une à la fois.
+DPkg::Lock::Timeout "900";

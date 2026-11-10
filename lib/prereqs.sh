@@ -1,0 +1,33 @@
+# shellcheck shell=bash
+# Prérequis : certificats supplémentaires, outils nécessaires.
+# (chargé par build.sh ; ne pas exécuter directement)
+
+use_extra_ca() {   # hôte Linux : ajoute EXTRA_CA_CERTS aux certificats de confiance (curl + Ollama)
+  [[ -n ${EXTRA_CA_CERTS:-} ]] || return 0
+  [[ -f $EXTRA_CA_CERTS ]] || die "EXTRA_CA_CERTS introuvable : $EXTRA_CA_CERTS"
+  grep -q 'BEGIN CERTIFICATE' "$EXTRA_CA_CERTS" || die "EXTRA_CA_CERTS n'est pas un fichier PEM : $EXTRA_CA_CERTS"
+  local sys bundle="$W/ca-bundle.pem"
+  for sys in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/cert.pem; do [[ -f $sys ]] && break; done
+  mkdir -p "$W"; { [[ -f $sys ]] && cat "$sys"; cat "$EXTRA_CA_CERTS"; } > "$bundle"
+  export CURL_CA_BUNDLE="$bundle" SSL_CERT_FILE="$bundle"
+  info "certificats racines supplémentaires : $EXTRA_CA_CERTS"
+}
+
+check_deps() {
+  log "Vérification des prérequis"
+  use_extra_ca
+  local missing=() cmd
+  for cmd in xorriso curl python3 tar sha256sum md5sum awk sed find stat df; do need "$cmd" || missing+=("$cmd"); done
+  if [[ -n $PRELOAD_MODELS ]]; then need zstd || missing+=(zstd); fi
+  if ((${#missing[@]})); then
+    if need apt-get; then
+      local sudo=""; [[ $EUID -ne 0 ]] && sudo=sudo
+      warn "outils manquants : ${missing[*]} -> installation via apt"
+      $sudo apt-get update -qq && $sudo apt-get install -y -qq xorriso curl python3 zstd coreutils gawk sed findutils tar
+    else
+      die "outils manquants : ${missing[*]} (installez : xorriso curl python3 zstd)"
+    fi
+  fi
+  [[ $GRUB_TIMEOUT =~ ^[0-9]+$ ]] || die "GRUB_TIMEOUT doit être un nombre de secondes"
+  mkdir -p "$CACHE" "$W"
+}

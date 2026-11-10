@@ -1,0 +1,17 @@
+# Fins de ligne : les scripts s'exécutent sous Linux (conteneur Docker compris), donc LF obligatoire,
+# même sur un poste Windows. build.ps1 est en CRLF avec BOM (Windows PowerShell 5.1 et les accents).
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.svg text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+Makefile text eol=lf
+lib/** text eol=lf
+src/** text eol=lf
+tests/** text eol=lf
+*.ps1 text eol=crlf

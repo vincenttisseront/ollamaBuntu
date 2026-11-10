@@ -1,0 +1,14 @@
+# MODE CHEMIN (relatif à src/rootfs) : tout fichier absent de cette liste est en 0644
+0440 etc/sudoers.d/ollamabuntu
+0755 etc/update-motd.d/60-ollamabuntu
+0755 usr/local/bin/ollamabuntu-menu
+0755 usr/local/lib/ollamabuntu/admin/server.py
+0755 usr/local/lib/ollamabuntu/admin/updater.py
+0755 usr/local/lib/ollamabuntu/gpu-auto.py
+0755 usr/local/lib/ollamabuntu/i18n.py
+0755 usr/local/lib/ollamabuntu/open-webui.sh
+0755 usr/local/lib/ollamabuntu/postinstall.sh
+0755 usr/local/lib/ollamabuntu/router.py
+0755 usr/local/sbin/ollamabuntu-crypt
+0755 usr/local/sbin/ollamabuntu-setup
+0755 usr/local/sbin/ollamabuntu-update

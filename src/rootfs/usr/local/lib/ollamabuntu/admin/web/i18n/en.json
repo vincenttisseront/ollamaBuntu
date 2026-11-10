@@ -1,0 +1,2474 @@
+{
+"exact": {
+"(32 caractères au plus). Les comptes système (root, ollama...) sont interdits.": "(32 characters at most). System accounts (root, ollama...) are not allowed.",
+"(câble, VLAN, serveur DHCP ?).": "(cable, VLAN, DHCP server?).",
+"(réponse vide)": "(empty answer)",
+"1 jour": "1 day",
+"1. le réseau 3. l'identifiant administrateur": "1. the network                3. the administrator username",
+"100 clés au maximum": "100 keys at most",
+"1er jeton": "1st token",
+"1er jeton moyen": "Average 1st token",
+"2. le nom de la machine 4. son mot de passe": "2. the hostname               4. its password",
+"200 modèles au maximum": "200 models at most",
+"50 réseaux au maximum": "50 networks at most",
+"70B de référence : 48 Go de VRAM ou plus.": "Reference 70B: 48 GB of VRAM or more.",
+">>> Accès Internet d'Ollama désactivé par la politique d'usage de l'IA : téléchargement impossible sur ce serveur.": ">>> Ollama's Internet access is disabled by the AI usage policy: download impossible on this server.",
+">>> Aucune mise à jour de sécurité en attente.": ">>> No security updates pending.",
+">>> Carte non reconnue ? Essayez HSA_OVERRIDE_GFX_VERSION (paramètres avancés) ou Vulkan.": ">>> Card not recognised? Try HSA_OVERRIDE_GFX_VERSION (advanced settings) or Vulkan.",
+">>> Déjà à jour (même version).": ">>> Already up to date (same version).",
+">>> ERREUR : aucun pilote NVIDIA n'a été installé.": ">>> ERROR: no NVIDIA driver was installed.",
+">>> GPU vus par Vulkan :": ">>> GPUs seen by Vulkan:",
+">>> Les GPU AMD sont réglés automatiquement à chaque démarrage d'Ollama (détail par carte dans l'onglet GPU).": ">>> AMD GPUs are tuned automatically each time Ollama starts (details per card in the GPU tab).",
+">>> Mise à jour automatique annulée (retour en arrière : lancez la commande à la main).": ">>> Automatic update cancelled (rollback: run the command manually).",
+">>> Mise à jour terminée.": ">>> Update complete.",
+">>> Mises à jour de sécurité installées.": ">>> Security updates installed.",
+">>> Module ROCm installé. L'onglet GPU indique si Ollama utilise la carte.": ">>> ROCm module installed. The GPU tab shows whether Ollama uses the card.",
+">>> Paquets de sécurité installés : le pare-feu et les mises à jour automatiques sont actifs.": ">>> Security packages installed: the firewall and automatic updates are active.",
+">>> Pilotes recommandés :": ">>> Recommended drivers:",
+">>> Redémarrage nécessaire pour terminer la mise à jour.": ">>> Restart required to complete the update.",
+">>> Redémarrage nécessaire pour terminer.": ">>> Restart required to complete.",
+">>> Redémarrez le serveur pour le charger (bouton dans Système ou ci-dessous).": ">>> Restart the server to load it (button in System or below).",
+">>> Supports OllamaBuntu trouvés :": ">>> OllamaBuntu media found:",
+">>> Tâche annulée avant son démarrage.": ">>> Task cancelled before it started.",
+">>> Tâche interrompue (redémarrage du serveur ou de la console ?).": ">>> Task interrupted (server or console restart?).",
+">>> Vulkan activé. L'onglet GPU indique si Ollama utilise la carte.": ">>> Vulkan enabled. The GPU tab shows whether Ollama uses the card.",
+"AMD ROCm : forcer une cible GFX (ex. 10.3.0)": "AMD ROCm: force a GFX target (e.g. 10.3.0)",
+"API Ollama : port interne 11400, routeur et contrôle d'accès sur 11434": "Ollama API: internal port 11400, router and access control on 11434",
+"API Ollama publiée : HTTPS": "Published Ollama API: HTTPS",
+"API Ollama publiée : clé d'API exigée": "Published Ollama API: API key required",
+"API publiée sans clé.": "API published without a key.",
+"API réseau": "Network API",
+"ARRÊTÉ": "STOPPED",
+"Absent du registre (modèle local ou personnalisé)": "Not in the registry (local or custom model)",
+"Accès Linux": "Linux access",
+"Accès SSH": "SSH access",
+"Accès réseau désactivé : l'API n'est utilisable que depuis le serveur.": "Network access disabled: the API can only be used from the server.",
+"Accélérateur non géré automatiquement par OllamaBuntu.": "Accelerator not handled automatically by OllamaBuntu.",
+"Accélération GPU NVIDIA « open », installée à la demande": "NVIDIA “open” GPU acceleration, installed on demand",
+"Action possible dans l'onglet GPU": "Action available in the GPU tab",
+"Activation de l'accélération Vulkan (Intel / AMD)": "Enabling Vulkan acceleration (Intel / AMD)",
+"Activer": "Enable",
+"Activer aussi la répartition de charge (le serveur délivre un jeton limité à l'utilisation des modèles)": "Also enable load balancing (the server issues a token limited to using models)",
+"Activer l'extrait de la demande": "Enable the request excerpt",
+"Activer la répartition de charge": "Enable load balancing",
+"Actualisation automatique": "Automatic refresh",
+"Actualiser": "Refresh",
+"Administrateur": "Administrator",
+"Administrateur (tout)": "Administrator (everything)",
+"Adresse": "Address",
+"Adresse IPv4 et masque au format CIDR (exemple : 192.168.1.50/24) :": "IPv4 address and mask in CIDR format (example: 192.168.1.50/24):",
+"Adresse automatique (DHCP)": "Automatic address (DHCP)",
+"Adresse e-mail de l'administrateur Open WebUI invalide.": "Invalid Open WebUI administrator e-mail address.",
+"Adresse fixe (statique)": "Fixed address (static)",
+"Adresse invalide": "Invalid address",
+"Adresses": "Addresses",
+"Adresses :": "Addresses     :",
+"Affichage de la console (contrôleur BMC ou carte virtuelle) : non utilisable pour l'IA.": "Console display (BMC controller or virtual card): not usable for AI.",
+"Afficher en français": "Show in French",
+"Afficher l'état détaillé": "Show detailed status",
+"Ajouter un modèle": "Add a model",
+"Ajouter un serveur": "Add a server",
+"Analyse en cours...": "Analysing...",
+"Analyse statique des scripts": "Static analysis of scripts",
+"Annuler": "Cancel",
+"Annuler une tâche": "Cancel a task",
+"AppArmor actif": "AppArmor active",
+"Appliance": "Appliance",
+"Application (redémarrage d'Ollama)...": "Applying (restarting Ollama)...",
+"Application (redémarrage des instances Ollama)...": "Applying (restarting Ollama instances)...",
+"Application de la configuration": "Applying the configuration",
+"Application de la mise à jour": "Applying the update",
+"Application de la politique d'usage de l'IA (recréation du conteneur, données conservées)": "Applying the AI usage policy (recreating the container, data kept)",
+"Application de la politique d'usage de l'IA à Open WebUI": "Applying the AI usage policy to Open WebUI",
+"Application des règles...": "Applying the rules...",
+"Application...": "Applying...",
+"Appliquer": "Apply",
+"Appliqué ; Open WebUI est recréé avec ces réglages (voir la tâche).": "Applied; Open WebUI is being recreated with these settings (see the task).",
+"Appliqué.": "Applied.",
+"Approuver ce certificat": "Approve this certificate",
+"Archive de mise à jour invalide : adresse ou somme d'Ollama incorrecte.": "Invalid update archive: incorrect Ollama address or checksum.",
+"Archive de mise à jour invalide : format d'Ollama inconnu.": "Invalid update archive: unknown Ollama format.",
+"Archive de mise à jour invalide : version d'Ollama incorrecte.": "Invalid update archive: incorrect Ollama version.",
+"Archive de mise à jour refusée : taille anormale.": "Update archive refused: abnormal size.",
+"Archives de l'appliance": "Appliance archives",
+"Arrêt": "Shutdown",
+"Arrêt demandé...": "Shutdown requested...",
+"Arrêt en cours...": "Shutting down...",
+"Arrêter": "Stop",
+"Assistant de code 7B, excellent rapport taille/qualité.": "7B coding assistant, excellent size/quality ratio.",
+"Assistant de configuration": "Setup wizard",
+"Assistant et menu console": "Console wizard and menu",
+"Attente de l'adresse IP (30 secondes au maximum).": "Waiting for the IP address (30 seconds at most).",
+"Attention : version identique ou plus ancienne, appliquée sur demande explicite.": "Warning: same or older version, applied on explicit request.",
+"Aucun GPU de calcul détecté par Ollama.": "No compute GPU detected by Ollama.",
+"Aucun GPU de calcul détecté.": "No compute GPU detected.",
+"Aucun GPU mesurable (NVIDIA ou AMD) : les graphiques GPU restent vides.": "No measurable GPU (NVIDIA or AMD): the GPU charts stay empty.",
+"Aucun GPU retenu par Ollama lors de son dernier démarrage.": "No GPU kept by Ollama at its last start.",
+"Aucun GPU utilisé par l'instance principale.": "No GPU used by the main instance.",
+"Aucun changement": "No change",
+"Aucun compte administrateur configuré.": "No administrator account configured.",
+"Aucun compte n'est configuré.": "No account is configured.",
+"Aucun dépôt GitHub configuré.": "No GitHub repository set.",
+"Aucun groupe : tous les modèles se partagent tous les GPU (placement automatique d'Ollama).": "No group: all models share all GPUs (Ollama's automatic placement).",
+"Aucun jeton enregistré": "No token saved",
+"Aucun modèle en commun avec ce serveur : installez les mêmes modèles (Parc > Synchroniser > Modèles).": "No model in common with this server: install the same models (Fleet > Synchronise > Models).",
+"Aucun modèle installé.": "No models installed.",
+"Aucun modèle n'est présent sur plusieurs serveurs : le test est impossible.": "No model is present on several servers: the test is impossible.",
+"Aucun modèle personnalisé.": "No custom models.",
+"Aucun redémarrage en attente pour appliquer des correctifs": "No restart pending to apply fixes",
+"Aucun serveur dans le parc : ajoutez-en un (onglet « Ajouter un serveur »).": "No server in the fleet: add one (“Add a server” tab).",
+"Aucun serveur enregistré : ajoutez-en un ci-dessous.": "No servers registered: add one below.",
+"Aucune carte graphique ou accélérateur détecté.": "No graphics card or accelerator detected.",
+"Aucune carte réseau n'a été détectée.": "No network card was detected.",
+"Aucune clé. Créez une clé par application : vous pourrez la désactiver sans toucher aux autres.": "No keys. Create one key per application: you can disable it without affecting the others.",
+"Aucune console principale autorisée.": "No main console authorised.",
+"Aucune mise à jour appliquée depuis l'installation.": "No update applied since installation.",
+"Aucune requête dans la dernière heure.": "No request in the last hour.",
+"Aucune requête enregistrée pour le moment.": "No request recorded yet.",
+"Aucune version publiée dans ce dépôt.": "No version published in this repository.",
+"Audio (synthèse, transcription)": "Audio (speech, transcription)",
+"Autoriser": "Allow",
+"Autoriser le GPU intégré": "Allow the integrated GPU",
+"Autoriser les fonctions cloud ?": "Allow cloud features?",
+"Autoriser une console principale": "Authorise a main console",
+"Autorisez une console OllamaBuntu principale à superviser ce serveur (état, charge, alertes) et à y lancer des actions de maintenance (redémarrer Ollama, rechercher et installer les correctifs de sécurité). Elle n'a accès ni aux comptes, ni aux réglages, ni aux conversations.": "Allow a main OllamaBuntu console to monitor this server (status, load, alerts) and run maintenance actions on it (restart Ollama, check for and install security fixes). It has no access to accounts, settings or conversations.",
+"Avez-vous enregistré cette clé en dehors de ce serveur ?": "Have you saved this key outside this server?",
+"Avis de sécurité Ubuntu (données OSV)": "Ubuntu security notices (OSV data)",
+"Bienvenue": "Welcome",
+"Calcul GPU": "GPU compute",
+"Caractères autorisés : a-z, 0-9 et « - » (63 caractères au plus par partie,": "Allowed characters: a-z, 0-9 and “-” (63 characters at most per part,",
+"Caractères de contrôle interdits dans le mot de passe.": "Control characters are not allowed in the password.",
+"Carte non reconnue par ROCm : essayez HSA_OVERRIDE_GFX_VERSION (paramètres avancés) ou Vulkan.": "Card not recognised by ROCm: try HSA_OVERRIDE_GFX_VERSION (advanced settings) or Vulkan.",
+"Carte réseau utilisée pour administrer le serveur :": "Network card used to administer the server:",
+"Cartes": "Cards",
+"Cause habituelle : proxy d'entreprise qui inspecte le HTTPS (Zscaler, Netskope...).": "Usual cause: a corporate proxy inspecting HTTPS (Zscaler, Netskope...).",
+"Ce compte existe déjà.": "This account already exists.",
+"Ce nom est réservé à un compte système.": "This name is reserved for a system account.",
+"Ce que l'IA peut faire et atteindre. Ollama génère du texte et des embeddings, et analyse les images ou vidéos fournies (modèles de vision) ; il ne génère ni images ni vidéos. Ces règles sont aussi appliquées par le routeur, quel que soit le client.": "What the AI can do and reach. Ollama generates text and embeddings, and analyses the images or videos it is given (vision models); it generates neither images nor videos. These rules are also enforced by the router, whatever the client.",
+"Ce serveur": "This server",
+"Ce serveur n'a pas de TPM utilisable : le disque est chiffré et sa phrase de passe sera demandée à chaque démarrage.": "This server has no usable TPM: the disk is encrypted and its passphrase will be asked at every boot.",
+"Ce serveur n'annonce pas ses modèles : mettez-le à jour avec la dernière ISO.": "This server does not announce its models: update it with the latest ISO.",
+"Certificat autosigné de la console : importez-le dans vos clients, ou désactivez la vérification (-k) pour un essai.": "The console's self-signed certificate: import it into your clients, or disable verification (-k) for a test.",
+"Certificat changé": "Certificate changed",
+"Certificats et chiffrement TLS": "Certificates and TLS encryption",
+"Ces réglages sont nécessaires pour utiliser l'appliance.": "These settings are required to use the appliance.",
+"Cette appliance est à jour.": "This appliance is up to date.",
+"Cette commande doit être lancée en tant que root.": "This command must be run as root.",
+"Cette phrase est nécessaire : sans elle, le disque resterait protégé par la phrase provisoire de l'ISO.": "This passphrase is required: without it, the disk would stay protected by the temporary ISO passphrase.",
+"Changer le mot de passe": "Change the password",
+"Changer le nom de machine": "Change the hostname",
+"Changer mon mot de passe": "Change my password",
+"Chaque jour vers": "Every day around",
+"Chaque requête va au serveur qui en traite le moins à cet instant ; à égalité, les serveurs se relaient. Un modèle est chargé sur chaque serveur à sa première utilisation, ce qui prend du temps pour un gros modèle. Une conversation peut changer de serveur d'une réponse à l'autre.": "Each request goes to the server handling the fewest at that moment; on a tie, servers take turns. A model is loaded on each server on first use, which takes time for a large model. A conversation can change server from one answer to the next.",
+"Chaque requête va de préférence au serveur qui a déjà le modèle en mémoire, tant qu'il n'est pas occupé par plusieurs requêtes. Les autres serveurs ne servent qu'en cas de forte demande ou de panne : avec un seul utilisateur, tout reste sur le même serveur.": "Each request preferably goes to the server that already has the model in memory, as long as it is not busy with several requests. Other servers are only used under heavy demand or failure: with a single user, everything stays on the same server.",
+"Charge": "Load",
+"Charge GPU": "GPU load",
+"Charge GPU des 5 dernières minutes": "GPU load over the last 5 minutes",
+"Cherche les versions d'OllamaBuntu publiées sur GitHub, vérifie leur signature, puis met l'appliance à jour sans passer par l'ISO. Comptes, réglages, modèles et données sont conservés. Rien n'est contacté tant que vous ne cliquez pas sur « Rechercher une mise à jour », sauf si la vérification automatique est activée.": "Looks for OllamaBuntu versions published on GitHub, checks their signature, then updates the appliance without going through the ISO. Accounts, settings, models and data are kept. Nothing is contacted until you click “Check for updates”, unless automatic checking is enabled.",
+"Chiffrement du disque": "Disk encryption",
+"Chiffrement du disque : état et clé de récupération": "Disk encryption: status and recovery key",
+"Choisissez un modèle et posez votre question.": "Choose a model and ask your question.",
+"Choisissez-la maintenant (12 caractères au moins). La phrase provisoire de l'ISO sera supprimée.": "Choose it now (at least 12 characters). The temporary ISO passphrase will be deleted.",
+"Client": "Client",
+"Clé": "Key",
+"Clé USB (Windows) : Rufus en mode « DD » ou balenaEtcher": "USB key (Windows): Rufus in “DD” mode or balenaEtcher",
+"Clé de récupération du disque": "Disk recovery key",
+"Clé de vérification absente de cette appliance : mise à jour en ligne impossible.": "Verification key missing from this appliance: online update impossible.",
+"Clé publique de vérification absente de cette appliance : mise à jour en ligne impossible.": "Verification public key missing from this appliance: online update impossible.",
+"Clés SSH du serveur": "Server SSH keys",
+"Clés d'API": "API keys",
+"Code, pour 16 Go de VRAM.": "Code, for 16 GB of VRAM.",
+"Commande refusée": "Command refused",
+"Commencer": "Start",
+"Compatibilité": "Compatibility",
+"Complétion de code ultra-légère.": "Ultra-light code completion.",
+"Compte Linux (console + SSH ; sudo pour un administrateur)": "Linux account (console + SSH; sudo for an administrator)",
+"Compte administrateur créé ; mot de passe initial retiré de la configuration.": "Administrator account created; initial password removed from the configuration.",
+"Comptes": "Accounts",
+"Comptes, réseau, certificats, réglages, modèles et données sont conservés. Ne pas éteindre le serveur.": "Accounts, network, certificates, settings, models and data are kept. Do not switch off the server.",
+"Configuration du système (comptes de service, droits, services)": "System configuration (service accounts, permissions, services)",
+"Configuration du système (comptes de service, droits, sécurité, services)": "System configuration (service accounts, permissions, security, services)",
+"Configuration réseau": "Network configuration",
+"Configuration réseau appliquée.": "Network configuration applied.",
+"Configurer le réseau": "Configure the network",
+"Confirmation": "Confirmation",
+"Confirmer": "Confirm",
+"Connectez une ISO OllamaBuntu plus récente au serveur : lecteur virtuel (VMware, iDRAC, iLO...), clé USB écrite avec l'ISO (Rufus en mode DD, balenaEtcher) ou clé USB contenant le fichier .iso. La version la plus récente trouvée est appliquée ; comptes, réglages, modèles et données sont conservés. Vous pouvez aussi démarrer le serveur sur la clé et choisir « Mettre à jour ».": "Connect a newer OllamaBuntu ISO to the server: virtual drive (VMware, iDRAC, iLO...), USB key written with the ISO (Rufus in DD mode, balenaEtcher) or USB key containing the .iso file. The most recent version found is applied; accounts, settings, models and data are kept. You can also boot the server from the key and choose “Update”.",
+"Connectez-vous avec le compte créé à la fin de l'installation": "Sign in with the account created at the end of the installation",
+"Connectez-vous ensuite sur cette console pour accéder au menu.": "Then sign in on this console to access the menu.",
+"Connexions directes des utilisateurs à leurs propres API": "Users' direct connections to their own APIs",
+"Connexions à des API externes compatibles OpenAI": "Connections to external OpenAI-compatible APIs",
+"Conservation": "Retention",
+"Console : redirection HTTP vers HTTPS": "Console: HTTP to HTTPS redirect",
+"Console d'administration": "Administration console",
+"Console d'administration (HTTPS)": "Administration console (HTTPS)",
+"Console d'administration web (bibliothèque standard uniquement)": "Web administration console (standard library only)",
+"Console et appliance": "Console and appliance",
+"Console principale autorisée": "Main console authorised",
+"Console web": "Web console",
+"Construction de l'ISO": "ISO build",
+"Construit le": "Built on",
+"Consulter (liste des modèles, version)": "Read (model list, version)",
+"Consultez Journaux > Système et /var/log/ollamabuntu-update.log.": "See Logs > System and /var/log/ollamabuntu-update.log.",
+"Conteneur supprimé. Les conversations et comptes restent dans le volume « open-webui ».": "Container removed. Conversations and accounts remain in the “open-webui” volume.",
+"Contexte : réglage du modèle": "Context: model setting",
+"Contexte appliqué": "Applied context",
+"Continuer (configurer le réseau plus tard)": "Continue (configure the network later)",
+"Contrôle du contenu": "Checking the content",
+"Contrôles": "Checks",
+"Contrôles de durcissement": "Hardening checks",
+"Copiez-la maintenant : elle ne sera plus jamais affichée (seule son empreinte est conservée).": "Copy it now: it will never be shown again (only its fingerprint is kept).",
+"Copiée.": "Copied.",
+"Criticité": "Severity",
+"Criticité des correctifs de sécurité (avis Ubuntu) :": "Severity of security fixes (Ubuntu notices):",
+"Criticité des mises à jour de sécurité": "Security update severity",
+"Création de la variante...": "Creating the variant...",
+"Création...": "Creating...",
+"Crée une variante « modèle:tag-gpuN » qui se charge toujours sur ce GPU, sans le réserver (les autres modèles peuvent aussi l'utiliser). Les poids ne sont pas dupliqués. Utilisez le nom de la variante dans vos applications.": "Creates a “model:tag-gpuN” variant that always loads on this GPU, without reserving it (other models can use it too). Weights are not duplicated. Use the variant name in your applications.",
+"Créer la clé": "Create the key",
+"Créer la variante": "Create the variant",
+"Créer le compte": "Create the account",
+"Créer le groupe": "Create the group",
+"Créer ou mettre à jour": "Create or update",
+"Créer une nouvelle clé de récupération (l'ancienne est révoquée)": "Create a new recovery key (the old one is revoked)",
+"Créé le": "Created on",
+"Ctrl+Alt+Suppr désactivé sur la console": "Ctrl+Alt+Del disabled on the console",
+"DNS invalide": "Invalid DNS",
+"Demande": "Request",
+"Demarrer sur le peripherique suivant": "Boot from the next device",
+"Depuis": "Since",
+"Dernier contact": "Last contact",
+"Dernière heure, par modèle": "Last hour, by model",
+"Dernière requête": "Last request",
+"Dernière synchronisation": "Last synchronisation",
+"Dernière utilisation": "Last used",
+"Dernières requêtes": "Latest requests",
+"Disque": "Disk",
+"Disque chiffré": "Encrypted disk",
+"Disque chiffré (LUKS2)": "Encrypted disk (LUKS2)",
+"Disque occupé à plus de 90 %": "Disk more than 90% full",
+"Distillation R1 : mathématiques, raisonnement pas à pas.": "R1 distillation: mathematics, step-by-step reasoning.",
+"Docker est installé mais pas démarré : lancez Docker Desktop puis relancez.": "Docker is installed but not running: start Docker Desktop, then run again.",
+"Droits": "Rights",
+"Droits accordés sans clé": "Rights granted without a key",
+"Durée": "Duration",
+"Durée de maintien d'un modèle en mémoire (ex. 5m, 1h, -1 = toujours)": "How long a model stays in memory (e.g. 5m, 1h, -1 = always)",
+"Durée médiane": "Median duration",
+"Durée p95": "p95 duration",
+"Débit total": "Total throughput",
+"Décompression des archives Ollama": "Decompresses Ollama archives",
+"Déconnexion": "Sign out",
+"Défaut du serveur": "Server default",
+"Déjà configuré": "Already configured",
+"Déjà à jour : aucune mise à jour à appliquer.": "Already up to date: no update to apply.",
+"Délai dépassé": "Timed out",
+"Démarrage UEFI Secure Boot": "UEFI Secure Boot",
+"Démarrage d'Open WebUI (jusqu'à 5 minutes au premier lancement)...": "Starting Open WebUI (up to 5 minutes on first launch)...",
+"Démarrage des services": "Starting services",
+"Démarré le": "Started on",
+"Déploiement d'Open WebUI": "Open WebUI deployment",
+"Déployer": "Deploy",
+"Déployer Open WebUI": "Deploy Open WebUI",
+"Dépôt": "Repository",
+"Dépôt GitHub": "GitHub repository",
+"Dépôt ou fichier introuvable sur GitHub (dépôt privé : renseignez un jeton d'accès).": "Repository or file not found on GitHub (private repository: provide an access token).",
+"Désactiver": "Disable",
+"Désactiver la répartition": "Disable load balancing",
+"Désactiver la répartition de charge": "Disable load balancing",
+"Désactiver le pare-feu": "Disable the firewall",
+"Désactiver le pare-feu ?": "Disable the firewall?",
+"Désactivé par défaut. Quand il est activé, le début de la dernière question de chaque requête est conservé sur ce serveur, visible des administrateurs seulement, avec masquage des clés, jetons, IBAN, numéros de carte et adresses e-mail. La conservation s'applique à tout l'historique des requêtes.": "Disabled by default. When enabled, the beginning of the last question of each request is kept on this server, visible to administrators only, with keys, tokens, IBANs, card numbers and e-mail addresses masked. Retention applies to the whole request history.",
+"Détection d'Ollama introuvable (service arrêté ?).": "Ollama detection not found (service stopped?).",
+"Détection des cartes réseau...": "Detecting network cards...",
+"E-mail de l'administrateur Open WebUI": "Open WebUI administrator e-mail",
+"ERREUR": "ERROR",
+"ERREUR : Open WebUI ne répond pas. Dernières lignes de son journal :": "ERROR: Open WebUI is not responding. Last lines of its log:",
+"Effacer": "Clear",
+"Effacer l'historique": "Clear the history",
+"Effacer tout l'historique des requêtes ? Cette action est définitive.": "Clear the whole request history? This cannot be undone.",
+"Elle est la seule façon de rouvrir le disque si le TPM ou la phrase de passe sont perdus, et elle ne sera plus jamais affichée.": "It is the only way to reopen the disk if the TPM or the passphrase are lost, and it will never be shown again.",
+"Elle ne sera plus jamais affichée.": "It will never be shown again.",
+"Embeddings multilingues (100+ langues), dimensions réductibles.": "Multilingual embeddings (100+ languages), reducible dimensions.",
+"Embeddings multilingues pour documents longs.": "Multilingual embeddings for long documents.",
+"Embeddings pour la recherche documentaire (RAG), très rapide.": "Embeddings for document search (RAG), very fast.",
+"Empreinte du certificat à vérifier lors de l'ajout :": "Certificate fingerprint to check when adding:",
+"En attente de la fin des tâches précédentes...": "Waiting for previous tasks to finish...",
+"En cas de perte d'accès : menu console du serveur, « Pare-feu : autoriser l'administration depuis tous les réseaux ».": "If you lose access: server console menu, “Firewall: allow administration from all networks”.",
+"En mémoire": "In memory",
+"Enregistrer": "Save",
+"Enregistrer et redémarrer Ollama": "Save and restart Ollama",
+"Enregistrer le début de la dernière question de chaque requête ? Il sera conservé sur ce serveur et visible des administrateurs de cette console ; les clés, jetons, IBAN, numéros de carte et adresses e-mail sont masqués.": "Record the beginning of the last question of each request? It will be kept on this server and visible to this console's administrators; keys, tokens, IBANs, card numbers and e-mail addresses are masked.",
+"Enregistrer le préchargement": "Save preloading",
+"Enregistrer un extrait de la demande": "Record an excerpt of the request",
+"Enregistré : chargement en cours.": "Saved: loading in progress.",
+"Enregistré, Ollama redémarré.": "Saved, Ollama restarted.",
+"Enregistré.": "Saved.",
+"Entièrement sur GPU": "Fully on GPU",
+"Entrée pour revenir au menu...": "Press Enter to return to the menu...",
+"Envoi de la commande au serveur.": "Sending the command to the server.",
+"Envoie 4 petites requêtes en même temps au modèle choisi, pour voir quels serveurs répondent. Le modèle sera chargé sur chaque serveur concerné, ce qui peut prendre du temps pour un gros modèle.": "Sends 4 small requests at the same time to the chosen model, to see which servers answer. The model will be loaded on each server involved, which can take time for a large model.",
+"Envoyer": "Send",
+"Erreur": "Error",
+"Erreurs": "Errors",
+"Examiner le nouveau certificat": "Review the new certificate",
+"Exemple : 192.168.1.50/24": "Example: 192.168.1.50/24",
+"Exiger une clé d'API (en-tête Authorization: Bearer)": "Require an API key (Authorization: Bearer header)",
+"Exécution d'Open WebUI (option)": "Runs Open WebUI (optional)",
+"Exécution du code des réponses": "Execution of code in answers",
+"Fermer": "Close",
+"Fichiers de l'appliance (configuration locale conservée)": "Appliance files (local configuration kept)",
+"File des tâches système (exécutées une à la fois) :": "System task queue (run one at a time):",
+"Filtrer les lignes": "Filter lines",
+"Filtrer les lignes...": "Filter lines...",
+"Finalisation (version, bannière de connexion, historique)": "Finalising (version, login banner, history)",
+"Firmware UEFI des tests": "UEFI firmware for tests",
+"Flash attention : 1 = activée": "Flash attention: 1 = enabled",
+"Fonctions cloud d'Ollama : modèles « :cloud » exécutés chez Ollama et recherche web via ollama.com (les données quittent le serveur)": "Ollama cloud features: “:cloud” models run at Ollama and web search via ollama.com (data leaves the server)",
+"Format : une lettre minuscule puis lettres, chiffres, « _ » ou « - »": "Format: a lowercase letter, then letters, digits, “_” or “-”",
+"Français": "French",
+"GPU + mémoire système (ralenti)": "GPU + system memory (slower)",
+"GPU :": "GPUs          :",
+"GPU détecté mais non utilisé par Ollama.": "GPU detected but not used by Ollama.",
+"GPU et accélération": "GPUs and acceleration",
+"GPU intégré ou à faible mémoire vidéo": "integrated GPU or low video memory",
+"GPU intégré écarté par Ollama : autorisez-le pour l'utiliser.": "Integrated GPU set aside by Ollama: allow it to use it.",
+"GPU intégrés (Intel, APU AMD) : 1 = autorisés": "Integrated GPUs (Intel, AMD APU): 1 = allowed",
+"GPU réservés au groupe": "GPUs reserved for the group",
+"GRUB_TIMEOUT doit être un nombre de secondes": "GRUB_TIMEOUT must be a number of seconds",
+"Garder": "Keep",
+"Gestion centralisée": "Centralised management",
+"Gestion des paquets et des mises à jour": "Package and update management",
+"GitHub injoignable : vérifiez l'accès Internet, le proxy et le DNS du serveur.": "GitHub unreachable: check the server's Internet access, proxy and DNS.",
+"Grand modèle ouvert d'OpenAI : un GPU de 80 Go.": "Large OpenAI open model: one 80 GB GPU.",
+"Groupe créé.": "Group created.",
+"Groupe modifié.": "Group updated.",
+"Groupes de GPU": "GPU groups",
+"Groupes et épinglage": "Groups and pinning",
+"Génération d'images (moteur externe à configurer : ComfyUI, Automatic1111, API)": "Image generation (external engine to configure: ComfyUI, Automatic1111, API)",
+"Génération des fichiers de l'appliance": "Generating the appliance files",
+"Gérer les modèles (télécharger, supprimer, créer)": "Manage models (download, delete, create)",
+"HTTP (en clair)": "HTTP (unencrypted)",
+"HTTPS (recommandé)": "HTTPS (recommended)",
+"Heure": "Time",
+"Heure du redémarrage": "Restart time",
+"Historique :": "History:",
+"Historique effacé.": "History cleared.",
+"Identifiant": "Username",
+"Identifiant (console, SSH et console d'administration web) :": "Username (console, SSH and web administration console):",
+"Identifiant invalide": "Invalid username",
+"Identifiant invalide : une minuscule puis lettres, chiffres, « _ » ou « - » (32 max).": "Invalid username: a lowercase letter, then letters, digits, “_” or “-” (32 max).",
+"Identifiant ou mot de passe incorrect.": "Incorrect username or password.",
+"Il n'a pas été chargé au démarrage": "It was not loaded at boot",
+"Images et vidéos en entrée": "Image and video input",
+"Impossible : il doit rester au moins un administrateur.": "Not possible: at least one administrator must remain.",
+"Indisponible sur le registre": "Unavailable in the registry",
+"Information": "Information",
+"Inférence CPU, CUDA et Vulkan (intégré à Ollama)": "CPU, CUDA and Vulkan inference (built into Ollama)",
+"Installation": "Installation",
+"Installation de Docker (paquet docker.io d'Ubuntu)": "Installing Docker (Ubuntu docker.io package)",
+"Installation des correctifs de sécurité": "Installing security fixes",
+"Installation des mises à jour de sécurité": "Installing security updates",
+"Installation des paquets de sécurité (pare-feu, mises à jour automatiques)": "Installing security packages (firewall, automatic updates)",
+"Installation du pilote NVIDIA": "NVIDIA driver installation",
+"Installation du support AMD ROCm pour Ollama": "Installing AMD ROCm support for Ollama",
+"Installation et démarrage": "Installation and boot",
+"Installation sur disque (utilisé par Subiquity)": "Disk installation (used by Subiquity)",
+"Installer OllamaBuntu (automatique - EFFACE le plus grand disque)": "Install OllamaBuntu     (automatic - ERASES the largest disk)",
+"Installer OllamaBuntu - affichage de secours (nomodeset)": "Install OllamaBuntu - safe graphics (nomodeset)",
+"Installer OllamaBuntu - console serie ttyS0 115200 (IPMI/SOL)": "Install OllamaBuntu - serial console ttyS0 115200 (IPMI/SOL)",
+"Installer ROCm pour Ollama (~1 Go)": "Install ROCm for Ollama (~1 GB)",
+"Installer Vulkan (Mesa)": "Install Vulkan (Mesa)",
+"Installer automatiquement les correctifs de sécurité Ubuntu": "Automatically install Ubuntu security fixes",
+"Installer le pilote NVIDIA": "Install the NVIDIA driver",
+"Installer le pilote NVIDIA (accès Internet nécessaire) ?": "Install the NVIDIA driver (Internet access required)?",
+"Installer le pilote Vulkan Mesa (accès Internet nécessaire) ?": "Install the Mesa Vulkan driver (Internet access required)?",
+"Installer les mises à jour de sécurité": "Install security updates",
+"Installer les paquets de sécurité": "Install the security packages",
+"Installeur automatique d'Ubuntu Server": "Ubuntu Server automatic installer",
+"Installé": "Installed",
+"Installés": "Installed",
+"Instance": "Instance",
+"Intelligence artificielle": "Artificial intelligence",
+"Interdire": "Forbid",
+"Interface de chat complète (historique, documents, comptes) branchée sur l'Ollama de ce serveur, publiée en HTTPS sur le port 8443. Nécessite un accès Internet (Docker et une image de plusieurs Go) et 10 Go libres.": "Full chat interface (history, documents, accounts) connected to this server's Ollama, published over HTTPS on port 8443. Requires Internet access (Docker and an image of several GB) and 10 GB of free space.",
+"Interface de chat déployable en option": "Optional chat interface",
+"Interpréteur de code (le modèle lance lui-même du code)": "Code interpreter (the model runs code itself)",
+"Interrogation du registre Ollama...": "Querying the Ollama registry...",
+"Interrogation du registre...": "Querying the registry...",
+"Interroger le registre": "Query the registry",
+"Introuvable": "Not found",
+"J'ai copié la clé": "I have copied the key",
+"J'ai copié le jeton": "I have copied the token",
+"Jeton": "Token",
+"Jeton d'accès en lecture (dépôt privé seulement)": "Read-only access token (private repository only)",
+"Jeton enregistré (laisser vide pour le conserver)": "Token saved (leave empty to keep it)",
+"Jeton refusé par GitHub.": "Token refused by GitHub.",
+"Jeton retiré.": "Token removed.",
+"Jetons (entrée / sortie)": "Tokens (in / out)",
+"Jetons générés": "Generated tokens",
+"Jetons par seconde": "Tokens per second",
+"Journaliser les connexions refusées (débit limité)": "Log refused connections (rate-limited)",
+"Journaux": "Logs",
+"Journaux système": "System logs",
+"KVM indisponible : la VM sera très lente": "KVM unavailable: the VM will be very slow",
+"L'ancienne clé de récupération sera révoquée. Continuer ?": "The old recovery key will be revoked. Continue?",
+"L'appliance vient d'être configurée depuis une autre console.": "The appliance has just been configured from another console.",
+"L'installation est terminée. Plus que quatre réglages :": "Installation is complete. Just four settings left:",
+"La clé n'a pas été créée (phrase refusée ?). Rien n'a été modifié.": "The key was not created (passphrase refused?). Nothing was changed.",
+"La configuration réseau a été refusée par netplan.": "The network configuration was rejected by netplan.",
+"La mise à jour a échoué": "The update failed",
+"La phrase doit contenir au moins 12 caractères.": "The passphrase must contain at least 12 characters.",
+"La phrase n'a pas pu être enregistrée (voir /var/log/ollamabuntu-crypt.log).": "The passphrase could not be saved (see /var/log/ollamabuntu-crypt.log).",
+"La référence 8B, très largement prise en charge.": "The reference 8B, very widely supported.",
+"La répartition n'est pas activée pour ce serveur : utilisez « Activer la répartition de charge » sur sa carte (onglet Parc).": "Load balancing is not enabled for this server: use “Enable load balancing” on its card (Fleet tab).",
+"La somme de l'archive est absente de SHA256SUMS : mise à jour refusée.": "The archive checksum is missing from SHA256SUMS: update refused.",
+"La valeur d'un modèle s'applique à toutes les requêtes de l'API d'Ollama (console, Open WebUI, applications), sauf si la requête précise sa propre taille. La mémoire est estimée pour une requête à la fois.": "A model's value applies to all Ollama API requests (console, Open WebUI, applications), unless the request specifies its own size. Memory is estimated for one request at a time.",
+"La version contenue dans l'archive ne correspond pas à la version publiée : mise à jour refusée.": "The version inside the archive does not match the published version: update refused.",
+"La version de l'ISO est identique à la version installée.": "The ISO version is identical to the installed version.",
+"La version publiée est identique à la version installée.": "The published version is identical to the installed version.",
+"Laissez vide pour la valeur par défaut. L'enregistrement redémarre Ollama.": "Leave empty for the default value. Saving restarts Ollama.",
+"Lancer le test": "Run the test",
+"Langue / Language": "Language / Langue",
+"Le certificat HTTPS est auto-signé (avertissement du navigateur à la": "The HTTPS certificate is self-signed (browser warning on the",
+"Le compte ollama n'a pas accès au périphérique ROCm (/dev/kfd, groupe render) : appliquez la mise à jour de l'appliance, puis redémarrez le serveur.": "The ollama account cannot access the ROCm device (/dev/kfd, render group): apply the appliance update, then restart the server.",
+"Le contenu des demandes n'est pas enregistré.": "The content of requests is not recorded.",
+"Le jeton n'est envoyé qu'à api.github.com, jamais affiché ensuite, et conservé dans un fichier réservé à root.": "The token is only sent to api.github.com, never displayed afterwards, and kept in a file reserved to root.",
+"Le meilleur modèle de code local sur 24 Go (mixture d'experts).": "The best local code model on 24 GB (mixture of experts).",
+"Le mot de passe doit contenir au moins 8 caractères.": "The password must contain at least 8 characters.",
+"Le mot de passe doit être différent de l'identifiant.": "The password must differ from the username.",
+"Le serveur a redémarré": "The server has restarted",
+"Le serveur est hors ligne.": "The server is offline.",
+"Le serveur ne redémarre pas automatiquement : notez ce message, puis Ctrl+Alt+Suppr.": "The server does not restart automatically: note this message, then press Ctrl+Alt+Del.",
+"Le serveur ne répond plus.": "The server no longer responds.",
+"Le serveur redémarre...": "The server is restarting...",
+"Les deux saisies ne sont pas identiques.": "The two entries do not match.",
+"Les deux saisies sont différentes.": "The two entries differ.",
+"Les empreintes sont identiques": "The fingerprints match",
+"Les requêtes vers les modèles « :cloud » et la recherche web sont traitées par Ollama, hors de ce serveur : les données envoyées quittent votre infrastructure.": "Requests to “:cloud” models and web search are processed by Ollama, outside this server: the data sent leaves your infrastructure.",
+"Licence Open WebUI (BSD-3 avec clause de marque, voir le dépôt)": "Open WebUI licence (BSD-3 with branding clause, see repository)",
+"Limite de requêtes GitHub atteinte : réessayez plus tard.": "GitHub rate limit reached: try again later.",
+"Logiciels libres utilisés": "Open source software used",
+"Longueur": "Length",
+"Machine : \\n": "Hostname           : \\n",
+"Maintenance": "Maintenance",
+"Masquer": "Hide",
+"Maximum du modèle": "Model maximum",
+"Meilleur raisonnement local pour 12 Go de VRAM.": "Best local reasoning for 12 GB of VRAM.",
+"Menu de démarrage de l'ISO": "ISO boot menu",
+"Menu de l'appliance": "Appliance menu",
+"Mettre a jour - console serie ttyS0 115200": "Update - serial console ttyS0 115200",
+"Mettre à jour": "Update",
+"Mettre à jour depuis le CD/ISO ou la clé USB": "Update from the CD/ISO or USB key",
+"Mettre à jour depuis un CD/ISO ou une clé USB": "Update from a CD/ISO or USB key",
+"Mettre à jour l'appliance depuis Internet (les services IA redémarrent) ? [o/N]": "Update the appliance from the Internet (AI services restart)? [y/N]",
+"Mettre à jour l'appliance depuis le CD/ISO ou la clé USB connectés ? Les services IA redémarrent ; comptes, réglages et modèles sont conservés.": "Update the appliance from the connected CD/ISO or USB key? AI services restart; accounts, settings and models are kept.",
+"Mettre à jour maintenant (les services IA redémarrent) ? [o/N]": "Update now (AI services restart)? [y/N]",
+"Mise à jour": "Update",
+"Mise à jour d'Open WebUI": "Open WebUI update",
+"Mise à jour de l'appliance": "Appliance update",
+"Mise à jour de l'appliance depuis Internet (GitHub)": "Appliance update from the Internet (GitHub)",
+"Mise à jour de l'appliance depuis un CD/ISO ou une clé USB": "Appliance update from a CD/ISO or USB key",
+"Mise à jour de l'appliance...": "Updating the appliance...",
+"Mise à jour depuis Internet": "Update from the Internet",
+"Mise à jour depuis un CD/ISO ou une clé USB": "Update from a CD/ISO or a USB key",
+"Mise à jour du système": "System update",
+"Mise à jour terminée": "Update complete",
+"Mise à jour terminée : redémarrage dans 10 secondes": "Update complete: restarting in 10 seconds",
+"Mise à jour terminée.": "Update complete.",
+"Mises à jour": "Updates",
+"Mises à jour automatiques": "Automatic updates",
+"Mises à jour automatiques désactivées.": "Automatic updates disabled.",
+"Mises à jour de sécurité automatiques": "Automatic security updates",
+"Mises à jour de sécurité automatiques désactivées": "Automatic security updates disabled",
+"Mises à jour du système": "System updates",
+"Mises à jour et sécurité": "Updates and security",
+"Mixture d'experts orientée agents et code.": "Mixture of experts geared towards agents and code.",
+"Modifier": "Edit",
+"Modifier l'identifiant": "Change the username",
+"Modifier la configuration réseau": "Change the network configuration",
+"Modifier le mot de passe": "Change the password",
+"Modifier le nom de machine": "Change the hostname",
+"Modifier le réseau": "Change the network",
+"Modifié le": "Modified on",
+"Modèle": "Model",
+"Modèle cloud": "Cloud model",
+"Modèle de base": "Base model",
+"Modèle ouvert d'OpenAI : raisonnement et agents, contexte long sobre en mémoire.": "OpenAI open model: reasoning and agents, memory-efficient long context.",
+"Modèle à tester": "Model to test",
+"Modèles": "Models",
+"Modèles :": "Models        :",
+"Modèles : aucun modèle embarqué (PRELOAD_MODELS vide)": "Models: no bundled model (PRELOAD_MODELS empty)",
+"Modèles : aucun modèle embarqué dans cette ISO, modèles installés conservés": "Models: no model bundled in this ISO, installed models kept",
+"Modèles autorisés (aucun coché = tous)": "Allowed models (none checked = all)",
+"Modèles embarqués": "Bundled models",
+"Modèles embarqués dans l'ISO : ajout / mise à jour (les autres modèles sont conservés)": "Models bundled in the ISO: adding / updating (other models are kept)",
+"Modèles en commun": "Shared models",
+"Modèles gardés en mémoire en permanence et rechargés automatiquement après un redémarrage : pas d'attente au premier appel.": "Models kept in memory permanently and reloaded automatically after a restart: no wait on the first call.",
+"Modèles installés": "Installed models",
+"Modèles personnalisés": "Custom models",
+"Modèles servis par ce groupe": "Models served by this group",
+"Mon compte": "My account",
+"Mot de passe": "Password",
+"Mot de passe : ********": "Password     : ********",
+"Mot de passe Open WebUI refusé (8 caractères minimum).": "Open WebUI password refused (8 characters minimum).",
+"Mot de passe actuel": "Current password",
+"Mot de passe actuel incorrect.": "Current password incorrect.",
+"Mot de passe modifié pour la console, SSH et l'administration web.": "Password changed for the console, SSH and web administration.",
+"Mot de passe refusé": "Password refused",
+"Mot de passe trop court": "Password too short",
+"Mot de passe trop court (8 caractères minimum).": "Password too short (8 characters minimum).",
+"Moteur Vulkan : 0 = désactivé": "Vulkan engine: 0 = disabled",
+"Moteur d'exécution des modèles (API, CLI)": "Model runtime (API, CLI)",
+"Mémoire": "Memory",
+"Mémoire du contexte": "Context memory",
+"Mémoire vidéo": "Video memory",
+"Mémoire vidéo occupée": "Video memory used",
+"NVIDIA : GPU utilisés (ex. 0,1)": "NVIDIA: GPUs used (e.g. 0,1)",
+"Nom": "Name",
+"Nom affiché": "Display name",
+"Nom de l'application ou du service": "Application or service name",
+"Nom de la console principale": "Main console name",
+"Nom de machine": "Hostname",
+"Nom de machine invalide": "Invalid hostname",
+"Nom du groupe": "Group name",
+"Nom du serveur (exemple : ia-prod-01 ou ia-prod-01.mondomaine.local) :": "Server name (example: ai-prod-01 or ai-prod-01.mydomain.local):",
+"Nombre de jetons qu'un modèle garde en tête pour une conversation : questions, réponses et documents fournis. Plus il est grand, plus le modèle se souvient, mais plus il occupe de mémoire vidéo ; au-delà de la mémoire de la carte, il déborde sur celle du serveur et ralentit fortement.": "Number of tokens a model keeps in mind for a conversation: questions, answers and documents provided. The larger it is, the more the model remembers, but the more video memory it uses; beyond the card's memory, it spills over into the server's memory and slows down sharply.",
+"Nombre maximal de modèles chargés simultanément": "Maximum number of models loaded at the same time",
+"Non": "No",
+"Non, la réafficher": "No, show it again",
+"Notes de la version": "Release notes",
+"Notez cette clé et conservez-la HORS de ce serveur (coffre, gestionnaire de mots de passe).": "Write this key down and keep it OFF this server (safe, password manager).",
+"Notez cette clé et conservez-la HORS de ce serveur.": "Write this key down and keep it OFF this server.",
+"Nouveau compte": "New account",
+"Nouveau groupe": "New group",
+"Nouveau mot de passe": "New password",
+"Nouvelle clé": "New key",
+"Nouvelle clé de récupération": "New recovery key",
+"Nouvelle conversation": "New conversation",
+"Nouvelle conversation.": "New conversation.",
+"Nouvelle phrase de passe (12 caractères au moins) :": "New passphrase (at least 12 characters):",
+"Noyau": "Kernel",
+"Noyau (pilotes GPU)": "Kernel (GPU drivers)",
+"Noyau : paramètres réseau et mémoire durcis": "Kernel: hardened network and memory settings",
+"Nécessite un accès Internet depuis le serveur (registry.ollama.ai).": "Requires Internet access from the server (registry.ollama.ai).",
+"OB_SIGNING_KEY absent : archive non signée (les appliances la refuseront)": "OB_SIGNING_KEY not set: unsigned archive (appliances will refuse it)",
+"Obligatoire": "Required",
+"Ollama": "Ollama",
+"Ollama calcule sur": "Ollama computes on",
+"Ollama peut accéder à Internet (sinon : seuls les téléchargements de modèles lancés depuis cette console, le temps du téléchargement)": "Ollama can access the Internet (otherwise: only model downloads started from this console, for the duration of the download)",
+"Ollama, la console d'administration web et les modèles sont déjà": "Ollama, the web administration console and the models are already",
+"OllamaBuntu - Administration": "OllamaBuntu - Administration",
+"OllamaBuntu assemble et configure les projets open source suivants, sans les modifier. Merci à leurs auteurs et contributeurs.": "OllamaBuntu assembles and configures the following open source projects, without modifying them. Thanks to their authors and contributors.",
+"OllamaBuntu est prêt": "OllamaBuntu is ready",
+"Open WebUI (HTTPS)": "Open WebUI (HTTPS)",
+"Open WebUI (appliqué lors de son déploiement) : fonctions autorisées": "Open WebUI (applied when deployed): allowed features",
+"Open WebUI : fonctions autorisées": "Open WebUI: allowed features",
+"Open WebUI est prêt : https://<adresse-du-serveur>:8443/": "Open WebUI is ready: https://<server-address>:8443/",
+"Open WebUI et toutes ses données ont été supprimés.": "Open WebUI and all its data have been removed.",
+"Open WebUI ne répond pas : il n'est pas déployé, ou il démarre encore.": "Open WebUI is not responding: it is not deployed, or it is still starting.",
+"Open WebUI répond.": "Open WebUI is responding.",
+"Origines autorisées": "Allowed sources",
+"Oui": "Yes",
+"Oui, c'est fait": "Yes, done",
+"Outils (appels de fonctions)": "Tools (function calls)",
+"Ouvrir sa console": "Open its console",
+"Ouvrir un shell Linux": "Open a Linux shell",
+"Paquet": "Package",
+"Paquets de sécurité à embarquer (pare-feu, mises à jour automatiques)": "Security packages to bundle (firewall, automatic updates)",
+"Par défaut pour tous les modèles": "Default for all models",
+"Par modèle": "Per model",
+"Parametres du firmware UEFI": "UEFI firmware settings",
+"Paramètres": "Parameters",
+"Paramètres / quantif.": "Parameters / quant.",
+"Paramètres avancés": "Advanced settings",
+"Paramètres avancés d'Ollama": "Advanced Ollama settings",
+"Parc": "Fleet",
+"Pare-feu": "Firewall",
+"Pare-feu : autoriser l'administration depuis tous les réseaux": "Firewall: allow administration from all networks",
+"Pare-feu : refus par défaut en entrée": "Firewall: inbound denied by default",
+"Pare-feu actif": "Firewall enabled",
+"Pare-feu inactif": "Firewall inactive",
+"Partage de conversations vers la communauté Open WebUI": "Sharing conversations to the Open WebUI community",
+"Partiellement sur GPU": "Partly on GPU",
+"Pas encore de données sur cette période": "No data yet for this period",
+"Passerelle invalide": "Invalid gateway",
+"Passerelle par défaut (laisser vide s'il n'y en a pas) :": "Default gateway (leave empty if there is none):",
+"Performances": "Performance",
+"Personnalisés et préchargement": "Custom and preloading",
+"Petit modèle polyvalent de Meta, à l'aise même sur processeur.": "Small all-round model from Meta, comfortable even on CPU.",
+"Phrase de passe actuelle du disque :": "Current disk passphrase:",
+"Phrase de passe du disque": "Disk passphrase",
+"Phrase trop courte": "Passphrase too short",
+"Pile de calcul AMD, installée à la demande": "AMD compute stack, installed on demand",
+"Pilote NVIDIA absent (pilote libre « nouveau » actif, inutilisable pour le calcul).": "NVIDIA driver missing (open-source “nouveau” driver active, unusable for compute).",
+"Pilote NVIDIA chargé.": "NVIDIA driver loaded.",
+"Pilote NVIDIA « open », installé à la demande": "NVIDIA “open” driver, installed on demand",
+"Pilote prêt mais carte non utilisée par Ollama : redémarrez Ollama, sinon consultez Journaux > Ollama.": "Driver ready but card not used by Ollama: restart Ollama, otherwise see Logs > Ollama.",
+"Pilotes Vulkan Intel / AMD, installés à la demande": "Intel / AMD Vulkan drivers, installed on demand",
+"Point d'API": "API endpoint",
+"Police du logo (vectorisée)": "Logo font (vectorised)",
+"Politique appliquée.": "Policy applied.",
+"Politique d'usage de l'IA": "AI usage policy",
+"Polyvalent multimodal, tient dans 8 Go de VRAM.": "All-round multimodal, fits in 8 GB of VRAM.",
+"Port": "Port",
+"Premier jeton": "First token",
+"Privilégier le modèle déjà chargé en mémoire": "Prefer the model already loaded in memory",
+"Processeur": "Processor",
+"Processeur et mémoire": "CPU and memory",
+"Prompt système": "System prompt",
+"Protocole": "Protocol",
+"Préchargement": "Preloading",
+"Préchargement désactivé.": "Preloading disabled.",
+"Préparation...": "Preparing...",
+"Présent dans Ubuntu, désactivé par l'appliance": "Present in Ubuntu, disabled by the appliance",
+"Présent sur": "Present on",
+"Publication de l'API": "API publication",
+"Publication de l'API Ollama": "Ollama API publishing",
+"Publier l'API sur le réseau": "Publish the API on the network",
+"Publier sans clé": "Publish without a key",
+"Publier sans clé ?": "Publish without a key?",
+"Pénalité de répétition": "Repetition penalty",
+"Période affichée": "Displayed period",
+"Quand plusieurs serveurs ont le même modèle, cette console envoie chaque requête à l'un d'eux. Un serveur n'est utilisé que si la répartition y est activée, s'il est en ligne et s'il a le modèle demandé.": "When several servers have the same model, this console sends each request to one of them. A server is used only if balancing is enabled on it, it is online and it has the requested model.",
+"Que voulez-vous faire ?": "What do you want to do?",
+"Raisonnement": "Reasoning",
+"Recherche de la version publiée": "Looking for the published version",
+"Recherche des mises à jour": "Checking for updates",
+"Recherche du CD/ISO ou de la clé USB, puis application de la mise à jour.": "Looking for the CD/ISO or USB key, then applying the update.",
+"Recherche du système OllamaBuntu installé sur les disques...": "Looking for the installed OllamaBuntu system on the disks...",
+"Recherche en cours...": "Searching...",
+"Recherche sur Internet": "Internet search",
+"Rechercher automatiquement une nouvelle version chaque jour": "Automatically check for a new version every day",
+"Rechercher maintenant": "Check now",
+"Rechercher une mise à jour": "Check for updates",
+"Recommandés": "Recommended",
+"Recommandés pour ce serveur": "Recommended for this server",
+"Reconnectez-vous.": "Please sign in again.",
+"Reconstruction de l'ISO hybride BIOS/UEFI": "Rebuilds the hybrid BIOS/UEFI ISO",
+"Redémarrage": "Restart",
+"Redémarrage d'Ollama": "Ollama restart",
+"Redémarrage demandé...": "Restart requested...",
+"Redémarrage des services": "Restarting services",
+"Redémarrage des services...": "Restarting services...",
+"Redémarrage requis pour appliquer des correctifs": "Restart required to apply fixes",
+"Redémarrer": "Restart",
+"Redémarrer Ollama": "Restart Ollama",
+"Redémarrer Ollama et la console web": "Restart Ollama and the web console",
+"Redémarrer automatiquement si un correctif l'exige (noyau...)": "Restart automatically if a fix requires it (kernel...)",
+"Redémarrer le serveur": "Restart the server",
+"Redémarrer le serveur maintenant ?": "Restart the server now?",
+"Redémarrez le serveur pour l'activer.": "Restart the server to activate it.",
+"Requêtes": "Requests",
+"Requêtes Ollama": "Ollama requests",
+"Requêtes par minute": "Requests per minute",
+"Requêtes récentes": "Recent requests",
+"Requêtes servies (24 h)": "Requests served (24 h)",
+"Requêtes traitées en parallèle par modèle": "Requests processed in parallel per model",
+"Requêtes vers les modèles": "Requests to the models",
+"Retirer": "Remove",
+"Retirer de la file": "Remove from the queue",
+"Retirer le jeton": "Remove the token",
+"Retirer le jeton d'accès enregistré ?": "Remove the saved access token?",
+"Retour": "Back",
+"Règles appliquées.": "Rules applied.",
+"Réappliquer quand même ? [o/N]": "Apply anyway? [y/N]",
+"Récapitulatif": "Summary",
+"Réessayer": "Try again",
+"Réflexion en cours…": "Thinking…",
+"Réglage repris de la version précédente : créez des clés puis exigez-les.": "Setting carried over from the previous version: create keys, then require them.",
+"Réglages de la mise à jour en ligne": "Online update settings",
+"Répartir : le serveur le moins occupé, à tour de rôle": "Spread: the least busy server, taking turns",
+"Répartir chaque modèle sur tous les GPU : 1 = oui (sinon un seul GPU quand le modèle y tient)": "Spread each model across all GPUs: 1 = yes (otherwise a single GPU when the model fits)",
+"Répartissable": "Can be balanced",
+"Répartition": "Balancing",
+"Répartition de charge": "Load balancing",
+"Réponse de GitHub illisible.": "Unreadable GitHub response.",
+"Réponse en cours": "Answer in progress",
+"Réseau": "Network",
+"Réseau (1/2) - Carte réseau": "Network (1/2) - Network card",
+"Réseau (2/2) - Adressage IPv4": "Network (2/2) - IPv4 addressing",
+"Réseau : pas d'adresse IP": "Network: no IP address",
+"Réseaux autorisés (un par ligne, vide = tous)": "Allowed networks (one per line, empty = all)",
+"Réseaux d'administration autorisés (SSH et console), un par ligne, vide = tous": "Allowed administration networks (SSH and console), one per line, empty = all",
+"Réservez des cartes à certains modèles : chaque groupe est une instance Ollama qui ne voit que ses cartes, et les requêtes (console, Open WebUI, API) sont orientées automatiquement vers le bon groupe. Les modèles hors groupe utilisent les cartes restantes.": "Reserve cards for specific models: each group is an Ollama instance that only sees its own cards, and requests (console, Open WebUI, API) are routed to the right group automatically. Models outside any group use the remaining cards.",
+"Réservé aux administrateurs.": "Administrators only.",
+"Résultat du test": "Test result",
+"Révoquer": "Revoke",
+"Rôle": "Role",
+"Rôle invalide.": "Invalid role.",
+"S'applique aussi à l'API compatible OpenAI. Appliquer redémarre Ollama.": "Also applies to the OpenAI-compatible API. Applying restarts Ollama.",
+"SIGNATURE INVALIDE : la mise à jour n'est pas authentique, elle est refusée.": "INVALID SIGNATURE: the update is not authentic and is refused.",
+"SSH (administration, débit limité par adresse)": "SSH (administration, rate-limited per address)",
+"SSH : root interdit, tentatives limitées, X11 désactivé": "SSH: root forbidden, attempts limited, X11 disabled",
+"Saisissez au moins une adresse IP valide (exemple : 10.0.0.53 1.1.1.1).": "Enter at least one valid IP address (example: 10.0.0.53 1.1.1.1).",
+"Saisissez ce jeton dans la console principale (Serveurs > Ajouter un serveur). Il ne sera plus jamais affiché.": "Enter this token in the main console (Servers > Add a server). It will never be shown again.",
+"Saisissez à nouveau le mot de passe :": "Enter the password again:",
+"Saisissez-la à nouveau :": "Enter it again:",
+"Sauvegarde des fichiers de l'appliance": "Backing up the appliance files",
+"Sauvegarde des fichiers de l'appliance (retour arrière possible)": "Backing up the appliance files (rollback possible)",
+"Script PowerShell pour Windows (Docker Desktop, sans Git Bash ni WSL)": "PowerShell script for Windows (Docker Desktop, no Git Bash or WSL)",
+"Scripts de l'appliance": "Appliance scripts",
+"Se connecter": "Sign in",
+"Se déconnecter": "Sign out",
+"Serveur": "Server",
+"Serveur ajouté, répartition de charge activée.": "Server added, load balancing enabled.",
+"Serveur ajouté.": "Server added.",
+"Serveur éteint": "Server shut down",
+"Serveurs": "Servers",
+"Serveurs DNS, séparés par des espaces :": "DNS servers, separated by spaces:",
+"Service": "Service",
+"Services, démarrage, journaux": "Services, boot, logs",
+"Session": "Session",
+"Session expirée : reconnectez-vous.": "Session expired: please sign in again.",
+"Somme SHA-256 de l'archive incorrecte : mise à jour refusée.": "Incorrect archive SHA-256 checksum: update refused.",
+"Statut": "Status",
+"Stratégie": "Strategy",
+"Suivant": "Next",
+"Suivi en direct": "Live follow",
+"Suppression d'Open WebUI et de ses données": "Removing Open WebUI and its data",
+"Suppression du conteneur Open WebUI": "Removing the Open WebUI container",
+"Supprimer": "Delete",
+"Sur le serveur lui-même (console, Open WebUI, scripts locaux), l'API reste accessible sans clé sur 127.0.0.1:11434. Cette carte règle l'accès depuis le réseau.": "On the server itself (console, Open WebUI, local scripts), the API remains available without a key on 127.0.0.1:11434. This card controls access from the network.",
+"Sur le serveur à ajouter : Système > Gestion centralisée > « Autoriser une console principale », puis copiez le jeton affiché. Ce serveur pourra alors être supervisé d'ici (état, charge, alertes) et recevoir des actions de maintenance ; ses comptes, réglages et conversations restent inaccessibles.": "On the server to add: System > Centralised management > “Authorise a main console”, then copy the token shown. That server can then be monitored from here (status, load, alerts) and receive maintenance actions; its accounts, settings and conversations remain inaccessible.",
+"Sur processeur": "On CPU",
+"Synchronisation terminée": "Synchronisation complete",
+"Synchroniser": "Synchronise",
+"Synchroniser tout le parc...": "Synchronise the whole fleet...",
+"Synchroniser...": "Synchronise...",
+"Système": "System",
+"Système (avertissements)": "System (warnings)",
+"Système d'exploitation (Canonical)": "Operating system (Canonical)",
+"Système de base": "Base system",
+"Sécurité": "Security",
+"Sélectionnée : Ctrl+C pour copier.": "Selected: Ctrl+C to copy.",
+"Tableau de bord": "Dashboard",
+"Taille": "Size",
+"Taille de contexte par défaut (jetons)": "Default context size (tokens)",
+"Taille du contexte": "Context size",
+"Taille du contexte de la conversation": "Conversation context size",
+"Temps avant le premier jeton": "Time to first token",
+"Température": "Temperature",
+"Terminer": "Finish",
+"Terminé": "Done",
+"Test en cours...": "Test running...",
+"Tester la répartition": "Test the balancing",
+"Tests de démarrage BIOS/UEFI et VM": "BIOS/UEFI and VM boot tests",
+"Tests de l'assistant console (émulateur de terminal)": "Console wizard tests (terminal emulator)",
+"Tests de l'interface web": "Web interface tests",
+"Tous les autres ports sont fermés depuis le réseau, dont Ollama, les groupes de GPU et Open WebUI en HTTP (3000).": "All other ports are closed from the network, including Ollama, GPU groups and Open WebUI over HTTP (3000).",
+"Tous les ports en écoute deviendront joignables depuis le réseau, dont Open WebUI en HTTP (3000).": "All listening ports will become reachable from the network, including Open WebUI over HTTP (3000).",
+"Tout mettre à jour": "Update everything",
+"Toutes les requêtes": "All requests",
+"Toutes les requêtes passant par l'API (console, Open WebUI, applications, parc). Par défaut, seules des métadonnées sont enregistrées ; un extrait de la demande peut être ajouté ci-dessous.": "All requests going through the API (console, Open WebUI, applications, fleet). By default only metadata is recorded; an excerpt of the request can be added below.",
+"Trop de tentatives : réessayez dans quelques minutes.": "Too many attempts: try again in a few minutes.",
+"Trop gros pour ce serveur": "Too large for this server",
+"Très léger, vision intégrée : idéal sans GPU.": "Very light, built-in vision: ideal without a GPU.",
+"Tâche": "Task",
+"Téléchargement depuis GitHub, vérification de la signature, puis application de la mise à jour.": "Downloading from GitHub, checking the signature, then applying the update.",
+"Téléchargement des modèles synchronisés depuis la console principale": "Downloading models synchronised from the main console",
+"Téléchargement et vérification de la signature": "Downloading and checking the signature",
+"Téléchargements (ISO Ubuntu, Ollama, modèles)": "Downloads (Ubuntu ISO, Ollama, models)",
+"Télécharger": "Download",
+"Télécharger le module AMD ROCm d'Ollama (environ 1 Go) ?": "Download Ollama's AMD ROCm module (about 1 GB)?",
+"Télécharger un modèle": "Download a model",
+"Un redémarrage du serveur est nécessaire pour terminer une installation.": "A server restart is required to complete an installation.",
+"Un serveur physique peut mettre plusieurs minutes.": "A physical server can take several minutes.",
+"Une configuration est déjà en cours sur une autre console.": "A configuration is already in progress on another console.",
+"Une mise à jour en ligne est déjà en cours.": "An online update is already running.",
+"Une nouvelle version est disponible.": "A new version is available.",
+"Usages de l'IA": "AI usage",
+"Utilisateur": "User",
+"Utilisateur (chat et modèles)": "User (chat and models)",
+"Utilisateurs": "Users",
+"Utiliser les modèles (chat, génération, embeddings)": "Use models (chat, generation, embeddings)",
+"Valeur par défaut d'Ollama": "Ollama default",
+"Validation (outils de test, non embarqués)": "Validation (test tools, not shipped)",
+"Variante d'un modèle installé avec son propre prompt système et ses paramètres (par exemple un assistant RH qui répond toujours en français, avec une température basse). Les poids ne sont pas dupliqués ; la variante s'utilise par son nom, comme tout modèle.": "A variant of an installed model with its own system prompt and settings (for example an HR assistant that always answers in French, with a low temperature). Weights are not duplicated; the variant is used by its name, like any model.",
+"Verrouiller : les administrateurs d'Open WebUI ne peuvent pas modifier ces réglages": "Lock: Open WebUI administrators cannot change these settings",
+"Version": "Version",
+"Version demandée introuvable.": "Requested version not found.",
+"Version installée": "Installed version",
+"Version publiée": "Published version",
+"Versions proposées": "Offered versions",
+"Versions stables": "Stable versions",
+"Versions stables et préversions": "Stable versions and previews",
+"Vision : captures d'écran, documents, interfaces.": "Vision: screenshots, documents, interfaces.",
+"Vitesse par requête": "Speed per request",
+"Voir": "View",
+"Voir la version sur GitHub": "View the release on GitHub",
+"Votre message (Entrée pour envoyer, Maj+Entrée pour aller à la ligne)": "Your message (Enter to send, Shift+Enter for a new line)",
+"Vous ne pouvez pas modifier votre propre rôle.": "You cannot change your own role.",
+"Vous ne pouvez pas supprimer votre propre compte.": "You cannot delete your own account.",
+"Vous pouvez corriger puis réappliquer.": "You can fix this, then apply again.",
+"Vous pouvez retirer la clé USB / le CD (sinon le menu démarrera le système à jour).": "You can remove the USB key / CD (otherwise the menu will start the updated system).",
+"Vue d'ensemble": "Overview",
+"Vulkan : GPU utilisés (ex. 1)": "Vulkan: GPUs used (e.g. 1)",
+"Vulkan est installé.": "Vulkan is installed.",
+"Vérification de l'ISO produite": "Checking the produced ISO",
+"Vérification de l'espace disque": "Checking disk space",
+"Vérification des prérequis": "Checking prerequisites",
+"Vérification des prérequis (archive de mise à jour)": "Checking prerequisites (update archive)",
+"Vérification du serveur...": "Checking the server...",
+"Vérifier": "Check",
+"Vérifier et ajouter": "Check and add",
+"Vérifier le certificat": "Verify the certificate",
+"Vérifier un modèle avant de le télécharger": "Check a model before downloading it",
+"Vérifiez la configuration avant de l'appliquer :": "Check the configuration before applying it:",
+"Vérifiez le matériel puis relancez plus tard :": "Check the hardware, then run again later:",
+"WSL : construction sur un disque Windows (/mnt/...) possible mais lente ; ~/ est bien plus rapide": "WSL: building on a Windows drive (/mnt/...) works but is slow; ~/ is much faster",
+"absente": "missing",
+"accordez au moins un droit": "grant at least one right",
+"accès réseau désactivé": "network access disabled",
+"actif": "active",
+"action non autorisée à distance": "action not allowed remotely",
+"activation des services": "enabling services",
+"active": "active",
+"activée": "enabled",
+"adresse invalide : https://adresse[:port] (ex. https://10.0.0.21)": "invalid address: https://address[:port] (e.g. https://10.0.0.21)",
+"adresse non autorisée": "unauthorised address",
+"agetty (bannière console), lsblk, mount...": "agetty (console banner), lsblk, mount...",
+"arrêté": "stopped",
+"aucun": "none",
+"aucun (à télécharger depuis la console web)": "none (download them from the web console)",
+"aucun GPU restant, ces modèles tournent sur processeur": "no GPU left, these models run on CPU",
+"aucun modèle installé": "no models installed",
+"aucun nouveau certificat à approuver (ou empreinte différente)": "no new certificate to approve (or different fingerprint)",
+"aucun serveur en ligne à synchroniser": "no online server to synchronise",
+"aucun système OllamaBuntu trouvé sur les disques de ce serveur ; un volume chiffré (LUKS) a été détecté : démarrez le serveur, puis mettez à jour depuis Système > Mises à jour ou le menu console": "no OllamaBuntu system found on this server's disks; an encrypted (LUKS) volume was detected: start the server, then update from System > Updates or the console menu",
+"aucune": "none",
+"aucune carte réseau": "no network card",
+"authentification requise": "authentication required",
+"autoinstall.yaml invalide": "invalid autoinstall.yaml",
+"automatique, par le TPM de ce serveur": "automatic, by this server's TPM",
+"autre": "other",
+"basse": "low",
+"binaire ollama absent après extraction": "ollama binary missing after extraction",
+"canal inconnu": "unknown channel",
+"ce modèle est déjà une variante épinglée": "this model is already a pinned variant",
+"ce n'est pas une ISO Ubuntu Server live (pas de /boot/grub/grub.cfg)": "this is not an Ubuntu Server live ISO (no /boot/grub/grub.cfg)",
+"ce n'est pas une ISO Ubuntu Server live (pas de /casper)": "this is not an Ubuntu Server live ISO (no /casper)",
+"ce n'est pas une console OllamaBuntu": "this is not an OllamaBuntu console",
+"ce serveur est déjà enregistré": "this server is already registered",
+"certificat changé": "certificate changed",
+"certificat du serveur changé : approuvez-le d'abord": "server certificate changed: approve it first",
+"chargement...": "loading...",
+"chargé": "loaded",
+"chiffrement du disque : paquets clevis et TPM2 (archive universe) ajoutés": "disk encryption: clevis and TPM2 packages (universe archive) added",
+"chiffrement du disque demandé : les paquets clevis et TPM2 n'ont pas pu être téléchargés (voir ci-dessus)": "disk encryption requested: the clevis and TPM2 packages could not be downloaded (see above)",
+"chiffrement du disque demandé : paquets clevis et TPM2 non embarqués": "disk encryption requested: clevis and TPM2 packages not bundled",
+"choisissez au moins un GPU": "choose at least one GPU",
+"choisissez au moins un élément à synchroniser": "choose at least one item to synchronise",
+"cible non prise en charge par ROCm": "target not supported by ROCm",
+"cloud-init désactivé (l'appliance utilise son propre assistant)": "cloud-init disabled (the appliance uses its own wizard)",
+"clé d'API invalide ou révoquée": "invalid or revoked API key",
+"clé d'API requise (en-tête Authorization: Bearer <clé>)": "API key required (Authorization: Bearer <key> header)",
+"clé introuvable": "key not found",
+"clés et échanges transmis en clair": "keys and exchanges sent unencrypted",
+"compte administrateur": "administrator account",
+"compte de service ollama": "ollama service account",
+"configuration": "configuration",
+"conforme": "compliant",
+"consultation": "read",
+"correct": "correct",
+"correctif": "bug fix",
+"critique": "critical",
+"disque chiffré (LUKS2) : phrase provisoire générée pour cette ISO, supprimée à la fin de l'installation": "encrypted disk (LUKS2): temporary passphrase generated for this ISO, deleted at the end of the installation",
+"droits sudo du menu console": "console menu sudo rights",
+"durcissement : console (Ctrl+Alt+Suppr) et SSH": "hardening: console (Ctrl+Alt+Del) and SSH",
+"durcissement : mises à jour de sécurité automatiques (première configuration uniquement)": "hardening: automatic security updates (first configuration only)",
+"durcissement : paquets de sécurité": "hardening: security packages",
+"durcissement : pare-feu": "hardening: firewall",
+"durée de conservation": "retention period",
+"décodage spéculatif": "speculative decoding",
+"déjà dans un autre groupe": "already in another group",
+"démarrage BIOS perdu": "BIOS boot lost",
+"démarrage UEFI perdu": "UEFI boot lost",
+"dépôt GitHub invalide : attendu « propriétaire/dépôt »": "invalid GitHub repository: expected “owner/repository”",
+"dépôt non configuré": "repository not set",
+"désactivée": "disabled",
+"désactivées": "disabled",
+"empreinte de certificat manquante : vérifiez d'abord le serveur": "certificate fingerprint missing: check the server first",
+"en attente": "pending",
+"en direct": "live",
+"en ligne": "online",
+"en service": "running",
+"enregistrée": "recorded",
+"ex. Appli RH": "e.g. HR app",
+"ex. GPU-Paris-01": "e.g. GPU-Paris-01",
+"ex. Gros modèles": "e.g. Large models",
+"ex. Tu es l'assistant RH de l'entreprise. Réponds en français, de façon concise et factuelle.": "e.g. You are the company's HR assistant. Answer in English, concisely and factually.",
+"ex. assistant-rh": "e.g. hr-assistant",
+"ex. gpt-oss:20b, qwen3.5:9b": "e.g. gpt-oss:20b, qwen3.5:9b",
+"ex. jdupont": "e.g. jsmith",
+"ex. llama3.2:3b, qwen2.5:7b, mistral, gemma3:4b": "e.g. llama3.2:3b, qwen2.5:7b, mistral, gemma3:4b",
+"famille différente des autres cartes": "different family from the other cards",
+"fichiers OllamaBuntu présents et identiques": "OllamaBuntu files present and identical",
+"fichiers de l'appliance": "appliance files",
+"firmware OVMF introuvable (paquet ovmf)": "OVMF firmware not found (ovmf package)",
+"fonctions cloud d'Ollama désactivées (politique d'usage de l'IA de l'appliance)": "Ollama cloud features disabled (appliance AI usage policy)",
+"gestion": "management",
+"gpgv ou le trousseau Ubuntu absent : paquets non embarqués (le pare-feu dépendra des paquets du système installé)": "gpgv or the Ubuntu keyring missing: packages not bundled (the firewall will depend on the installed system's packages)",
+"groupe introuvable": "group not found",
+"haute": "high",
+"heure invalide (format HH:MM)": "invalid time (HH:MM format)",
+"hors ligne": "offline",
+"inactif": "inactive",
+"inconnu": "unknown",
+"inconnue": "unknown",
+"installez qemu-system-x86 (et ovmf pour l'UEFI)": "install qemu-system-x86 (and ovmf for UEFI)",
+"installé": "installed",
+"installés : rien d'autre ne sera demandé.": "installed: nothing else will be asked.",
+"interrompue": "interrupted",
+"introuvable": "not found",
+"jamais": "never",
+"jamais vérifié": "never checked",
+"jeton d'accès invalide": "invalid access token",
+"jeton de gestion centralisée invalide ou révoqué": "invalid or revoked centralised management token",
+"jeton refusé": "token refused",
+"jeton refusé par le serveur (copié en entier ? révoqué ?)": "token refused by the server (copied in full? revoked?)",
+"l'ISO produite reste une ISO x86-64 (amd64) pour serveurs": "the produced ISO remains an x86-64 (amd64) ISO for servers",
+"l'ISO source n'a pas d'image de démarrage BIOS (UEFI uniquement)": "the source ISO has no BIOS boot image (UEFI only)",
+"l'ISO source n'a pas d'image de démarrage UEFI": "the source ISO has no UEFI boot image",
+"la signature ne correspond pas à la clé publique de l'appliance (update-pubkey.pem) : mauvaise clé privée ?": "the signature does not match the appliance's public key (update-pubkey.pem): wrong private key?",
+"la valeur par défaut d'Ollama": "the Ollama default",
+"langue de l'appliance : bannière de connexion": "appliance language: login banner",
+"le certificat du serveur a changé depuis la vérification : recommencez": "the server certificate changed since the check: start again",
+"le mode --target n'accepte que / (système en marche)": "--target mode only accepts / (running system)",
+"le port 11434 est l'accès local en HTTP : choisissez un autre port pour HTTPS (par ex. 11443)": "port 11434 is the local HTTP access: choose another port for HTTPS (e.g. 11443)",
+"le serveur n'a pas fourni de jeton de routage (version trop ancienne ?)": "the server did not provide a routing token (version too old?)",
+"licences multiples": "multiple licences",
+"locale uniquement": "local only",
+"longueur de l'extrait": "excerpt length",
+"machine de build ARM64 : binaire Ollama ARM64 utilisé pour télécharger les modèles": "ARM64 build machine: ARM64 Ollama binary used to download the models",
+"message invalide": "invalid message",
+"mise à jour de md5sum.txt": "updating md5sum.txt",
+"mise à jour disponible": "update available",
+"module ROCm retiré (lié à l'ancienne version) : réinstallez-le depuis l'onglet GPU": "ROCm module removed (tied to the old version): reinstall it from the GPU tab",
+"modèle de base invalide": "invalid base model",
+"modèle personnalisé inconnu": "unknown custom model",
+"modèles": "models",
+"modèles déjà présents": "models already present",
+"mot-clé autoinstall absent du menu": "autoinstall keyword missing from the menu",
+"moyenne": "medium",
+"nom de clé invalide (1 à 40 caractères)": "invalid key name (1 to 40 characters)",
+"nom de clé invalide ou déjà utilisé": "invalid or already used key name",
+"nom de code de la version Ubuntu inconnu : paquets non embarqués": "unknown Ubuntu release codename: packages not bundled",
+"nom de groupe invalide (1 à 40 caractères)": "invalid group name (1 to 40 characters)",
+"nom de machine": "hostname",
+"nom de modèle invalide": "invalid model name",
+"nom de modèle invalide (lettres, chiffres, « . _ - : », ex. assistant-rh)": "invalid model name (letters, digits, “. _ - :”, e.g. hr-assistant)",
+"nom invalide (1 à 40 caractères)": "invalid name (1 to 40 characters)",
+"non": "no",
+"non (un seul serveur)": "no (single server)",
+"non déployé": "not deployed",
+"non déterminée": "undetermined",
+"non installé": "not installed",
+"nouveau": "new",
+"nouvelle version disponible": "new version available",
+"noyau HWE disponible": "HWE kernel available",
+"noyau/initrd introuvables dans grub.cfg de l'ISO": "kernel/initrd not found in the ISO's grub.cfg",
+"négligeable": "negligible",
+"openssl est nécessaire pour signer l'archive": "openssl is required to sign the archive",
+"openssl indisponible : signature impossible à vérifier.": "openssl unavailable: signature cannot be checked.",
+"oui": "yes",
+"oui (console + SSH)": "yes (console + SSH)",
+"paquets de sécurité non embarqués (voir ci-dessus) : l'ISO reste utilisable": "security packages not bundled (see above): the ISO remains usable",
+"par défaut": "default",
+"paramètres invalides": "invalid settings",
+"pare-feu désactivé": "firewall disabled",
+"pas de tiret au début ni à la fin).": "no hyphen at the start or end).",
+"phrase de passe saisie à chaque démarrage": "passphrase typed at every boot",
+"politique d'usage de l'IA": "AI usage policy",
+"port invalide": "invalid port",
+"pour ouvrir le menu de l'appliance.": "to open the appliance menu.",
+"première connexion). Empreinte SHA-256 à comparer :": "first connection). SHA-256 fingerprint to compare:",
+"prenom.nom@entreprise.com": "firstname.lastname@company.com",
+"prompt système trop long (20 000 caractères au maximum)": "system prompt too long (20,000 characters at most)",
+"propriétaire/dépôt": "owner/repository",
+"python3 est nécessaire pour générer le script PowerShell": "python3 is required to generate the PowerShell script",
+"redirection refusée vers un hôte non autorisé": "redirect to an unauthorised host refused",
+"redémarrez le serveur pour activer les derniers correctifs (noyau...)": "restart the server to activate the latest fixes (kernel...)",
+"requête de chat invalide": "invalid chat request",
+"requête non autorisée par la répartition de charge": "request not allowed by load balancing",
+"requête refusée": "request refused",
+"requête trop volumineuse": "request too large",
+"rien à faire": "nothing to do",
+"règles chargées": "rules loaded",
+"répartition": "load balancing",
+"répertoires de l'appliance": "appliance directories",
+"réponse trop volumineuse": "response too large",
+"rétroportage": "backport",
+"sans audio": "no audio",
+"sans images": "no images",
+"sans outils": "no tools",
+"sauvegarde": "backup",
+"seule une tâche en attente peut être annulée": "only a pending task can be cancelled",
+"signature impossible": "signing failed",
+"signature valide": "valid signature",
+"signature vérifiée avec la clé publique de l'appliance": "signature checked with the appliance's public key",
+"somme SHA-256 vérifiée": "SHA-256 checksum verified",
+"stratégie inconnue": "unknown strategy",
+"structure de démarrage conservée (El Torito BIOS + UEFI, MBR/GPT hybride)": "boot structure kept (El Torito BIOS + UEFI, hybrid MBR/GPT)",
+"suivi arrêté": "follow stopped",
+"support de mise à jour incomplet (rootfs.tar absent)": "incomplete update media (rootfs.tar missing)",
+"sécurité": "security",
+"t/s moyen": "Average t/s",
+"taille de contexte invalide": "invalid context size",
+"terminé": "done",
+"toute machine autorisée du réseau peut l'utiliser sans clé": "any allowed machine on the network can use it without a key",
+"toutes": "all",
+"trop d'essais : réessayez dans quelques minutes": "too many attempts: try again in a few minutes",
+"très lent": "very slow",
+"tâche inconnue": "unknown task",
+"un groupe porte déjà ce nom": "a group already has this name",
+"unattended-upgrades n'est pas installé : utilisez « Installer les paquets de sécurité ».": "unattended-upgrades is not installed: use “Install the security packages”.",
+"unattended-upgrades n'est pas installé sur ce serveur": "unattended-upgrades is not installed on this server",
+"une clé porte déjà ce nom": "a key already has this name",
+"utilisation": "use",
+"version invalide": "invalid version",
+"voir le dépôt": "see repository",
+"vérification impossible": "check failed",
+"xorriso a échoué": "xorriso failed",
+"À jour": "Up to date",
+"À propos": "About",
+"À traiter": "To do",
+"ÉCHEC DE LA MISE À JOUR": "UPDATE FAILED",
+"Épingler un modèle sur un GPU": "Pin a model to a GPU",
+"État": "Status",
+"État de l'appliance": "Appliance status",
+"État lu sur le système en fonctionnement.": "State read from the running system.",
+"État par serveur": "Status by server",
+"Éteindre": "Shut down",
+"Éteindre le serveur": "Shut down the server",
+"Éteindre le serveur maintenant ?": "Shut down the server now?",
+"à jour": "up to date",
+"à traiter": "to do",
+"échec": "failed"
+},
+"patterns": [
+[
+"Prise en charge native par le module ROCm \\((\\S+)\\) : aucun contournement nécessaire\\.",
+"Natively supported by the ROCm module ({1}): no workaround needed."
+],
+[
+"Cible (\\S+) absente du module ROCm : contournement appliqué automatiquement \\(HSA_OVERRIDE_GFX_VERSION=(\\S+)\\)\\.",
+"Target {1} missing from the ROCm module: workaround applied automatically (HSA_OVERRIDE_GFX_VERSION={2})."
+],
+[
+"Écartée automatiquement de ROCm \\((\\S+)\\) : (.+), pour ne pas gêner les autres cartes\\.",
+"Automatically excluded from ROCm ({1}): {2}, so as not to disturb the other cards."
+],
+[
+"Cible (\\S+) non prise en charge par le module ROCm : utilisez Vulkan\\.",
+"Target {1} not supported by the ROCm module: use Vulkan."
+],
+[
+"Dernier message d'Ollama sur ROCm : « (.+) »\\.",
+"Last Ollama message about ROCm: “{1}”."
+],
+[
+"Déverrouillage au démarrage : (.+)",
+"Unlock at boot: {1}"
+],
+[
+"Clé de récupération : (.+)",
+"Recovery key: {1}"
+],
+[
+"DISK_ENCRYPTION doit valoir none ou tpm \\(reçu : (.*)\\)",
+"DISK_ENCRYPTION must be none or tpm (received: {1})"
+],
+[
+"(\\d+) K jetons",
+"{1} K tokens"
+],
+[
+"([\\d\\u202f\\u00a0 ]+) jetons",
+"{1} tokens"
+],
+[
+"(.+) jetons \\(maximum\\)",
+"{1} tokens (maximum)"
+],
+[
+"Défaut du serveur \\((.+)\\)",
+"Server default ({1})"
+],
+[
+"Contexte de (.+)",
+"Context of {1}"
+],
+[
+"≈ (.+) \\((\\d+) requêtes parallèles\\)",
+"≈ {1} ({2} parallel requests)"
+],
+[
+"Appliquer (.+) à tous les modèles \\? Ollama redémarre : les requêtes en cours sont interrompues\\.",
+"Apply {1} to all models? Ollama restarts: requests in progress are interrupted."
+],
+[
+"au-delà du maximum du modèle \\((\\d+) jetons\\)",
+"beyond the model maximum ({1} tokens)"
+],
+[
+"taille de contexte hors limites \\((\\d+) à (\\d+) jetons\\)",
+"context size out of range ({1} to {2} tokens)"
+],
+[
+"(\\d+) cœurs - charge (.+)",
+"{1} cores - load {2}"
+],
+[
+"Modèles : (.+) - libre : (.+)",
+"Models: {1} - free: {2}"
+],
+[
+"GPU : (.+) de mémoire vidéo",
+"GPU: {1} of video memory"
+],
+[
+"(.*)mémoire système : (.+) \\((.+) disponibles\\) - Ollama (.+)",
+"{1}system memory: {2} ({3} available) - Ollama {4}"
+],
+[
+"Mise à jour disponible \\((.+) Go à télécharger\\)",
+"Update available ({1} GB to download)"
+],
+[
+"Mise à jour disponible \\((.+) Mo à télécharger\\)",
+"Update available ({1} MB to download)"
+],
+[
+"Nécessite Ollama (.+) \\(installé : (.+)\\)",
+"Requires Ollama {1} (installed: {2})"
+],
+[
+"(\\d+) modèle\\(s\\) du catalogue disponible\\(s\\) sur le registre, triés du plus adapté au moins adapté à ce serveur\\. Catalogue modifiable : (.+)",
+"{1} catalogue model(s) available in the registry, sorted from best to least suited to this server. Editable catalogue: {2}"
+],
+[
+"Mémoire GPU : (.+)",
+"GPU memory: {1}"
+],
+[
+"Vulkan \\(Mesa\\) : (.+) - ROCm : (.+)",
+"Vulkan (Mesa): {1} - ROCm: {2}"
+],
+[
+"Pilote noyau (\\S+) chargé\\.",
+"Kernel driver {1} loaded."
+],
+[
+"Utilisé par Ollama \\((.+)\\)\\.",
+"Used by Ollama ({1})."
+],
+[
+"Réservé au groupe « (.+) »\\.",
+"Reserved for group “{1}”."
+],
+[
+"(\\d+) contrôle\\(s\\) conforme\\(s\\) sur (\\d+)",
+"{1} of {2} check(s) compliant"
+],
+[
+"chaque jour vers (\\S+), redémarrage automatique à (\\S+) si nécessaire",
+"every day around {1}, automatic restart at {2} if required"
+],
+[
+"chaque jour vers (\\S+), sans redémarrage automatique",
+"every day around {1}, no automatic restart"
+],
+[
+"(\\d+) paramètres conformes",
+"{1} compliant settings"
+],
+[
+"(\\d+) ports ouverts : (.+)",
+"{1} open ports: {2}"
+],
+[
+"Refus par défaut en entrée - (\\d+) paquet\\(s\\) refusé\\(s\\) depuis le démarrage",
+"Inbound denied by default - {1} packet(s) refused since boot"
+],
+[
+"Refus par défaut en entrée",
+"Inbound denied by default"
+],
+[
+"Prochaine exécution : (.+) - dernières lignes du journal :",
+"Next run: {1} - latest log lines:"
+],
+[
+"Prochaine exécution : (.+)",
+"Next run: {1}"
+],
+[
+"(.+) \\(installé : (.+)\\)",
+"{1} (installed: {2})"
+],
+[
+"API Ollama publiée \\((HTTPS|HTTP), clé d'API\\)",
+"Published Ollama API ({1}, API key)"
+],
+[
+"API Ollama publiée \\((HTTPS|HTTP), sans clé\\)",
+"Published Ollama API ({1}, no key)"
+],
+[
+"(.+) Go",
+"{1} GB"
+],
+[
+"(\\d+) serveur\\(s\\) - (\\d+) en ligne - répartition de charge sur (\\d+) serveur\\(s\\) - (\\d+) GPU mesuré\\(s\\), charge moyenne (\\d+) %",
+"{1} server(s) - {2} online - load balancing on {3} server(s) - {4} GPU(s) measured, average load {5}%"
+],
+[
+"(\\d+) serveur\\(s\\) - (\\d+) en ligne - répartition de charge sur (\\d+) serveur\\(s\\) - (\\d+) GPU mesuré\\(s\\)",
+"{1} server(s) - {2} online - load balancing on {3} server(s) - {4} GPU(s) measured"
+],
+[
+"Synchroniser tout le parc",
+"Synchronise the whole fleet"
+],
+[
+"Synchroniser « (.+) »",
+"Synchronise “{1}”"
+],
+[
+"Copier depuis cette console vers (tous les serveurs en ligne|« .+ ») :",
+"Copy from this console to {1}:"
+],
+[
+"tous les serveurs en ligne",
+"all online servers"
+],
+[
+"Les requêtes reçues par cette console pour un modèle présent sur « (.+) » pourront y être envoyées, selon la charge de chaque serveur\\..*",
+"Requests received by this console for a model present on “{1}” may be sent there, depending on each server's load. “{1}” issues a token limited to using models for this; its own AI usage policy still applies."
+],
+[
+"Les requêtes ne seront plus envoyées à « (.+) » ; son jeton de routage est révoqué\\.",
+"Requests will no longer be sent to “{1}”; its routing token is revoked."
+],
+[
+"(.+) : échec - (.+)",
+"{1}: failed - {2}"
+],
+[
+"(.+) : politique appliquée(.*)",
+"{1}: policy applied{2}"
+],
+[
+"(.+) : rien à faire",
+"{1}: nothing to do"
+],
+[
+"(\\d+) clé\\(s\\) d'API",
+"{1} API key(s)"
+],
+[
+"(\\d+) modèle\\(s\\) en téléchargement",
+"{1} model(s) downloading"
+],
+[
+"(\\d+) modèle\\(s\\) personnalisé\\(s\\) créé\\(s\\)(.*)",
+"{1} custom model(s) created{2}"
+],
+[
+", (\\d+) en attente de leur modèle de base",
+", {1} waiting for their base model"
+],
+[
+"Dernière synchronisation reçue de « (.+) » : (.+)",
+"Last synchronisation received from “{1}”: {2}"
+],
+[
+"dernier contact : (.+) - répartition de charge autorisée",
+"last contact: {1} - load balancing allowed"
+],
+[
+"aucun serveur disponible pour le modèle « (.+) » \\(ce serveur et le parc\\)",
+"no server available for model “{1}” (this server and the fleet)"
+],
+[
+"Ollama injoignable sur ce serveur : (.+)",
+"Ollama unreachable on this server: {1}"
+],
+[
+">>> Téléchargement de (.+)",
+">>> Downloading {1}"
+],
+[
+">>> Échec : (.+)",
+">>> Failed: {1}"
+],
+[
+"Mémoire vidéo : (.+) / (.+) \\((\\d+) %\\)",
+"Video memory: {1} / {2} ({3}%)"
+],
+[
+"(\\d+) % utilisation",
+"{1}% use"
+],
+[
+"GPU - (.+)",
+"GPU - {1}"
+],
+[
+"API réseau",
+"Network API"
+],
+[
+"(HTTPS|HTTP) port (\\d+), clés d'API",
+"{1} port {2}, API keys"
+],
+[
+"(HTTPS|HTTP) port (\\d+), sans clé",
+"{1} port {2}, no key"
+],
+[
+"« (.+) » n'existe pas sur le registre Ollama \\(vérifiez le nom et le tag\\)\\.",
+"“{1}” does not exist in the Ollama registry (check the name and tag)."
+],
+[
+"Modèle cloud : « (.+) » exécuté chez Ollama, pas sur ce serveur\\.",
+"Cloud model: “{1}” runs at Ollama, not on this server."
+],
+[
+"(.+) à télécharger, besoin estimé (.+)",
+"{1} to download, estimated need {2}"
+],
+[
+"Supprimer le modèle « (.+) » \\?",
+"Delete the model “{1}”?"
+],
+[
+"Modèle « (.+) » prêt\\.",
+"Model “{1}” ready."
+],
+[
+"Échec : (.+)",
+"Failed: {1}"
+],
+[
+"(.+) \\(non vu par l'instance\\)",
+"{1} (not seen by the instance)"
+],
+[
+"Instance 127\\.0\\.0\\.1:(\\d+) - en mémoire : (.+)",
+"Instance 127.0.0.1:{1} - in memory: {2}"
+],
+[
+"Instance 127\\.0\\.0\\.1:(\\d+)",
+"Instance 127.0.0.1:{1}"
+],
+[
+"Instance principale \\(modèles hors groupe\\) : (.*)",
+"Main instance (models outside groups): {1}"
+],
+[
+"Instance principale \\(modèles hors groupe\\) :",
+"Main instance (models outside groups):"
+],
+[
+"à revoir : le GPU (\\d+) est maintenant (.+)",
+"to review: GPU {1} is now {2}"
+],
+[
+"Modifier le groupe « (.+) »",
+"Edit group “{1}”"
+],
+[
+"Supprimer le groupe « (.+) » \\?\\s*Ses GPU reviennent à l'instance principale ; aucun modèle n'est supprimé\\.",
+"Delete group “{1}”? Its GPUs return to the main instance; no model is deleted."
+],
+[
+"Variante « (.+) » créée\\.",
+"Variant “{1}” created."
+],
+[
+"Supprimer la variante « (.+) » \\? Le modèle d'origine est conservé\\.",
+"Delete the variant “{1}”? The original model is kept."
+],
+[
+"GPU (\\d+) : (.+)",
+"GPU {1}: {2}"
+],
+[
+"Modèles : (.+)",
+"Models: {1}"
+],
+[
+"GPU : (.+)",
+"GPU: {1}"
+],
+[
+"Toute machine (des réseaux autorisés|du réseau) peut : (.+)\\.",
+"Any machine {1} can: {2}."
+],
+[
+"Toute machine (des réseaux autorisés|du réseau) pourra : (.+), sans s'identifier\\.",
+"Any machine {1} will be able to: {2}, without identifying itself."
+],
+[
+"des réseaux autorisés",
+"on the allowed networks"
+],
+[
+"du réseau",
+"on the network"
+],
+[
+"Adresse : (.+) - API compatible OpenAI : (.+)",
+"Address: {1} - OpenAI-compatible API: {2}"
+],
+[
+"(.+) \\((\\d+) requêtes\\)",
+"{1} ({2} requests)"
+],
+[
+"Clé « (.+) » créée",
+"Key “{1}” created"
+],
+[
+"Désactiver la clé « (.+) » \\? Les applications qui l'utilisent n'auront plus accès, jusqu'à sa réactivation\\.",
+"Disable the key “{1}”? Applications using it will lose access until it is re-enabled."
+],
+[
+"Supprimer la clé « (.+) » \\? Les applications qui l'utilisent perdront l'accès définitivement\\.",
+"Delete the key “{1}”? Applications using it will lose access permanently."
+],
+[
+"(.+) - terminé",
+"{1} - done"
+],
+[
+"(.+) - annulée",
+"{1} - cancelled"
+],
+[
+"(.+) - échec \\(code (-?\\d+)\\)",
+"{1} - failed (code {2})"
+],
+[
+"(.+) - en cours\\.\\.\\.",
+"{1} - running..."
+],
+[
+"(.+) - en attente \\(n°(\\d+|\\?) dans la file\\)",
+"{1} - waiting (#{2} in the queue)"
+],
+[
+"en attente n°(\\d+|\\?)",
+"waiting #{1}"
+],
+[
+"en cours",
+"running"
+],
+[
+"Retirer « (.+) » de la file d'attente \\?",
+"Remove “{1}” from the queue?"
+],
+[
+"(Redémarrer|Éteindre) le serveur maintenant \\?",
+"{1} the server now?"
+],
+[
+"Serveur hors ligne depuis (\\d+) s\\.(.*)",
+"Server offline for {1} s.{2}"
+],
+[
+"OllamaBuntu (\\S+) → (\\S+)\\. Reconnectez-vous\\.",
+"OllamaBuntu {1} → {2}. Please sign in again."
+],
+[
+"Nouveau démarrage confirmé \\((.+)\\)\\. Reconnectez-vous\\.",
+"New boot confirmed ({1}). Please sign in again."
+],
+[
+"Supprimer le modèle personnalisé « (.+) » \\? Le modèle de base est conservé\\.",
+"Delete the custom model “{1}”? The base model is kept."
+],
+[
+"Modèle « (.+) » prêt\\.",
+"Model “{1}” ready."
+],
+[
+"(\\d+) serveur\\(s\\) - (\\d+) en ligne - (\\d+) GPU mesuré\\(s\\), charge moyenne (\\d+) %",
+"{1} server(s) - {2} online - {3} GPU(s) measured, average load {4}%"
+],
+[
+"(\\d+) serveur\\(s\\) - (\\d+) en ligne - (\\d+) GPU mesuré\\(s\\)",
+"{1} server(s) - {2} online - {3} GPU(s) measured"
+],
+[
+"Serveur OllamaBuntu (\\S+) à l'adresse (\\S+)\\.\\s*Comparez cette empreinte avec celle affichée sur le serveur \\(Système > Gestion centralisée\\)\\. Si elles diffèrent, n'ajoutez pas ce serveur\\.",
+"OllamaBuntu server {1} at {2}. Compare this fingerprint with the one shown on the server (System > Centralised management). If they differ, do not add this server."
+],
+[
+"(.+) sur « (.+) » \\?",
+"{1} on “{2}”?"
+],
+[
+"Action envoyée à « (.+) » : (.+)\\.",
+"Action sent to “{1}”: {2}."
+],
+[
+"Retirer « (.+) » de cette console \\? Pensez aussi à révoquer l'accès sur le serveur lui-même\\.",
+"Remove “{1}” from this console? Also remember to revoke access on the server itself."
+],
+[
+"Le certificat de « (.+) » ne correspond plus à celui approuvé\\..*",
+"The certificate of “{1}” no longer matches the approved one. This is normal after a reinstallation or renewal; otherwise someone may be intercepting. Compare the new fingerprint with the one shown on the server."
+],
+[
+"Empreinte du certificat de ce serveur :",
+"This server's certificate fingerprint:"
+],
+[
+"dernier contact : (.+)",
+"last contact: {1}"
+],
+[
+"Révoquer l'accès de « (.+) » \\? Cette console principale ne pourra plus superviser ce serveur\\.",
+"Revoke access for “{1}”? This main console will no longer be able to monitor this server."
+],
+[
+"(\\d+) tâche\\(s\\) en cours : (.+)",
+"{1} task(s) running: {2}"
+],
+[
+"GPU (.+) : (\\d+) °C",
+"GPU {1}: {2} °C"
+],
+[
+"Ollama : (.+)",
+"Ollama: {1}"
+],
+[
+"Processeur (.+) - mémoire (\\d+) % - disque (\\d+) %",
+"CPU {1} - memory {2}% - disk {3}%"
+],
+[
+"(.+) - service : (.+)",
+"{1} - service: {2}"
+],
+[
+"Ollama (\\S+) - service : (.+)",
+"Ollama {1} - service: {2}"
+],
+[
+"(\\d+) caractères",
+"{1} characters"
+],
+[
+"(\\d+) jours",
+"{1} days"
+],
+[
+"La répartition est active : (\\d+) serveur\\(s\\) peuvent recevoir des requêtes\\.",
+"Load balancing is active: {1} server(s) can receive requests."
+],
+[
+"(\\d+) requêtes envoyées en même temps, (\\d+) réussie\\(s\\)\\.",
+"{1} requests sent at once, {2} succeeded."
+],
+[
+"(\\d+) requête\\(s\\)",
+"{1} request(s)"
+],
+[
+"Serveur ajouté, mais la répartition n'a pas pu être activée : (.+)",
+"Server added, but load balancing could not be enabled: {1}"
+],
+[
+"(.+) hors limites \\((\\d+) à (\\d+)\\)",
+"{1} out of range ({2} to {3})"
+],
+[
+"valeur invalide : (.+)",
+"invalid value: {1}"
+],
+[
+"Requires Internet access from the server \\(registry\\.ollama\\.ai\\)\\. Hugging Face : hf\\.co/<utilisateur>/<dépôt>:<quantification> \\(dépôts GGUF\\), ex\\. (.+)",
+"Requires Internet access from the server (registry.ollama.ai). Hugging Face: hf.co/<user>/<repository>:<quantisation> (GGUF repositories), e.g. {1}"
+],
+[
+"Hugging Face : hf\\.co/<utilisateur>/<dépôt>:<quantification> \\(dépôts GGUF\\), ex\\. (.+)",
+"Hugging Face: hf.co/<user>/<repository>:<quantisation> (GGUF repositories), e.g. {1}"
+],
+[
+"(\\d+) paquet\\(s\\) en attente :",
+"{1} package(s) pending:"
+],
+[
+"(\\d+) (sécurité|correctif|rétroportage|autre)",
+"{1} {2}"
+],
+[
+"(\\d+) (non déterminée|critique|haute|moyenne|basse|négligeable)",
+"{1} {2}"
+],
+[
+"Dernière recherche : (.+) - criticité : (.+)",
+"Last check: {1} - severity: {2}"
+],
+[
+"nouveau → (.+)",
+"new → {1}"
+],
+[
+"à revoir : (.+)",
+"to review: {1}"
+],
+[
+"OllamaBuntu : mise à jour en ligne depuis github\\.com/(.+) \\(canal (.+)\\)",
+"OllamaBuntu: online update from github.com/{1} (channel {2})"
+],
+[
+"version installée : (.+) - version publiée : (.+) \\(préversion\\)",
+"installed version: {1} - published version: {2} (preview)"
+],
+[
+"version installée : (.+) - version publiée : (.+)",
+"installed version: {1} - published version: {2}"
+],
+[
+"archive (.+) : somme SHA-256 conforme à la signature",
+"archive {1}: SHA-256 checksum matches the signature"
+],
+[
+"version (.+), Ollama (.+)",
+"version {1}, Ollama {2}"
+],
+[
+"Ollama (.+) -> (.+)",
+"Ollama {1} -> {2}"
+],
+[
+"Ollama (.+) déjà installé : conservé",
+"Ollama {1} already installed: kept"
+],
+[
+"téléchargement : (.+)",
+"downloading: {1}"
+],
+[
+"(.+) : somme SHA-256 vérifiée",
+"{1}: SHA-256 checksum verified"
+],
+[
+"(.+) : (\\d+) % \\((\\d+) / (\\d+) Mo\\)",
+"{1}: {2}% ({3} / {4} MB)"
+],
+[
+"Archive de mise à jour refusée : contenu inattendu \\((.+)\\)\\.",
+"Update archive refused: unexpected content ({1})."
+],
+[
+"Archive de mise à jour incomplète \\((.+) absent\\)\\.",
+"Incomplete update archive ({1} missing)."
+],
+[
+"Somme SHA-256 incorrecte pour (.+) : téléchargement refusé\\.",
+"Incorrect SHA-256 checksum for {1}: download refused."
+],
+[
+"Espace disque insuffisant : (\\d+) Mo libres, (\\d+) Mo nécessaires\\.",
+"Insufficient disk space: {1} MB free, {2} MB needed."
+],
+[
+"Fichier trop volumineux \\((\\d+) Mo\\) : (.+)",
+"File too large ({1} MB): {2}"
+],
+[
+"Fichier trop volumineux : (.+)",
+"File too large: {1}"
+],
+[
+"Téléchargement interrompu : (.+)",
+"Download interrupted: {1}"
+],
+[
+"L'application de la mise à jour a échoué \\(code (\\d+)\\) : voir /tmp/ollamabuntu-update\\.log\\.",
+"Applying the update failed (code {1}): see /tmp/ollamabuntu-update.log."
+],
+[
+"GitHub a répondu par une erreur HTTP (\\d+)\\.",
+"GitHub replied with HTTP error {1}."
+],
+[
+"Nouvelle version disponible : (.+) \\(installée : (.+)\\)",
+"New version available: {1} (installed: {2})"
+],
+[
+"Aucune version plus récente que (.+)\\.",
+"No version newer than {1}."
+],
+[
+"v(.+) \\(préversion\\)",
+"v{1} (preview)"
+],
+[
+"Dernière vérification : (.+)",
+"Last check: {1}"
+],
+[
+"Mettre à jour vers v(.+)",
+"Update to v{1}"
+],
+[
+"OllamaBuntu v(.+) est publié\\.",
+"OllamaBuntu v{1} is published."
+],
+[
+"Mettre à jour l'appliance de v(.+) vers v(.+) depuis Internet \\? L'archive est téléchargée depuis GitHub puis sa signature est vérifiée\\. Les services IA redémarrent ; comptes, réglages et modèles sont conservés\\.",
+"Update the appliance from v{1} to v{2} from the Internet? The archive is downloaded from GitHub and its signature is checked. AI services restart; accounts, settings and models are kept."
+],
+[
+"Archive de mise à jour en ligne (.+)",
+"Online update archive {1}"
+],
+[
+"OB_VERSION doit avoir la forme AAAA\\.MM\\.JJ-HHMM \\(reçu : (.+)\\)",
+"OB_VERSION must look like YYYY.MM.DD-HHMM (received: {1})"
+],
+[
+"OB_SIGNING_KEY introuvable : (.+)",
+"OB_SIGNING_KEY not found: {1}"
+],
+[
+"\\[(\\d+)/(\\d+)\\] (.+)",
+"[{1}/{2}] {3}"
+],
+[
+"\\(terminé en (.+)\\)",
+"(done in {1})"
+],
+[
+"\\.\\.\\. (.+) : en cours depuis (.+)",
+"... {1}: running for {2}"
+],
+[
+"(.+) : (\\d+) % \\((.+) / (.+)\\), (.+)/s, environ (.+) restantes",
+"{1}: {2}% ({3} / {4}), {5}/s, about {6} left"
+],
+[
+"(.+) : 100 % \\((.+)\\) en (\\d+) s",
+"{1}: 100% ({2}) in {3} s"
+],
+[
+"(.+) Mo",
+"{1} MB"
+],
+[
+"(.+) Ko",
+"{1} KB"
+],
+[
+"(\\d+) min",
+"{1} min"
+],
+[
+"(\\d+) Mo libres, (\\d+) Mo nécessaires",
+"{1} MB free, {2} MB required"
+],
+[
+"espace disque insuffisant : (\\d+) Mo libres, (\\d+) Mo nécessaires",
+"insufficient disk space: {1} MB free, {2} MB required"
+],
+[
+"Ollama : (\\S+) -> (\\S+)",
+"Ollama: {1} -> {2}"
+],
+[
+"Ollama (\\S+) déjà installé : conservé",
+"Ollama {1} already installed: kept"
+],
+[
+"version installée : (.+)",
+"installed version: {1}"
+],
+[
+"Durée totale de la mise à jour : (.+)",
+"Total update duration: {1}"
+],
+[
+"Journal : (.+)",
+"Log: {1}"
+],
+[
+"Mise à jour terminée : OllamaBuntu (\\S+) \\((.+)\\)",
+"Update complete: OllamaBuntu {1} ({2})"
+],
+[
+"OllamaBuntu (\\S+) - mise à jour depuis l'ISO",
+"OllamaBuntu {1} - update from the ISO"
+],
+[
+"OllamaBuntu : mise à jour (\\S+) -> (\\S+)",
+"OllamaBuntu: update {1} -> {2}"
+],
+[
+"Sauvegarde des fichiers de l'appliance : (.+)",
+"Backup of the appliance files: {1}"
+],
+[
+"Système trouvé : (.+)",
+"System found: {1}"
+],
+[
+"Système : (.+) - Ollama installé : (.+), Ollama de l'ISO : (.+)",
+"System: {1} - installed Ollama: {2}, ISO Ollama: {3}"
+],
+[
+"impossible de monter (.+) du système installé",
+"cannot mount {1} of the installed system"
+],
+[
+"ligne (\\d+) : (.+)",
+"line {1}: {2}"
+],
+[
+"plusieurs systèmes OllamaBuntu trouvés \\((.+)\\) : mise à jour annulée par prudence",
+"several OllamaBuntu systems found ({1}): update cancelled as a precaution"
+],
+[
+"aucun système OllamaBuntu trouvé sur les disques de ce serveur",
+"no OllamaBuntu system found on this server's disks"
+],
+[
+"\\[ERREUR\\] (.+)",
+"[ERROR] {1}"
+],
+[
+"introuvable : (.+)",
+"not found: {1}"
+],
+[
+"impossible de monter (.+)",
+"cannot mount {1}"
+],
+[
+"aucune ISO OllamaBuntu trouvée : (.+)",
+"no OllamaBuntu ISO found: connect the virtual CD/ISO or the USB key (ISO written with Rufus/Etcher, or ollamabuntu-*.iso file copied onto it), or give the path to the .iso file"
+],
+[
+"échec à la ligne (\\d+) : (.+)",
+"failed at line {1}: {2}"
+],
+[
+"téléchargement : (.+)",
+"download: {1}"
+],
+[
+"téléchargement impossible : (.+)",
+"download failed: {1}"
+],
+[
+"certificat HTTPS non reconnu pour (.+)",
+"HTTPS certificate not recognised for {1}"
+],
+[
+"Fournissez (.+)",
+"Provide {1}"
+],
+[
+"EXTRA_CA_CERTS introuvable : (.+)",
+"EXTRA_CA_CERTS not found: {1}"
+],
+[
+"EXTRA_CA_CERTS n'est pas un fichier PEM : (.+)",
+"EXTRA_CA_CERTS is not a PEM file: {1}"
+],
+[
+"certificats racines supplémentaires : (.+)",
+"additional root certificates: {1}"
+],
+[
+"outils manquants : (.+) -> installation via apt",
+"missing tools: {1} -> installing with apt"
+],
+[
+"outils manquants : (.+) \\(installez : xorriso curl python3 zstd\\)",
+"missing tools: {1} (install: xorriso curl python3 zstd)"
+],
+[
+"ISO Ubuntu Server (.+)",
+"Ubuntu Server ISO {1}"
+],
+[
+"aucune ISO live-server amd64 trouvée dans (.+)",
+"no live-server amd64 ISO found in {1}"
+],
+[
+"déjà présente et vérifiée : (.+)",
+"already present and verified: {1}"
+],
+[
+"somme SHA-256 incorrecte pour (.+)",
+"incorrect SHA-256 checksum for {1}"
+],
+[
+"Analyse de l'ISO source : (.+)",
+"Analysing the source ISO: {1}"
+],
+[
+"ISO introuvable : (.+)",
+"ISO not found: {1}"
+],
+[
+"démarrage : BIOS=(\\d) UEFI=(\\d)",
+"boot: BIOS={1} UEFI={2}"
+],
+[
+"noyau (\\S+) ou initrd (\\S+) absent de l'ISO",
+"kernel {1} or initrd {2} missing from the ISO"
+],
+[
+"noyau : (\\S+)\\s+initrd : (\\S+)",
+"kernel: {1}  initrd: {2}"
+],
+[
+"(.+) \\(volume : (.+)\\)",
+"{1} (volume: {2})"
+],
+[
+"OLLAMA_ARCHIVE introuvable : (.+)",
+"OLLAMA_ARCHIVE not found: {1}"
+],
+[
+"archive locale : (.+)",
+"local archive: {1}"
+],
+[
+"version : (.+)",
+"version: {1}"
+],
+[
+"impossible de joindre GitHub \\(code curl (\\d+)\\) : vérifiez l'accès Internet ou le proxy",
+"cannot reach GitHub (curl code {1}): check Internet access or the proxy"
+],
+[
+"(\\S+) introuvable dans la release Ollama (\\S+)",
+"{1} not found in Ollama release {2}"
+],
+[
+"Modèles embarqués : (.+)",
+"Bundled models: {1}"
+],
+[
+"architecture (\\S+) non prise en charge pour le préchargement ; relancez avec (.+)",
+"architecture {1} not supported for preloading; run again with {2}"
+],
+[
+"binaire ollama non extractible de (.+)",
+"cannot extract the ollama binary from {1}"
+],
+[
+"téléchargement du modèle (.+)",
+"downloading model {1}"
+],
+[
+"modèle (\\S+) : téléchargement impossible \\(accès à registry\\.ollama\\.ai \\? nom correct \\?\\)\\.",
+"model {1}: download failed (access to registry.ollama.ai? correct name?)."
+],
+[
+"Pour construire l'ISO sans modèle embarqué : (.+)",
+"To build the ISO without a bundled model: {1}"
+],
+[
+"modèles embarqués : (.+)",
+"bundled models: {1}"
+],
+[
+"format d'archive Ollama non reconnu : (.+)",
+"unrecognised Ollama archive format: {1}"
+],
+[
+"espace insuffisant pour (\\S+) : (\\d+) Mo nécessaires, (\\d+) Mo libres",
+"insufficient space for {1}: {2} MB required, {3} MB free"
+],
+[
+"structure (.+) perdue \\(clé USB non démarrable\\)",
+"structure {1} lost (USB key not bootable)"
+],
+[
+"fichier absent de l'ISO : (.+)",
+"file missing from the ISO: {1}"
+],
+[
+"contenu inattendu : (.+)",
+"unexpected content: {1}"
+],
+[
+"usage : (\\S+) --test-vm \\[--bios\\] fichier\\.iso",
+"usage: {1} --test-vm [--bios] file.iso"
+],
+[
+"VM de test \\((.+)\\) : console web sur (.+), SSH sur le port (\\d+)",
+"Test VM ({1}): web console on {2}, SSH on port {3}"
+],
+[
+"(.+) doit se trouver dans le dossier courant \\((.+)\\) pour être visible du conteneur",
+"{1} must be in the current folder ({2}) to be visible to the container"
+],
+[
+"(macOS|Windows) détecté : ce script s'exécute dans un conteneur Linux\\.",
+"{1} detected: this script runs in a Linux container."
+],
+[
+"Installez Docker Desktop(.*), démarrez-le, puis relancez\\.(.*)",
+"Install Docker Desktop{1}, start it, then run again.{2}"
+],
+[
+"Autre possibilité : lancer le script depuis WSL2 \\(Ubuntu\\)\\.",
+"Alternatively: run the script from WSL2 (Ubuntu)."
+],
+[
+"\\(ou OrbStack / Colima\\)",
+"(or OrbStack / Colima)"
+],
+[
+"WORKDIR / OUTPUT ignorés sous (.+) : tout est produit dans (.+)",
+"WORKDIR / OUTPUT ignored on {1}: everything is produced in {2}"
+],
+[
+"(macOS|Windows) détecté : construction dans un conteneur Linux Ubuntu 24\\.04 \\((.+), sans émulation\\)",
+"{1} detected: building in an Ubuntu 24.04 Linux container ({2}, no emulation)"
+],
+[
+"ISO et cache produits dans : (.+)",
+"ISO and cache produced in: {1}"
+],
+[
+"certificats racines du poste transmis au conteneur : (\\d+)",
+"workstation root certificates passed to the container: {1}"
+],
+[
+"--test-vm nécessite Linux \\+ KVM\\. Sur Mac : testez l'ISO dans UTM ou VirtualBox",
+"--test-vm requires Linux + KVM. On a Mac: test the ISO in UTM or VirtualBox"
+],
+[
+"\\(Mac Intel\\), ou directement sur un serveur / une VM x86 de votre infrastructure\\.",
+"(Intel Mac), or directly on a server / x86 VM of your infrastructure."
+],
+[
+"--test-vm nécessite Linux \\+ KVM\\. Sous Windows : testez l'ISO dans Hyper-V,",
+"--test-vm requires Linux + KVM. On Windows: test the ISO in Hyper-V,"
+],
+[
+"VMware Workstation ou VirtualBox \\(VM UEFI, 8 Go de RAM, disque de 64 Go\\)\\.",
+"VMware Workstation or VirtualBox (UEFI VM, 8 GB RAM, 64 GB disk)."
+],
+[
+"lancement sous Windows : (.+)",
+"running on Windows: {1}"
+],
+[
+"ISO prête : (.+)",
+"ISO ready: {1}"
+],
+[
+"Modèles\\s+: (.+)",
+"Models   : {1}"
+],
+[
+"Clavier\\s+: (.+)",
+"Keyboard : {1}"
+],
+[
+"Clé USB \\(Linux\\) : (.+)",
+"USB key (Linux)  : {1}"
+],
+[
+"Test en VM\\s+: (.+)",
+"VM test          : {1}"
+],
+[
+"aucun",
+"none"
+],
+[
+"le binaire Ollama Linux ne s'exécute pas ici \\((.+)\\) : (.*)",
+"the Linux Ollama binary does not run here ({1}): {2}"
+],
+[
+"Ce script doit tourner dans un vrai Linux : Linux, WSL2, ou conteneur Docker \\(automatique sous macOS",
+"This script must run in a real Linux: Linux, WSL2, or a Docker container (automatic on macOS"
+],
+[
+"et sous Windows depuis Git Bash\\)\\. Pour construire sans modèle embarqué : (.+)",
+"and on Windows from Git Bash). To build without a bundled model: {1}"
+],
+[
+"Pilote NVIDIA (\\S+) chargé\\.",
+"NVIDIA driver {1} loaded."
+],
+[
+"Pilote NVIDIA (\\S+) installé mais pas chargé\\.",
+"NVIDIA driver {1} installed but not loaded."
+],
+[
+"Pilote noyau (\\S+) non chargé \\(firmware manquant ou carte non prise en charge\\)\\.",
+"Kernel driver {1} not loaded (missing firmware or unsupported card)."
+],
+[
+"Pilote NVIDIA absent \\(pilote libre « (.+) » actif, inutilisable pour le calcul\\)\\.",
+"NVIDIA driver missing (open-source “{1}” driver active, unusable for compute)."
+],
+[
+"(.*) : Secure Boot est actif, la clé du pilote doit être inscrite \\(MOK\\)\\.",
+"{1}: Secure Boot is active, the driver key must be enrolled (MOK)."
+],
+[
+"Sur processeur \\((.+)\\)",
+"On CPU ({1})"
+],
+[
+"Le serveur a refusé : (.+)",
+"The server refused: {1}"
+],
+[
+"Un compte Linux « (.+) » existe déjà sur ce serveur\\.",
+"A Linux account “{1}” already exists on this server."
+],
+[
+"(.+) : numéro Vulkan inconnu \\(redémarrez Ollama sans groupe ni restriction de GPU, puis réessayez\\)",
+"{1}: unknown Vulkan number (restart Ollama without groups or GPU restrictions, then try again)"
+],
+[
+"nom de modèle invalide : (.+)",
+"invalid model name: {1}"
+],
+[
+"un GPU choisi appartient déjà au groupe « (.+) »",
+"a chosen GPU already belongs to group “{1}”"
+],
+[
+"un modèle choisi est déjà affecté au groupe « (.+) »",
+"a chosen model is already assigned to group “{1}”"
+],
+[
+"GPU inconnu : (.+)",
+"unknown GPU: {1}"
+],
+[
+"règles refusées par nftables, aucune modification : (.+)",
+"rules refused by nftables, nothing changed: {1}"
+],
+[
+"chargement impossible : (.+)",
+"loading failed: {1}"
+],
+[
+"paramètre (\\S+) hors limites \\((.+) à (.+)\\)",
+"setting {1} out of range ({2} to {3})"
+],
+[
+"paramètre (\\S+) invalide",
+"invalid setting {1}"
+],
+[
+"suppression impossible : (.+)",
+"deletion failed: {1}"
+],
+[
+"création impossible : (.+)",
+"creation failed: {1}"
+],
+[
+"création de la variante impossible : (.+)",
+"variant creation failed: {1}"
+],
+[
+"échec : (.+)",
+"failed: {1}"
+],
+[
+"refusé par le serveur \\((\\d+)\\)",
+"refused by the server ({1})"
+],
+[
+"réponse inattendue du serveur \\((\\d+)\\)",
+"unexpected server response ({1})"
+],
+[
+"serveur injoignable : (.+)",
+"server unreachable: {1}"
+],
+[
+"numéro de GPU invalide \\(l'instance principale voit (\\d+) GPU\\)",
+"invalid GPU number (the main instance sees {1} GPU(s))"
+],
+[
+"port (\\S+) indisponible \\(1024-65535, hors ports de la console, d'Open WebUI et des instances Ollama\\)",
+"port {1} unavailable (1024-65535, excluding the console, Open WebUI and Ollama instance ports)"
+],
+[
+"valeur refusée pour (.+)",
+"value refused for {1}"
+],
+[
+"réseau invalide : (.+) \\(format attendu : 10\\.0\\.0\\.0/8 ou 192\\.168\\.1\\.20\\)",
+"invalid network: {1} (expected format: 10.0.0.0/8 or 192.168.1.20)"
+],
+[
+"votre adresse (\\S+) ne serait plus autorisée : ajoutez-la \\(ou son réseau\\) pour ne pas perdre l'accès",
+"your address {1} would no longer be allowed: add it (or its network) so as not to lose access"
+],
+[
+"impossible de lancer la tâche : (.+)",
+"cannot start the task: {1}"
+],
+[
+"impossible de lancer le déploiement : (.+)",
+"cannot start the deployment: {1}"
+],
+[
+"droit « (.+) » non accordé à « (.+) »",
+"right “{1}” not granted to “{2}”"
+],
+[
+"modèle « (.+) » non autorisé pour « (.+) »",
+"model “{1}” not allowed for “{2}”"
+],
+[
+"adresse (\\S+) non autorisée",
+"address {1} not allowed"
+],
+[
+"instance Ollama (\\S+) injoignable : (.+)",
+"Ollama instance {1} unreachable: {2}"
+],
+[
+"modèle cloud « (.+) » interdit : il s'exécute chez Ollama, hors de ce serveur \\(politique d'usage de l'IA\\)",
+"cloud model “{1}” forbidden: it runs at Ollama, outside this server (AI usage policy)"
+],
+[
+"images et vidéos en entrée non autorisées pour « (.+) »",
+"image and video input not allowed for “{1}”"
+],
+[
+"audio \\(synthèse, transcription\\) non autorisé pour « (.+) »",
+"audio (speech, transcription) not allowed for “{1}”"
+],
+[
+"outils \\(appels de fonctions\\) non autorisés pour « (.+) »",
+"tools (function calls) not allowed for “{1}”"
+],
+[
+"(.+) à télécharger \\((.+)\\)",
+"{1} to download ({2})"
+],
+[
+">>> (\\d+) paquet\\(s\\) de sécurité : (.+)",
+">>> {1} security package(s): {2}"
+],
+[
+">>> ERREUR : pas de module ROCm pour Ollama (.+)",
+">>> ERROR: no ROCm module for Ollama {1}"
+],
+[
+">>> Ollama (\\S+) : téléchargement du module ROCm correspondant",
+">>> Ollama {1}: downloading the matching ROCm module"
+],
+[
+">>> Pilote installé : (.+)",
+">>> Driver installed: {1}"
+],
+[
+">>> Version installée : (\\S+) - version retenue : (\\S+) \\((.+)\\)",
+">>> Installed version: {1} - selected version: {2} ({3})"
+],
+[
+">>> Attention : la version du support \\((\\S+)\\) est PLUS ANCIENNE que la version installée \\((\\S+)\\)\\.",
+">>> Warning: the media version ({1}) is OLDER than the installed version ({2})."
+],
+[
+">>> Version installée : (\\S+) - version de l'ISO : (\\S+)",
+">>> Installed version: {1} - ISO version: {2}"
+],
+[
+"\\[ERREUR\\] aucune ISO OllamaBuntu trouvée : (.+)",
+"[ERROR] no OllamaBuntu ISO found: connect the virtual CD/ISO or the USB key (ISO written with Rufus/Etcher, or ollamabuntu-*.iso file copied onto it), or give the path to the .iso file"
+],
+[
+"\\[(\\d\\d:\\d\\d:\\d\\d)\\]\\s+OllamaBuntu : mise à jour (\\S+) -> (\\S+)",
+"[{1}]   OllamaBuntu: update {2} -> {3}"
+],
+[
+"\\[(\\d\\d:\\d\\d:\\d\\d)\\]\\s+Mise à jour terminée : OllamaBuntu (\\S+)",
+"[{1}]   Update complete: OllamaBuntu {2}"
+],
+[
+"\\[(\\d\\d:\\d\\d:\\d\\d)\\] (.+)",
+"[{1}] {2}"
+],
+[
+"en direct - (.+)",
+"live - {1}"
+],
+[
+"(Charge GPU|Mémoire vidéo occupée|Processeur et mémoire|Requêtes par minute|Jetons par seconde|Temps avant le premier jeton) : (.+)",
+"{1}: {2}"
+],
+[
+"(Processeur|Mémoire|Requêtes|Vitesse par requête|Débit total|Premier jeton) : (.+)",
+"{1}: {2}"
+],
+[
+"« (.+) » n'est pas une adresse IPv4 valide au format CIDR\\.",
+"“{1}” is not a valid IPv4 address in CIDR format."
+],
+[
+"« (.+) » doit être une adresse du réseau (.+)",
+"“{1}” must be an address on network {2}"
+],
+[
+"« (.+) » n'est pas un nom de machine valide\\.",
+"“{1}” is not a valid hostname."
+],
+[
+"« (.+) » ne peut pas être utilisé\\.",
+"“{1}” cannot be used."
+],
+[
+"Comment la carte (\\S+) obtient-elle son adresse \\?",
+"How does card {1} get its address?"
+],
+[
+"Configuration de (\\S+) en cours\\.\\.\\.",
+"Configuring {1}..."
+],
+[
+"La carte (\\S+) n'a pas obtenu d'adresse IPv4",
+"Card {1} did not get an IPv4 address"
+],
+[
+"Détails : (.+)",
+"Details: {1}"
+],
+[
+"Détails dans (.+)",
+"Details in {1}"
+],
+[
+"Échec de l'étape : (.+)\\.",
+"Step failed: {1}."
+],
+[
+"Mot de passe de « (.+) » \\(8 caractères minimum\\)\\.",
+"Password for “{1}” (8 characters minimum)."
+],
+[
+"Clavier actif : (.+)",
+"Active keyboard: {1}"
+],
+[
+"(\\S+), adresse automatique \\(DHCP\\)",
+"{1}, automatic address (DHCP)"
+],
+[
+"(\\S+), adresse fixe (.+)",
+"{1}, fixed address {2}"
+],
+[
+"Réseau : (.+)",
+"Network      : {1}"
+],
+[
+"Machine : (.+)",
+"Hostname     : {1}"
+],
+[
+"Identifiant : (.+)",
+"Username     : {1}"
+],
+[
+"Administration web : (.+)",
+"Web administration : {1}"
+],
+[
+"Identifiant : (.+)",
+"Username           : {1}"
+],
+[
+"SSH : (.+)",
+"SSH                : {1}"
+],
+[
+"Machine : (\\S+) IP : (.+)",
+"Hostname: {1}    IP: {2}"
+],
+[
+"Ollama : (actif|ARRÊTÉ), (\\S+) modèle\\(s\\) installé\\(s\\)",
+"Ollama: {1}, {2} model(s) installed"
+],
+[
+"Machine : (.+)",
+"Hostname      : {1}"
+],
+[
+"Admin web : (.+)",
+"Web admin     : {1}"
+],
+[
+"Ollama : (\\S+) \\(version (.*)\\)",
+"Ollama        : {1} (version {2})"
+],
+[
+"Processeur : (\\d+) cœurs - (.+)",
+"CPU           : {1} cores - {2}"
+],
+[
+"Mémoire : (.+) utilisés / (.+)",
+"Memory        : {1} used / {2}"
+],
+[
+"Disque / : (.+) utilisés / (.+) \\((.+)\\)",
+"Disk /        : {1} used / {2} ({3})"
+],
+[
+"Nouveau nom : (.+)",
+"New name: {1}"
+],
+[
+"Changer le mot de passe de (.+)",
+"Change the password of {1}"
+],
+[
+"Échec de la modification \\(voir (.+)\\)\\.",
+"Change failed (see {1})."
+],
+[
+"(.*)Appliance IA - Ubuntu Server \\+ Ollama(.*)",
+"{1}AI appliance - Ubuntu Server + Ollama{2}"
+],
+[
+"Machine : (.*)",
+"Hostname           : {1}"
+],
+[
+"Adresse IP : (.*)",
+"IP address         : {1}"
+],
+[
+"Administration web : (.*)",
+"Web administration : {1}"
+],
+[
+"Mettre a jour OllamaBuntu : (\\S+) -> (\\S+)",
+"Update OllamaBuntu: {1} -> {2}"
+],
+[
+"Demarrer OllamaBuntu deja installe \\((.+)\\)",
+"Start the installed OllamaBuntu ({1})"
+],
+[
+"OllamaBuntu (\\S+) - Appliance IA \\(Ubuntu Server \\+ Ollama\\)",
+"OllamaBuntu {1} - AI appliance (Ubuntu Server + Ollama)"
+]
+]
+}

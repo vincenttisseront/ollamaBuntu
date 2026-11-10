@@ -1,0 +1,15 @@
+\e{lightred}
+        /\\     /\\
+       (  \\___/  )     \e{bold}OllamaBuntu\e{reset}\e{lightred}
+        \\  o o  /      \e{reset}Appliance IA - Ubuntu Server + Ollama\e{lightred}
+         \\  w  /
+          | >_|\e{reset}
+
+  OllamaBuntu        : v@@OB_VERSION@@
+  Machine            : \n
+  Adresse IP         : \4
+  Administration web : https://\4/
+
+  Connectez-vous avec le compte créé à la fin de l'installation
+  pour ouvrir le menu de l'appliance.
+
