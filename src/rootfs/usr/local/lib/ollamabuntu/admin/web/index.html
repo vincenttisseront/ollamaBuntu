@@ -32,12 +32,17 @@
       <a href="#gpu" data-admin>GPU</a>
       <a href="#perf" data-admin>Performance</a>
       <a href="#system" data-admin>Système</a>
-      <a href="#security" data-admin>Sécurité</a>
-      <a href="#fleet" data-admin>Serveurs</a>
-      <a href="#webui" data-admin>Open WebUI</a>
-      <a href="#users" data-admin>Utilisateurs</a>
-      <a href="#logs" data-admin>Journaux</a>
-      <a href="#about">À propos</a>
+      <div class="nav-more">
+        <button id="nav-more-btn" class="nav-more-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="nav-more-list">Plus</button>
+        <div id="nav-more-list" class="nav-more-list hidden">
+          <a href="#fleet" data-admin>Serveurs</a>
+          <a href="#logs" data-admin>Journaux</a>
+          <a href="#security" data-admin>Sécurité</a>
+          <a href="#webui" data-admin>Open WebUI</a>
+          <a href="#users" data-admin>Utilisateurs</a>
+          <a href="#about">À propos</a>
+        </div>
+      </div>
     </nav>
     <div class="who">
       <button id="palette-btn" class="icon-btn" type="button" title="Aller à... (Ctrl+K)" aria-label="Aller à... (Ctrl+K)" aria-haspopup="dialog"></button>

@@ -209,6 +209,8 @@ function route() {
   if (ADMIN_VIEWS.includes(v) && !isAdmin()) v = 'chat';
   for (const name of VIEWS) $('#view-' + name).classList.toggle('hidden', name !== v);
   for (const a of $$('#nav a')) a.classList.toggle('active', a.getAttribute('href') === '#' + v);
+  $('#nav-more-btn').classList.toggle('active', !!$('#nav-more-list a.active'));
+  navMore(false);
   activateTab(v, sub);
   clearInterval(logsLive.timer); logsLive.timer = null; $('#log-live').setAttribute('aria-pressed', 'false');
   $('#job-card').classList.toggle('hidden', !(['gpu', 'system', 'webui'].includes(v) && jobs.current));
@@ -228,6 +230,14 @@ function route() {
   if (v === 'security') { loadSecurity(); loadPolicy(); }
 }
 window.addEventListener('hashchange', route);
+/* Menu « Plus » : les écrans moins fréquents (Serveurs, Journaux, Sécurité, Open WebUI, Utilisateurs, À propos) tiennent dans une liste déroulante pour garder une seule ligne de menu. */
+function navMore(open) {
+  $('#nav-more-list').classList.toggle('hidden', !open);
+  $('#nav-more-btn').setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+$('#nav-more-btn').addEventListener('click', (e) => { e.stopPropagation(); navMore($('#nav-more-list').classList.contains('hidden')); });
+document.addEventListener('click', (e) => { if (!e.target.closest('.nav-more')) navMore(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#nav-more-list').classList.contains('hidden')) { navMore(false); $('#nav-more-btn').focus(); } });
 
 function card(title, ...content) { return el('div', { class: 'card' }, el('h2', { text: title }), ...content); }
 function kv(pairs) {

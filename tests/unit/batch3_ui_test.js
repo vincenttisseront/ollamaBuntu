@@ -118,6 +118,18 @@ const $$e_tabs = (win, v) => [...win.document.querySelectorAll('#view-' + v + ' 
   ok(w.document.querySelector('#view-perf > .subtabs') && [...$$('#view-perf > .subtabs a')].map((a) => a.dataset.key).join() === 'bench,profiles,warmup,guard,tune', 'Performance : 5 onglets dans l\'ordre');
   ok([...$$('#view-gpu > .subtabs a')].map((a) => a.dataset.key).join() === 'cards,availability,placement,advanced' && [...$$('#view-system > .subtabs a')].map((a) => a.dataset.key).join().includes('alerts,report,hardware,audit,backup') && [...$$('#view-models > .subtabs a')].map((a) => a.dataset.key).includes('disk'), 'onglets Disponibilité, Rapport, Matériel, Audit et Espace disque');
 
+  // --- menu : une seule ligne, les écrans rares sont dans « Plus »
+  ok($$('#nav > a').length === 6 && $$('#nav-more-list a').map((a) => a.getAttribute('href')).join() === '#fleet,#logs,#security,#webui,#users,#about', 'menu : 6 entrées directes, 6 écrans dans « Plus »');
+  ok($('#nav-more-list').classList.contains('hidden') && $('#nav-more-btn').getAttribute('aria-expanded') === 'false', '« Plus » fermé au départ');
+  $('#nav-more-btn').click();
+  ok(!$('#nav-more-list').classList.contains('hidden') && $('#nav-more-btn').getAttribute('aria-expanded') === 'true', '« Plus » s\'ouvre au clic');
+  w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  ok($('#nav-more-list').classList.contains('hidden'), 'Échap referme « Plus »');
+  $('#nav-more-btn').click(); w.document.body.click();
+  ok($('#nav-more-list').classList.contains('hidden'), 'un clic ailleurs referme « Plus »');
+  $('#nav-more-btn').click(); $('#nav-more-list a[href="#users"]').click(); w.location.hash = '#users'; await sleep(100);
+  ok($('#nav-more-list').classList.contains('hidden') && $('#nav-more-btn').classList.contains('active') && $('#nav-more-list a[href="#users"]').classList.contains('active'), 'écran choisi dans « Plus » : liste refermée, « Plus » et l\'entrée marqués actifs');
+  w.location.hash = '#dashboard'; await sleep(60);
   // --- mesure de débit
   ok(await go('#perf/bench', () => $$('#pf-model option').length === 2 && $('#pf-history').textContent.includes('50')), 'Performance : modèles (hors cloud) et historique');
   ok($$('#pf-model option').map((o) => o.value).join() === 'gemma4:12b,llama3.2:3b', 'modèles cloud écartés de la liste');

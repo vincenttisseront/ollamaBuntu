@@ -168,6 +168,7 @@ E = {
 "Contexte (jetons)": "Context (tokens)", "Envoyer un essai maintenant": "Send a test now", "automatique": "automatic",
 "lundi": "Monday", "mardi": "Tuesday", "mercredi": "Wednesday", "jeudi": "Thursday", "vendredi": "Friday", "samedi": "Saturday", "dimanche": "Sunday",
 "Aller à...": "Go to...", "aucune adresse": "no address",
+"Plus": "More",
 # --- alertes
 "Carte graphique indisponible ou inutilisée par Ollama.": "Graphics card unavailable or not used by Ollama.",
 "aucun modèle": "no model", "expirée": "expired", "aujourd'hui": "today",

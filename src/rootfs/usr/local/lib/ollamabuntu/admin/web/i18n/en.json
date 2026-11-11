@@ -851,6 +851,7 @@
 "Plafond de mémoire": "Memory limit",
 "Plafonds": "Limits",
 "Plafonner la mémoire d'Open WebUI": "Limit Open WebUI's memory",
+"Plus": "More",
 "Plus la quantification est basse (Q2, Q3), plus le fichier est petit et la qualité réduite ; Q4_K_M est un bon compromis.": "The lower the quantisation (Q2, Q3), the smaller the file and the lower the quality; Q4_K_M is a good compromise.",
 "Poids": "Weights",
 "Point d'API": "API endpoint",
