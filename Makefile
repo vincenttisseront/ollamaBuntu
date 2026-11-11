@@ -23,6 +23,9 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/rag_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/rag_router_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/rag_admin_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/power_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/power_admin_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/power_router_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/gpu_auto_test.py
 	bash tests/unit/crypt_engine_test.sh
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/online_update_test.py
@@ -59,6 +62,7 @@ test-ui:
 	node tests/unit/sso_ui_test.js
 	node tests/unit/privacy_ui_test.js
 	node tests/unit/rag_ui_test.js
+	node tests/unit/power_ui_test.js
 
 # Archive de mise à jour en ligne (OB_VERSION=AAAA.MM.JJ-HHMM, OB_SIGNING_KEY=clé privée pour signer)
 bundle:

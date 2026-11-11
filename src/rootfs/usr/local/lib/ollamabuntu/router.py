@@ -69,6 +69,27 @@ _health = limits.Health()
 _aff = limits.Affinity()
 
 
+def remote_use(s, model):
+    """Modèle que ce serveur du parc utiliserait pour répondre à `model` (le même, ou le modèle de remplacement choisi par l'administrateur), sinon None."""
+    have = {norm(m.get("name") or m.get("model")) for m in s.get("models", [])}
+    if model in have:
+        return model
+    mp = {norm(k): norm(v) for k, v in (s.get("model_map") or {}).items() if k != "*"}
+    sub = mp.get(model) or norm((s.get("model_map") or {}).get("*") or "")
+    return sub if sub and sub in have else None
+
+
+_wake = {}   # modèle -> heure de la dernière demande dont seule la réponse d'un serveur endormi était possible (lu par la console, qui réveille ce serveur)
+
+
+def sleeping_for(model, fl):
+    """Serveur du parc injoignable mais réveillable (Wake-on-LAN réglé) qui possède ce modèle, ou None."""
+    for s in fl.get("servers", []):
+        if not s.get("online") and s.get("wake") and remote_use(s, model):
+            return s
+    return None
+
+
 def inflight_add(key, delta):
     with _inflight_lock:
         _inflight[key] = max(0, _inflight.get(key, 0) + delta)
@@ -489,11 +510,13 @@ class Router(http.server.BaseHTTPRequestHandler):
             self._inflight_key = None
             inflight_add(key, -1)
 
-    def json_reply(self, code, obj):
+    def json_reply(self, code, obj, headers=None):
         raw = json.dumps(obj, ensure_ascii=False).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(raw)
@@ -509,13 +532,7 @@ class Router(http.server.BaseHTTPRequestHandler):
         for s in fl.get("servers", []):
             if not s.get("online"):
                 continue
-            have = {norm(m.get("name") or m.get("model")) for m in s.get("models", [])}
-            use = model if model in have else None
-            if use is None:   # correspondance choisie par l'administrateur : modèle demandé -> modèle de remplacement de ce serveur
-                mp = {norm(k): norm(v) for k, v in (s.get("model_map") or {}).items() if k != "*"}
-                sub = mp.get(model) or norm((s.get("model_map") or {}).get("*") or "")
-                if sub and sub in have:
-                    use = sub
+            use = remote_use(s, model)
             if use:
                 out.append(("remote", use in {norm(x) for x in s.get("loaded", [])}, float(s.get("load") or 0), dict(s, use_model=use)))
         t_now = time.time()
@@ -974,6 +991,16 @@ class Router(http.server.BaseHTTPRequestHandler):
                 cands = self.candidates(norm(model), fl, getattr(self, "_kid", None), limits.session_key(self.headers, body, getattr(self, "_kid", None), norm(model)))
                 if not cands and fl.get("rules"):
                     return self.json_reply(503, {"error": "aucun serveur autorisé par les règles de routage pour « %s »" % model})
+                if not cands:   # seul un serveur endormi possède ce modèle : on le signale à la console (qui le réveille) et le client réessaiera
+                    sl = sleeping_for(norm(model), fl)
+                    if sl is not None:
+                        _wake[norm(model)] = time.time()
+                        _limiter.dirty.set()
+                        if self.req_meta is not None:
+                            log_request(dict(self.req_meta, ts=round(self.t0, 3), instance="-", status=503, aborted=False, ms=round((time.time() - self.t0) * 1000),
+                                             ttft_ms=None, retried=[], waking=sl.get("name")))
+                        return self.json_reply(503, {"error": "le serveur « %s » est en veille : réveil demandé pour le modèle « %s », réessayez dans une minute" % (sl.get("name"), model)},
+                                               {"Retry-After": "60"})
                 if any(c[0] == "remote" for c in cands):
                     return self.balanced(method, path, body, cands, model)
         target = self.target_for(method, path, body)
@@ -1053,7 +1080,7 @@ def limits_writer():
         if _tokens.dirty.is_set() or time.time() - last > 5:
             _tokens.dirty.clear()
         limits.write_json(LIMITS_FILE, {"t": int(time.time()), "queue": _limiter.snapshot(), "tokens": _tokens.snapshot(), "waiting": _limiter.waiting_list(),
-                                        "active": _limiter.total_running(), "waits": _limiter.wait_stats()})
+                                        "active": _limiter.total_running(), "waits": _limiter.wait_stats(), "wake": dict(_wake)})
         last = time.time()
         time.sleep(2)
 

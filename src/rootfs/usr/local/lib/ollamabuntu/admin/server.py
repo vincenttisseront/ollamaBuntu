@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # modules partagés avec le routeur
 import privacy  # noqa: E402  détection et masquage des données sensibles, termes interdits
 import rag  # noqa: E402  base de documents : extraction, découpage, vecteurs, recherche
+import power  # noqa: E402  réveil (Wake-on-LAN) et mise en veille des serveurs du parc
 import updater  # noqa: E402  mise à jour depuis Internet (GitHub)
 import monitor  # noqa: E402  débordement CPU/GPU, alertes, réglages recommandés
 import backup  # noqa: E402  sauvegarde chiffrée de la configuration
@@ -596,6 +597,246 @@ def rag_search(data, allowed=None):
     q = rag.embed(main_addr(), cfg["embed_model"], [rag.prefixes(cfg["embed_model"])[1] + question], timeout=120)[0]
     hits, stale = store.search(q, colls, k, cfg["min_score"], cfg["embed_model"], allowed)
     return {"system": rag.build_system(hits), "sources": rag.citations(hits), "stale": stale, "model": cfg["embed_model"]}
+
+
+# ------------------------------------------------ réveil et mise en veille des serveurs du parc ---
+POWER_FILE = os.path.join(ETC, "power.json")                # réglages généraux (console principale)
+POWER_MEMBER = os.path.join(ETC, "power-member.json")       # côté serveur géré : la console principale peut-elle le mettre en veille ?
+POWER_LOG = os.path.join(os.environ.get("OB_STATE", "/var/lib/ollamabuntu"), "power-log.json")
+_power_lock = threading.Lock()
+_power_mem = {}      # id du serveur -> {idle_since, woke_at, wake_sent, slept_at} : en mémoire (après un redémarrage de la console, le suivi repart de zéro)
+_power_run = {"busy_since": None, "last": 0}
+POWER_SUSPEND = ["systemctl", "--no-block", "--check-inhibitors=no"]
+
+
+def power_config():
+    try:
+        return power.config_clean(load_json_file(POWER_FILE, {}))
+    except ValueError:
+        return dict(power.DEFAULTS)
+
+
+def power_save(data):
+    cfg = power.config_clean(data, power_config())
+    atomic_write(POWER_FILE, json.dumps(cfg), 0o644)
+    return cfg
+
+
+def power_member_allow():
+    a = load_json_file(POWER_MEMBER, {}).get("allow", "")
+    return a if a in power.MODES else ""
+
+
+def power_member_save(data):
+    cfg = power.member_clean(data)
+    atomic_write(POWER_MEMBER, json.dumps(cfg), 0o600)
+    return cfg
+
+
+def power_log(limit=60):
+    d = load_json_file(POWER_LOG, [])
+    return [e for e in d if isinstance(e, dict)][-limit:]
+
+
+def power_event(kind, name, why, ok=True, detail=""):
+    ev = power.event_line(time.time(), kind, name, why, ok, detail)
+    with _power_lock:
+        log = power_log(100)
+        log.append(ev)
+        try:
+            atomic_write(POWER_LOG, json.dumps(log[-100:], ensure_ascii=False), 0o600)
+        except OSError:
+            pass
+    return ev
+
+
+def power_nics():
+    """Cartes réseau filaires de CE serveur : adresse MAC (à saisir sur la console principale) et état du réveil réseau."""
+    have = bool(shutil.which("ethtool"))
+    nics = power.list_nics("/sys/class/net", (lambda i: run(["ethtool", i], timeout=5)) if have else None)
+    return nics, have
+
+
+def power_wol_set(iface, enable):
+    """Active (ou désactive) le réveil réseau d'une carte, maintenant et à chaque démarrage (unité systemd ollamabuntu-wol@<carte>)."""
+    nics, have = power_nics()
+    if not have:
+        raise ValueError("ethtool n'est pas installé sur ce serveur (apt install ethtool)")
+    if iface not in {n["iface"] for n in nics}:
+        raise ValueError("carte réseau inconnue")
+    if enable and not next(n for n in nics if n["iface"] == iface)["supported"]:
+        raise ValueError("cette carte ne prend pas en charge le réveil par paquet magique")
+    r = subprocess.run(["systemctl", "enable" if enable else "disable", "--now", "ollamabuntu-wol@%s.service" % iface], capture_output=True, text=True, timeout=30)
+    if r.returncode != 0:
+        raise ValueError("systemctl : %s" % (r.stderr or r.stdout).strip()[:200])
+    if not enable:
+        run(["ethtool", "-s", iface, "wol", "d"], timeout=10)
+
+
+def power_member_sleep(mode):
+    """Côté serveur géré : exécute la demande de mise en veille de la console principale, si l'administrateur local l'a autorisée."""
+    if not power.allowed(power_member_allow(), mode):
+        raise ValueError("ce serveur n'autorise pas sa mise en veille à distance (Système > Gestion centralisée > Mise en veille à distance)")
+    if any(not j["done"] for j in list_jobs()):
+        raise ValueError("une tâche est en cours sur ce serveur : mise en veille refusée")
+    if mode == "suspend" and run(["systemctl", "can-suspend"], timeout=10).strip() != "yes":
+        raise ValueError("ce serveur ne prend pas en charge la mise en veille (suspend)")
+
+    def go():
+        time.sleep(3)   # laisse partir la réponse
+        sys.stderr.write("mise en veille (%s) demandée par la console principale\n" % mode)
+        try:
+            subprocess.run(POWER_SUSPEND + [mode], capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as e:
+            sys.stderr.write("mise en veille : %s\n" % e)
+    threading.Thread(target=go, daemon=True).start()
+
+
+def fleet_set_power(sid, data):
+    with _fleet_lock:
+        servers = load_fleet()
+        for x in servers:
+            if x["id"] == sid:
+                x["power"] = power.server_clean(data, x.get("power"))
+                break
+        else:
+            raise ValueError("serveur inconnu")
+        save_fleet(servers)
+    write_fleet_routes()
+    return x["power"]
+
+
+def power_server_state(s, now):
+    st = _fleet_state.get(s["id"]) or {}
+    m = _power_mem.get(s["id"]) or {}
+    return power.state_of(st.get("state") == "en ligne", m.get("wake_sent"), m.get("slept_at"), now, power_config()["wake_timeout_s"])
+
+
+def power_wake(sid, why="demandé par un administrateur"):
+    s = fleet_server(sid)
+    p = power.server_clean(s.get("power"))
+    if not p["mac"]:
+        raise ValueError("adresse MAC du serveur non renseignée")
+    try:
+        power.send_wol(p["mac"], p["broadcast"])
+    except OSError as e:
+        power_event("wake", s["name"], why, False, str(e))
+        raise ValueError("envoi du paquet impossible : %s" % e)
+    now = time.time()
+    _power_mem.setdefault(s["id"], {}).update(wake_sent=now, idle_since=None)
+    power_event("wake", s["name"], why)
+    return {"sent": now}
+
+
+def power_sleep(sid, why="demandé par un administrateur", mode=None):
+    s = fleet_server(sid)
+    p = power.server_clean(s.get("power"))
+    mode = mode or p["sleep"] or "suspend"
+    if mode not in ("suspend", "poweroff"):
+        raise ValueError("mode inconnu")
+    if not p["mac"]:
+        raise ValueError("adresse MAC du serveur non renseignée : sans elle il ne pourrait pas être réveillé")
+    try:
+        code, data, _ = fleet_request(s["url"], "/api/fleet/action", s["token"], s["fingerprint"], "POST", {"action": "power-sleep", "data": {"mode": mode}}, timeout=30)
+    except FleetError:
+        raise ValueError("certificat du serveur changé : approuvez-le d'abord")
+    except (OSError, ssl.SSLError) as e:
+        raise ValueError("serveur injoignable : %s" % e)
+    if code != 200:
+        msg = data.get("error") or "refusé par le serveur (%d)" % code
+        power_event("sleep", s["name"], why, False, msg)
+        raise ValueError(msg)
+    m = _power_mem.setdefault(s["id"], {})
+    m.update(slept_at=time.time(), idle_since=None, woke_at=None)
+    power_event("sleep", s["name"], why, True, mode)
+    return {"mode": mode}
+
+
+def power_inputs(now, cfg):
+    """Photographie du parc pour power.decide : état de chaque serveur, demandes en attente, signaux du routeur, saturation."""
+    lim = load_json_file(ROUTER_LIMITS, {})
+    fresh = now - int(lim.get("t") or 0) < 30
+    waiting = [{"model": short_name(w.get("model") or ""), "waited": w.get("waited", 0)} for w in (lim.get("waiting") or [])] if fresh else []
+    hints = {short_name(k): float(v) for k, v in (lim.get("wake") or {}).items()} if fresh and isinstance(lim.get("wake"), dict) else {}
+    servers = load_fleet()
+    reqs = read_requests(4000) if any((s.get("power") or {}).get("sleep") for s in servers) else []
+    last_req = {}
+    for r in reqs:
+        inst = str(r.get("instance") or "")
+        if inst.startswith("serveur:"):
+            last_req[inst[8:]] = max(last_req.get(inst[8:], 0), r.get("ts", 0))
+    out, loads = [], []
+    for s in servers:
+        st = _fleet_state.get(s["id"]) or {}
+        d = st.get("data") or {}
+        p = power.server_clean(s.get("power"))
+        m = _power_mem.setdefault(s["id"], {})
+        state = power.state_of(st.get("state") == "en ligne", m.get("wake_sent"), m.get("slept_at"), now, cfg["wake_timeout_s"])
+        load = avg_load(d.get("gpu_live"), (d.get("cpu") or {}).get("usage")) if state == "awake" else None
+        if state == "awake":
+            if m.get("wake_sent") and not m.get("woke_at"):
+                m["woke_at"] = now
+                power_event("wake-ok", s["name"], "le serveur répond de nouveau (%d s après le paquet)" % (now - m["wake_sent"]))
+            m.pop("slept_at", None)
+            power.track_idle(m, power.is_idle(load, d.get("jobs"), last_req.get(s["name"]), now), now)
+            if s.get("route_token"):
+                loads.append(load)
+        else:
+            m["idle_since"] = None
+            if state == "offline" and m.get("wake_sent") and not m.get("failed") and now - m["wake_sent"] >= cfg["wake_timeout_s"]:
+                m["failed"] = True
+                power_event("wake-failed", s["name"], "aucune réponse %d s après le paquet" % cfg["wake_timeout_s"], False)
+        if state != "offline" or not m.get("wake_sent"):
+            m.pop("failed", None)
+        out.append({"id": s["id"], "name": s["name"], "state": state, "power": p, "idle_since": m.get("idle_since"), "woke_at": m.get("woke_at"),
+                    "wake_sent": m.get("wake_sent"),
+                    "models": sorted(power.requestable([short_name(t.get("name") or t.get("model") or "") for t in d.get("model_tags", [])], s.get("model_map")))})
+    last = (list(_metrics["samples"]) or [{}])[-1]
+    loads.append(avg_load(gpu_metrics(), last.get("cpu")))   # ce serveur compte aussi parmi ceux qui travaillent
+    return out, waiting, hints, loads
+
+
+def power_tick(now=None):
+    """Un passage : décide puis exécute (réveil par paquet, mise en veille à distance). Retourne les actions menées."""
+    now = now or time.time()
+    cfg = power_config()
+    servers, waiting, hints, loads = power_inputs(now, cfg)
+    _power_run["busy_since"] = power.track_busy(_power_run["busy_since"], power.saturated(loads, cfg["wake_busy_pct"]), now)
+    done = []
+    for a in power.decide(now, cfg, servers, waiting, hints, _power_run["busy_since"]):
+        try:
+            if a["action"] == "wake":
+                power_wake(a["id"], a["why"])
+            else:
+                power_sleep(a["id"], a["why"], a.get("mode"))
+            done.append(a)
+        except ValueError as e:
+            sys.stderr.write("réveil/veille (%s) : %s\n" % (a["name"], e))
+    _power_run["last"] = now
+    return done
+
+
+def power_worker():
+    time.sleep(10)
+    while True:
+        try:
+            power_tick()
+        except Exception as e:
+            sys.stderr.write("réveil/veille : %s\n" % e)
+        time.sleep(int(os.environ.get("OB_POWER_INTERVAL", "15")))
+
+
+def power_view():
+    now, cfg = time.time(), power_config()
+    servers = []
+    for s in load_fleet():
+        st = _fleet_state.get(s["id"]) or {}
+        d = st.get("data") or {}
+        m = _power_mem.get(s["id"]) or {}
+        servers.append({"id": s["id"], "name": s["name"], "state": power_server_state(s, now), "fleet_state": st.get("state", "en attente"), "power": power.server_clean(s.get("power")),
+                        "idle_min": int((now - m["idle_since"]) // 60) if m.get("idle_since") else None, "wake_sent": m.get("wake_sent"), "failed": bool(m.get("failed")),
+                        "nics": d.get("nics") or [], "allow": d.get("power_allow", ""), "tools": d.get("power_tools")})
+    return {"settings": cfg, "servers": servers, "log": list(reversed(power_log())), "active": now - _power_run["last"] < 60, "limits": {k: list(v[:2]) for k, v in power.LIMITS.items()}}
 
 
 # ------------------------------------------------ confidentialité : données sensibles et termes interdits ---
@@ -2068,7 +2309,8 @@ def load_member():
 def member_view():
     consoles = load_member()
     routed = {c.get("parent") for c in consoles if c.get("scope") == "route"}
-    return {"fingerprint": own_fingerprint(), "last_sync": load_json_file(FLEET_MEMBER, {}).get("last_sync"),
+    nics, have_eth = power_nics()
+    return {"fingerprint": own_fingerprint(), "last_sync": load_json_file(FLEET_MEMBER, {}).get("last_sync"), "power_allow": power_member_allow(), "nics": nics, "ethtool": have_eth,
             "consoles": [dict({k: v for k, v in c.items() if k != "hash"}, last_seen=_fleet_seen.get(c["id"]), route=c["id"] in routed)
                          for c in consoles if c.get("scope", "manage") == "manage"]}
 
@@ -2138,7 +2380,8 @@ def fleet_summary():
     except (OSError, ValueError):
         tags = []
     fw, au = firewall_status(), autoupdates_status()
-    return dict(s, firewall_active=fw["active"], autoupdates=au["enabled"], node=member_node(),
+    nics, have_eth = power_nics()
+    return dict(s, firewall_active=fw["active"], autoupdates=au["enabled"], node=member_node(), nics=nics, power_allow=power_member_allow(), power_tools={"ethtool": have_eth},
                 models={"count": len(tags), "size": sum(m.get("size", 0) for m in tags)},
                 model_tags=[{k: m.get(k) for k in ("name", "model", "size", "digest", "modified_at", "details")} for m in tags][:500],
                 jobs=[j for j in list_jobs() if not j["done"]])
@@ -2220,6 +2463,9 @@ def member_action(action, caller=None, data=None):
     if action == "route-revoke":
         with _fleet_lock:
             save_member([c for c in load_member() if not (c.get("scope") == "route" and c.get("parent") == caller["id"])])
+        return None
+    if action == "power-sleep":   # mise en veille demandée par la console principale (seulement si ce serveur l'a autorisée)
+        power_member_sleep(str((data or {}).get("mode") or ""))
         return None
     if action not in FLEET_ACTIONS:
         raise ValueError("action non autorisée à distance")
@@ -2440,6 +2686,7 @@ def avg_load(gpu_live, cpu_usage):
 def write_fleet_routes():
     """Serveurs utilisables par le routeur (jetons de routage seulement : ni état ni actions)."""
     servers = []
+    wake_on = power_config()["enabled"]
     for s in load_fleet():
         st = _fleet_state.get(s["id"]) or {}
         d = st.get("data") or {}
@@ -2447,6 +2694,7 @@ def write_fleet_routes():
             continue
         servers.append({"id": s["id"], "name": s["name"], "url": s["url"], "fingerprint": s["fingerprint"], "token": s["route_token"],
                         "online": st.get("state") == "en ligne", "models": d.get("model_tags", []), "model_map": s.get("model_map") or {},
+                        "wake": bool(wake_on and (s.get("power") or {}).get("wake") and (s.get("power") or {}).get("mac")),   # réveillable par la console : le routeur signale alors les modèles qu'il est seul à avoir
                         "loaded": [m.get("name") for m in (d.get("ollama") or {}).get("running", [])],
                         "load": avg_load(d.get("gpu_live"), (d.get("cpu") or {}).get("usage"))})
     try:
@@ -5513,7 +5761,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/costs", "/api/costs/export", "/api/privacy", "/api/rag", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/power", "/api/costs", "/api/costs/export", "/api/privacy", "/api/rag", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -5728,6 +5976,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, limits_view())
             if path == "/api/queue":
                 return self.send_json(200, queue_view())
+            if path == "/api/power":
+                return self.send_json(200, power_view())
             if path == "/api/sso/config":
                 return self.send_json(200, sso_view())
             if path == "/api/costs":
@@ -6102,6 +6352,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, privacy_test(data))
             if path == "/api/queue/config":
                 return self.send_json(200, {"ok": True, "settings": queue_save(data)})
+            if path == "/api/power/config":
+                return self.send_json(200, {"ok": True, "settings": power_save(data)})
+            if path == "/api/power/server":
+                return self.send_json(200, {"ok": True, "power": fleet_set_power(str(data.get("id", "")), data)})
+            if path == "/api/power/wake":
+                return self.send_json(200, dict(power_wake(str(data.get("id", "")), "demandé par %s" % user), ok=True))
+            if path == "/api/power/sleep":
+                return self.send_json(200, dict(power_sleep(str(data.get("id", "")), "demandé par %s" % user, data.get("mode") or None), ok=True))
+            if path == "/api/power/member":   # ce serveur : autoriser ou refuser sa mise en veille par la console principale
+                return self.send_json(200, {"ok": True, "member": power_member_save(data)})
+            if path == "/api/power/wol":      # ce serveur : réveil réseau d'une carte
+                power_wol_set(str(data.get("iface", "")), bool(data.get("enable")))
+                return self.send_json(200, {"ok": True})
             if path == "/api/models/context":
                 set_model_context(data.get("model"), data.get("num_ctx"))
                 return self.send_json(200, {"ok": True})
@@ -6570,6 +6833,7 @@ def main():
     threading.Thread(target=online_update_worker, daemon=True).start()
     threading.Thread(target=preload_worker, daemon=True).start()
     threading.Thread(target=fleet_worker, daemon=True).start()
+    threading.Thread(target=power_worker, daemon=True).start()
     threading.Thread(target=metrics_worker, daemon=True).start()
     threading.Thread(target=alerts_worker, daemon=True).start()
     threading.Thread(target=guard_worker, daemon=True).start()

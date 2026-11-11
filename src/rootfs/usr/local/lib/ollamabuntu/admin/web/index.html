@@ -420,6 +420,14 @@
           <div id="fm-list"></div>
           <div class="row"><input id="fm-name" maxlength="40" placeholder="Nom de la console principale" aria-label="Nom de la console principale"><button id="fm-add" class="btn primary" type="button">Autoriser une console principale</button><span id="fm-msg" class="small"></span></div>
         </div>
+        <div class="card" data-panel="central" data-label="Gestion centralisée">
+          <h2>Mise en veille à distance et réveil réseau</h2>
+          <p class="muted small">Une console principale peut mettre ce serveur en veille quand il est inactif et le réveiller par le réseau (Wake-on-LAN) quand il y a du travail. Rien n'est possible sans votre autorisation ici. « Veille » garde la mémoire sous tension (réveil rapide) ; « Extinction » éteint complètement (le réveil dépend du BIOS).</p>
+          <div class="row"><label>Mise en veille demandée par la console principale<select id="pm-allow"><option value="">Refuser</option><option value="suspend">Autoriser la veille</option><option value="poweroff">Autoriser la veille et l'extinction</option></select></label><span id="pm-msg" class="small" aria-live="polite"></span></div>
+          <h3>Cartes réseau</h3>
+          <p id="pm-hint" class="muted small"></p>
+          <div id="pm-nics"></div>
+        </div>
         <div class="card" data-panel="overview" data-label="Vue d'ensemble">
           <h2>Maintenance</h2>
           <p id="sys-update-note" class="small"></p>
@@ -671,6 +679,33 @@
           <button class="btn primary" type="submit">Enregistrer</button><span id="queue-msg" class="small" aria-live="polite"></span>
         </form>
         <p class="muted small" id="queue-hint"></p>
+      </div>
+      <div class="card wide" data-admin data-panel="power" data-label="Veille">
+        <div class="card-head"><h2>Réveil et mise en veille du parc</h2><button id="pwr-refresh" class="btn" type="button">Actualiser</button></div>
+        <p class="muted small">Les serveurs du parc ne tournent que quand il y a du travail. La console réveille un serveur (paquet Wake-on-LAN) quand des demandes attendent trop longtemps, quand tous les serveurs éveillés sont saturés ou quand un modèle n'existe que sur un serveur endormi ; elle met en veille un serveur resté inactif. Le réveil dépend du matériel (carte réseau, BIOS, câble) : essayez d'abord à la main avec « Réveiller ».</p>
+        <form id="pwr-form" class="user-form" autocomplete="off">
+          <label class="check"><input type="checkbox" name="enabled"> Activer le réveil et la mise en veille automatiques</label>
+          <label>Demandes en attente avant un réveil (0 = ne pas réveiller selon la file)<input name="wake_waiting" type="number" min="0" max="1000" required></label>
+          <label>La plus ancienne attend depuis au moins (secondes)<input name="wake_after_s" type="number" min="5" max="3600" required></label>
+          <label>Saturation : tous les serveurs éveillés occupés à plus de (%, 0 = désactivé)<input name="wake_busy_pct" type="number" min="0" max="100" required></label>
+          <label>...pendant au moins (secondes)<input name="wake_busy_s" type="number" min="10" max="3600" required></label>
+          <label>Serveurs toujours éveillés<input name="keep_awake" type="number" min="0" max="50" required></label>
+          <label>Durée minimale d'éveil après un réveil (secondes)<input name="settle_s" type="number" min="0" max="86400" required></label>
+          <details><summary>Réglages avancés</summary>
+            <label>Délai avant de réveiller de nouveau le même serveur (secondes)<input name="cooldown_s" type="number" min="30" max="86400" required></label>
+            <label>Délai pour qu'un serveur réveillé réponde (secondes)<input name="wake_timeout_s" type="number" min="30" max="3600" required></label>
+          </details>
+          <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="pwr-msg" class="small" aria-live="polite"></span></div>
+        </form>
+      </div>
+      <div class="card wide" data-admin data-panel="power" data-label="Veille">
+        <h2>Serveurs</h2>
+        <p class="muted small">Un serveur n'est réveillé ou mis en veille automatiquement que si son adresse MAC est renseignée. La mise en veille est une demande : le serveur doit l'avoir autorisée lui-même (Système &gt; Gestion centralisée &gt; Mise en veille à distance).</p>
+        <div id="pwr-servers"></div>
+      </div>
+      <div class="card wide" data-admin data-panel="power" data-label="Veille">
+        <h2>Journal</h2>
+        <div id="pwr-log"></div>
       </div>
       <div class="card wide" data-admin data-panel="rules" data-label="Règles de routage">
         <h2>Règles de routage</h2>

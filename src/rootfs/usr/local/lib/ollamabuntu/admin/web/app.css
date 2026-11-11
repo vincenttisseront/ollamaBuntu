@@ -279,3 +279,5 @@ label.block{display:block;margin:8px 0}
 .rag-sources{margin-top:8px;padding-top:6px;border-top:1px dashed var(--line)}
 .rag-job{margin:6px 0}
 .rag-job button{margin-left:8px}
+#pw-form details{margin-top:6px}
+#pw-form details label{display:block;margin-top:6px}

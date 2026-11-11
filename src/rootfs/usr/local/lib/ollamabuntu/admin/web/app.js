@@ -246,13 +246,13 @@ function route() {
   if (v === 'perf') loadPerformance();
   if (v === 'lab') loadLab();
   if (v === 'rag') loadRag();
-  if (v === 'system') { loadSystem(); loadProm(); const tab = currentTab('system'); if (tab === 'hardware') loadHardware(); if (tab === 'audit') loadAudit(); if (tab === 'report') loadReport(); }
+  if (v === 'system') { loadSystem(); loadProm(); loadPowerMember(); const tab = currentTab('system'); if (tab === 'hardware') loadHardware(); if (tab === 'audit') loadAudit(); if (tab === 'report') loadReport(); }
   if (v === 'webui') loadWebui();
   if (v === 'users') { loadUsers(); loadSso(); }
   if (v === 'logs') { loadRequests(); loadReqSettings(); loadLogs(); if (currentTab('logs') === 'stats') loadStats(); if (isAdmin()) { loadCosts(); loadPrivacy(); } state.timer = setInterval(() => { if ($('#req-live').checked && currentTab('logs') === 'requests') loadRequests(); }, 4000); }
   if (v === 'account') loadAccount();
   if (v === 'about') loadCredits();
-  if (v === 'fleet') { loadFleet(); loadBalance(); loadQueue(); state.timer = setInterval(() => { loadFleet(); loadBalance(); loadQueue(); }, 10000); }
+  if (v === 'fleet') { loadFleet(); loadBalance(); loadQueue(); loadPower(); state.timer = setInterval(() => { loadFleet(); loadBalance(); loadQueue(); loadPower(); }, 10000); }
   if (v === 'security') { loadSecurity(); loadPolicy(); }
 }
 window.addEventListener('hashchange', route);
@@ -1870,6 +1870,96 @@ $('#rag-try-form').addEventListener('submit', async (ev) => {
   } catch (e) { out.className = 'small error'; out.textContent = e.message; }
 });
 
+/* ------------------------------------------------ réveil et mise en veille du parc */
+const PW_STATE = { awake: ['Éveillé', 'ok'], waking: ['Réveil en cours', 'warn'], asleep: ['En veille', 'info'], offline: ['Injoignable', 'warn'] };
+const PW_KIND = { wake: 'Réveil', 'wake-ok': 'Réveillé', 'wake-failed': 'Réveil sans effet', sleep: 'Mise en veille' };
+const PW_MODE = { suspend: 'veille (suspend)', poweroff: 'extinction' };
+const PW_FIELDS = ['wake_waiting', 'wake_after_s', 'wake_busy_pct', 'wake_busy_s', 'keep_awake', 'settle_s', 'cooldown_s', 'wake_timeout_s'];
+const pwState = { data: null };
+async function loadPower() {
+  if (!isAdmin()) return;
+  let d;
+  try { d = await api('/api/power'); } catch (e) { $('#pwr-msg').className = 'small error'; $('#pwr-msg').textContent = e.message; return; }
+  pwState.data = d;
+  const f = $('#pwr-form');
+  if (w_active() !== f.elements.enabled) f.elements.enabled.checked = d.settings.enabled;
+  for (const k of PW_FIELDS) if (w_active() !== f.elements[k]) f.elements[k].value = d.settings[k];
+  $('#pwr-servers').replaceChildren(d.servers.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Serveur', 'État', 'Adresse MAC', 'Automatisme', ''].map((t) => el('th', { text: t })))),
+    el('tbody', {}, ...d.servers.map((s) => {
+      const p = s.power, st = PW_STATE[s.state] || PW_STATE.offline, notes = [];
+      if (s.failed) notes.push(el('div', { class: 'error small', text: 'Réveil sans effet : vérifiez le Wake-on-LAN (BIOS, carte réseau) et l\'adresse MAC.' }));
+      if (p.sleep && s.state === 'awake' && !s.allow) notes.push(el('div', { class: 'error small', text: 'Ce serveur n\'autorise pas sa mise en veille à distance.' }));
+      else if (p.sleep === 'poweroff' && s.state === 'awake' && s.allow === 'suspend') notes.push(el('div', { class: 'error small', text: 'Ce serveur n\'autorise que la veille, pas l\'extinction.' }));
+      const nic = (s.nics || []).find((x) => x.mac === p.mac);
+      if (nic && nic.wol === 'off') notes.push(el('div', { class: 'error small', text: 'Le réveil réseau est désactivé sur la carte de ce serveur (Système > Gestion centralisée de ce serveur).' }));
+      return el('tr', {}, el('td', { class: 'name', text: s.name }, ...notes),
+        el('td', {}, pill(st[0], st[1]), s.state === 'awake' && s.idle_min != null ? el('div', { class: 'muted small', text: 'Au repos depuis ' + s.idle_min + ' min' }) : null),
+        el('td', { class: 'small', text: p.mac || '-' }),
+        el('td', { class: 'small' }, p.wake ? el('div', { text: 'Réveil automatique' }) : null, p.sleep ? el('div', {}, el('span', { text: PW_MODE[p.sleep] }), el('span', { text: ' après ' + p.idle_min + ' min d\'inactivité' })) : null, !p.wake && !p.sleep ? el('span', { class: 'muted', text: 'Manuel seulement' }) : null),
+        el('td', {}, el('div', { class: 'row' },
+          el('button', { class: 'btn sm', type: 'button', text: 'Réveiller', disabled: !p.mac || s.state === 'awake', onclick: () => pwAct(s, 'wake') }),
+          el('button', { class: 'btn sm', type: 'button', text: 'Mettre en veille', disabled: s.state !== 'awake' || !p.mac, onclick: () => pwAct(s, 'sleep') }),
+          el('button', { class: 'btn sm', type: 'button', text: 'Régler', onclick: () => pwEdit(s) }))));
+    })))) : el('p', { class: 'muted', text: 'Aucun serveur dans le parc.' }));
+  $('#pwr-log').replaceChildren(d.log.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Date', 'Serveur', 'Événement', 'Motif'].map((t) => el('th', { text: t })))),
+    el('tbody', {}, ...d.log.slice(0, 40).map((e) => el('tr', { class: e.ok ? '' : 'error' }, el('td', { class: 'small', text: fmtDate(e.ts) }), el('td', { class: 'name', text: e.server }),
+      el('td', {}, pill(PW_KIND[e.kind] || e.kind, e.ok ? 'ok' : 'warn')),
+      el('td', { class: 'small' }, el('span', { text: e.why }), e.detail ? el('span', { class: 'muted', text: ' - ' }) : null, e.detail ? el('span', { class: 'muted', text: PW_MODE[e.detail] || e.detail }) : null)))))) : el('p', { class: 'muted', text: 'Aucun événement pour le moment.' }));
+}
+async function pwAct(s, what) {
+  if (what === 'sleep' && !(await ask('Mettre « ' + s.name + ' » en veille ? Il ne répondra plus aux requêtes tant qu\'il n\'est pas réveillé.', { ok: 'Mettre en veille' }))) return;
+  try { await api('/api/power/' + what, { json: { id: s.id } }); } catch (e) { fail(e.message); }
+  loadPower();
+}
+async function pwEdit(s) {
+  const p = s.power;
+  const mac = el('input', { type: 'text', value: p.mac, maxlength: '17', placeholder: 'ex. 3c:ec:ef:12:34:56', list: 'pw-mac-list', 'aria-label': 'Adresse MAC' });
+  const dl = el('datalist', { id: 'pw-mac-list' }, ...(s.nics || []).map((n) => el('option', { value: n.mac, text: n.iface })));
+  const bc = el('input', { type: 'text', value: p.broadcast, maxlength: '15', placeholder: 'ex. 192.168.1.255', 'aria-label': 'Adresse de diffusion' });
+  const wake = el('input', { type: 'checkbox', 'aria-label': 'Réveil automatique' }); wake.checked = p.wake;
+  const sleep = el('select', { 'aria-label': 'Mise en veille automatique' }, el('option', { value: '', text: 'Aucune' }), el('option', { value: 'suspend', text: 'Veille (suspend)' }), el('option', { value: 'poweroff', text: 'Extinction' }));
+  sleep.value = p.sleep;
+  const idle = el('input', { type: 'number', min: '5', max: '1440', value: String(p.idle_min), 'aria-label': 'Inactivité avant mise en veille (minutes)' });
+  const ok = await modal({ title: 'Réveil et veille de « ' + s.name + ' »', message: 'L\'adresse MAC est celle de la carte réseau filaire du serveur (affichée dans son écran Système > Gestion centralisée). L\'adresse de diffusion n\'est utile que si le serveur est sur un autre réseau que cette console.',
+    body: el('div', { class: 'row' }, dl, el('label', {}, 'Adresse MAC ', mac), el('label', {}, 'Adresse de diffusion (facultative) ', bc), el('label', { class: 'check' }, wake, ' Réveiller automatiquement quand la demande le justifie'),
+      el('label', {}, 'Mettre en veille automatiquement ', sleep), el('label', {}, 'après (minutes d\'inactivité) ', idle)), ok: 'Enregistrer' });
+  if (!ok) return;
+  try { await api('/api/power/server', { json: { id: s.id, mac: mac.value, broadcast: bc.value, wake: wake.checked, sleep: sleep.value, idle_min: idle.value } }); } catch (e) { fail(e.message); }
+  loadPower();
+}
+$('#pwr-refresh').addEventListener('click', loadPower);
+$('#pwr-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, out = $('#pwr-msg'), body = { enabled: f.elements.enabled.checked };
+  for (const k of PW_FIELDS) body[k] = f.elements[k].value;
+  try { await api('/api/power/config', { json: body }); out.className = 'small okmsg'; out.textContent = 'Enregistré.'; loadPower(); }
+  catch (e) { out.className = 'small error'; out.textContent = e.message; }
+});
+/* côté serveur géré : autorisation de la mise en veille, réveil réseau des cartes */
+async function loadPowerMember() {
+  let m;
+  try { m = await api('/api/fleet/member'); } catch (e) { return; }
+  if (w_active() !== $('#pm-allow')) $('#pm-allow').value = m.power_allow || '';
+  $('#pm-hint').textContent = m.ethtool ? '' : 'Le programme ethtool est absent de ce serveur (apt install ethtool) : l\'état du réveil réseau ne peut pas être lu ni activé.';
+  $('#pm-nics').replaceChildren(m.nics.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Carte', 'Adresse MAC', 'Liaison', 'Réveil réseau', ''].map((t) => el('th', { text: t })))),
+    el('tbody', {}, ...m.nics.map((n) => el('tr', {}, el('td', { class: 'name', text: n.iface }), el('td', { class: 'small', text: n.mac }), el('td', { class: 'small', text: n.link === 'up' ? 'Connectée' : n.link === 'down' ? 'Débranchée' : n.link }),
+      el('td', {}, n.wol === 'magic' ? pill('Activé', 'ok') : n.wol === 'off' ? pill(n.supported === false ? 'Non pris en charge' : 'Désactivé', n.supported === false ? '' : 'warn') : pill('Inconnu', '')),
+      el('td', {}, n.wol === 'magic' ? el('button', { class: 'btn sm', type: 'button', text: 'Désactiver', onclick: () => pmWol(n, false) })
+        : el('button', { class: 'btn sm', type: 'button', text: 'Activer', disabled: !m.ethtool || n.supported === false, onclick: () => pmWol(n, true) }))))))) : el('p', { class: 'muted', text: 'Aucune carte réseau filaire détectée.' }));
+}
+async function pmWol(n, enable) {
+  try { await api('/api/power/wol', { json: { iface: n.iface, enable } }); } catch (e) { fail(e.message); }
+  loadPowerMember();
+}
+$('#pm-allow').addEventListener('change', async () => {
+  const out = $('#pm-msg');
+  try { await api('/api/power/member', { json: { allow: $('#pm-allow').value } }); out.className = 'small okmsg'; out.textContent = 'Enregistré.'; }
+  catch (e) { out.className = 'small error'; out.textContent = e.message; }
+});
+
 /* ------------------------------------------------ file d'attente */
 const fmtWait = (s) => (s >= 90 ? Math.round(s / 60) + ' min' : s < 10 ? DEC(Number(s).toFixed(1)) + ' s' : DEC(Math.round(s)) + ' s');
 async function loadQueue() {
@@ -2234,7 +2324,7 @@ function renderMuHistory(d) {
     el('tbody', {}, ...d.history.map((h) => { const s = MU_STATUS[h.status] || [h.status, '']; return el('tr', {}, el('td', { class: 'small', text: fmtDate(h.t) }), el('td', { class: 'name', text: h.model }), el('td', {}, pill(s[0], s[1])),
       el('td', { class: 'small', text: h.detail + (h.tps_before && h.tps_after ? ' (débit ' + DEC(h.tps_before) + ' → ' + DEC(h.tps_after) + ' jetons/s)' : '') }), el('td', { class: 'small', text: h.who + ' (' + h.reason + ')' })); })))) : el('p', { class: 'muted small', text: 'Aucune mise à jour enregistrée.' }));
 }
-const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'costs', 'privacy', 'system'], fleet: ['fleet', 'balance', 'queue', 'rules', 'add'] };
+const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'costs', 'privacy', 'system'], fleet: ['fleet', 'balance', 'queue', 'power', 'rules', 'add'] };
 function setupTabs() {
   for (const sec of $$('section.view')) {
     const items = [...sec.querySelectorAll('[data-panel]')];

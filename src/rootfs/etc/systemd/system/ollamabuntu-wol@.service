@@ -1,0 +1,12 @@
+[Unit]
+Description=Réveil réseau (Wake-on-LAN) de la carte %i (OllamaBuntu)
+After=network.target
+ConditionPathExists=/sys/class/net/%i
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/ethtool -s %i wol g
+
+[Install]
+WantedBy=multi-user.target

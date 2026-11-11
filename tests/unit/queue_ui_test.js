@@ -57,7 +57,7 @@ async function scenario(lang) {
   ok(await until(() => !$('#app').classList.contains('hidden')), L('console affichée', 'EN: shown'));
   w.location.hash = '#fleet/queue';
   ok(await until(() => $$('#queue-list tbody tr').length === 3), L('onglet « File d\'attente » chargé', 'EN: queue tab loaded'));
-  ok([...$$('#view-fleet > .subtabs a')].map((a) => a.dataset.key).join() === 'fleet,balance,queue,rules,add', L('onglet placé après « Répartition de charge »', 'EN: tab order'));
+  ok([...$$('#view-fleet > .subtabs a')].map((a) => a.dataset.key).join() === 'fleet,balance,queue,power,rules,add', L('onglet placé après « Répartition de charge »', 'EN: tab order'));
   const rows = $$('#queue-list tbody tr').map((r) => [...r.children].map((c) => c.textContent.trim()));
   ok(rows[0][1] === 'Direction' && rows[1][1] === 'Fond' && rows[2][1] === 'Batch' && rows[0][0] === '1' && rows[2][0] === '3', L('file affichée dans l\'ordre reçu du routeur, avec le numéro de passage', 'EN: order kept'));
   ok(rows[0][3].startsWith(L('haute', 'high')) && rows[2][3].startsWith(L('basse', 'low')), L('priorité de chaque requête', 'EN: priority'));
