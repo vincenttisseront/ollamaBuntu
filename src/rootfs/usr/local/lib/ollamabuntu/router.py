@@ -24,6 +24,9 @@ import threading
 import time
 import urllib.parse
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import limits  # noqa: E402
+
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
 POOLS_FILE = os.path.join(ETC, "pools.json")
 PUB_FILE = os.path.join(ETC, "publication.json")
@@ -45,6 +48,10 @@ MAX_BODY = 512 * 1024 * 1024
 _routes = {"mtime": None, "map": {}, "pools": []}
 _pub = {"mtime": None, "data": {}, "keys": {}}
 _pol = {"mtime": None, "data": {}}
+LIMITS_FILE = os.environ.get("OB_ROUTER_LIMITS", os.path.join(os.path.dirname(USAGE_FILE), "limits.json"))
+QUEUE_WAIT = int(os.environ.get("OB_QUEUE_WAIT", "600"))   # secondes d'attente d'une requête dont la clé a atteint son plafond
+_limiter = limits.Limiter()
+_tokens = limits.Tokens()
 FLEET_ROUTES = os.path.join(ETC, "fleet-routes.json")
 _fleet = {"mtime": None, "data": {"servers": [], "local": {}}}
 _local_models = {"t": 0.0, "names": set(), "tags": []}
@@ -434,7 +441,7 @@ class Router(http.server.BaseHTTPRequestHandler):
             self.wfile.write(raw)
 
     @staticmethod
-    def candidates(model, fl):
+    def candidates(model, fl, kid=None):
         """Serveurs capables de répondre : le modèle déjà en mémoire d'abord, puis le moins chargé."""
         out = []
         loc = fl.get("local") or {}
@@ -452,6 +459,12 @@ class Router(http.server.BaseHTTPRequestHandler):
                     use = sub
             if use:
                 out.append(("remote", use in {norm(x) for x in s.get("loaded", [])}, float(s.get("load") or 0), dict(s, use_model=use)))
+        matched = False
+        rules = fl.get("rules") or []
+        if rules:
+            out, matched = limits.apply_rules(out, rules, kid, model)
+        if matched and not out:
+            return []
         with _inflight_lock:
             strategy = balance_strategy()
             turn = _rr.get(model, 0)
@@ -551,9 +564,11 @@ class Router(http.server.BaseHTTPRequestHandler):
             self.release_inflight()
             if self.req_meta is not None:
                 elapsed = time.time() - getattr(self, "t0", time.time())
+                met = request_metrics(tail, elapsed, ttft)
                 log_request(dict(self.req_meta, ts=round(self.t0, 3), instance=label, status=resp.status, aborted=aborted,
-                                 ms=round(elapsed * 1000), ttft_ms=round(ttft * 1000) if ttft is not None else None,
-                                 **request_metrics(tail, elapsed, ttft)))
+                                 ms=round(elapsed * 1000), ttft_ms=round(ttft * 1000) if ttft is not None else None, **met))
+                if getattr(self, "_kid", None):
+                    _tokens.add(self._kid, (met.get("in_tok") or 0) + (met.get("out_tok") or 0))
 
     def merged_models(self, path, allowed, fl):
         """Liste unifiée : modèles de ce serveur et des serveurs du parc en ligne (filtrée selon la clé)."""
@@ -652,6 +667,7 @@ class Router(http.server.BaseHTTPRequestHandler):
         key = next((k for h, k in keys.items() if hmac.compare_digest(h, digest)), None)
         if not key:
             raise PermissionError(401, "clé d'API invalide ou révoquée")
+        self._key = key
         return (key.get("name", "?"), set(key.get("perms") or []), {norm(m) for m in key.get("models") or []}, key.get("id"), set(key.get("deny") or []))
 
     def note_usage(self, kid):
@@ -675,6 +691,15 @@ class Router(http.server.BaseHTTPRequestHandler):
         print("accès refusé %s %s %s : %s" % (self.client_address[0], self.command, self.path[:80], message), flush=True)
 
     def relay(self):
+        self._key, self._slot, self._kid = None, None, None
+        try:
+            self._relay()
+        finally:
+            if self._slot:
+                _limiter.release(self._slot)
+                self._slot = None
+
+    def _relay(self):
         self.t0, self.req_meta, self._inflight_key = time.time(), None, None
         method = self.command
         path = urllib.parse.urlsplit(self.path).path
@@ -719,6 +744,16 @@ class Router(http.server.BaseHTTPRequestHandler):
                 if model is not None and norm(model) not in models:
                     return self.deny(403, "modèle « %s » non autorisé pour « %s »" % (model, who))
             self.note_usage(kid)
+            key = self._key or {}
+            if path in INFERENCE and kid:
+                why = _tokens.exceeded(kid, key.get("quota_day"), key.get("quota_month"))
+                if why:
+                    return self.deny(429, "%s pour « %s »" % (why, who))
+                if not _limiter.acquire(kid, key.get("max_concurrent"), QUEUE_WAIT):
+                    return self.deny(429, "trop de requêtes simultanées pour « %s » (plafond %s) : file d'attente pleine" % (who, key.get("max_concurrent")))
+                if key.get("max_concurrent"):
+                    self._slot = kid
+        self._kid = kid if r is not None else None
         body = with_context(path, body)
         fl = fleet()
         if fl.get("servers") and method == "GET" and path in ("/api/tags", "/v1/models"):
@@ -730,7 +765,9 @@ class Router(http.server.BaseHTTPRequestHandler):
         if fl.get("servers") and body and not path.startswith(MANAGEMENT) and self.category(method, path) in ("inference", "read"):
             model = self.model_of(path, body)
             if model:
-                cands = self.candidates(norm(model), fl)
+                cands = self.candidates(norm(model), fl, getattr(self, "_kid", None))
+                if not cands and fl.get("rules"):
+                    return self.json_reply(503, {"error": "aucun serveur autorisé par les règles de routage pour « %s »" % model})
                 if any(c[0] == "remote" for c in cands):
                     return self.balanced(method, path, body, cands, model)
         target = self.target_for(method, path, body)
@@ -801,10 +838,28 @@ def usage_writer():
             pass
 
 
+def limits_writer():
+    """État de la file d'attente (rapide) et jetons consommés (persistés) pour la console."""
+    last = 0.0
+    while True:
+        _limiter.dirty.wait(timeout=5)
+        _limiter.dirty.clear()
+        if _tokens.dirty.is_set() or time.time() - last > 5:
+            _tokens.dirty.clear()
+        limits.write_json(LIMITS_FILE, {"t": int(time.time()), "queue": _limiter.snapshot(), "tokens": _tokens.snapshot()})
+        last = time.time()
+        time.sleep(2)
+
+
 def main():
     try:
         with open(USAGE_FILE, encoding="utf-8") as f:
             _usage.update(json.load(f))
+    except (OSError, ValueError):
+        pass
+    try:
+        with open(LIMITS_FILE, encoding="utf-8") as f:
+            _tokens.load(json.load(f).get("tokens"))
     except (OSError, ValueError):
         pass
     pub, _ = publication()
@@ -824,6 +879,7 @@ def main():
         print("OllamaBuntu : routeur Ollama sur %s:%d (%s%s)" % (h, p, "réseau" if srv.public else "local",
               ", TLS" if isinstance(srv.socket, ssl.SSLSocket) else ""), flush=True)
     threading.Thread(target=usage_writer, daemon=True).start()
+    threading.Thread(target=limits_writer, daemon=True).start()
     for srv in servers[1:]:
         threading.Thread(target=srv.serve_forever, daemon=True).start()
     servers[0].serve_forever()

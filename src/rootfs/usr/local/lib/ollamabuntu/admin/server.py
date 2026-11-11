@@ -26,6 +26,7 @@ import re
 import secrets
 import shlex
 import shutil
+import smtplib
 import socket
 import ssl
 import subprocess
@@ -36,6 +37,7 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import updater  # noqa: E402  mise à jour depuis Internet (GitHub)
+import monitor  # noqa: E402  débordement CPU/GPU, alertes, réglages recommandés
 
 VERSION = "@@OB_VERSION@@"
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
@@ -960,9 +962,29 @@ def key_create(data):
                "prefix": token[:9], "perms": validate_perms(data.get("perms")), "models": validate_models(data.get("models")),
                "deny": [x for x in KEY_RESTRICTIONS if x in (data.get("deny") or [])],
                "enabled": True, "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+        key.update(validate_limits(data))
         pub["keys"].append(key)
         save_publication(pub)   # le routeur relit le fichier : aucune interruption
     return token, {k: v for k, v in key.items() if k != "hash"}
+
+
+LIMIT_FIELDS = {"max_concurrent": 64, "quota_day": 10 ** 12, "quota_month": 10 ** 13}
+
+
+def validate_limits(data, current=None):
+    """Plafond de requêtes simultanées et quotas de jetons d'une clé (0 = sans limite)."""
+    out = {}
+    for k, hi in LIMIT_FIELDS.items():
+        if k not in data and current is not None:
+            continue
+        try:
+            v = int(data.get(k) or 0)
+        except (TypeError, ValueError):
+            raise ValueError("valeur invalide : %s" % k)
+        if not 0 <= v <= hi:
+            raise ValueError("%s hors limites (0 à %d)" % (k, hi))
+        out[k] = v
+    return out
 
 
 def key_update(data):
@@ -984,6 +1006,8 @@ def key_update(data):
             key["enabled"] = bool(data["enabled"])
         if "deny" in data:
             key["deny"] = [x for x in KEY_RESTRICTIONS if x in (data.get("deny") or [])]
+        if any(k in data for k in LIMIT_FIELDS):
+            key.update(validate_limits(data, key))
         save_publication(pub)
 
 
@@ -1909,12 +1933,210 @@ def write_fleet_routes():
         running = []
     last = (list(_metrics["samples"]) or [{}])[-1]
     local = {"load": avg_load(gpu_metrics(), last.get("cpu")), "loaded": running}   # même mesure que les serveurs distants : GPU, sinon processeur
-    text = json.dumps({"local": local, "servers": servers, "updated": int(time.time())}, ensure_ascii=False)
+    text = json.dumps({"local": local, "servers": servers, "rules": load_rules(), "updated": int(time.time())}, ensure_ascii=False)
     if read_text(FLEET_ROUTES) != text:
         atomic_write(FLEET_ROUTES, text, 0o640)
         gid = ollama_group_id()
         if gid is not None and os.geteuid() == 0:
             os.chown(FLEET_ROUTES, 0, gid)   # lisible par le routeur (utilisateur ollama), pas par les autres
+
+
+
+# ---------------------------------------------------------------- alertes ---
+ALERTS_FILE = os.path.join(ETC, "alerts.json")
+ROUTER_LIMITS = os.environ.get("OB_ROUTER_LIMITS", "/var/lib/ollamabuntu-router/limits.json")
+RULES_FILE = os.path.join(ETC, "routing-rules.json")
+_alerts = {"active": {}, "notifier": monitor.Notifier(), "lock": threading.Lock(), "last_error": ""}
+
+
+def load_alerts():
+    cfg = json.loads(json.dumps(monitor.DEFAULTS))
+    stored = load_json_file(ALERTS_FILE, {})
+    for k, v in stored.items():
+        if isinstance(v, dict) and isinstance(cfg.get(k), dict):
+            cfg[k].update(v)
+        else:
+            cfg[k] = v
+    return cfg
+
+
+def alerts_view():
+    cfg = load_alerts()
+    sm = dict(cfg["smtp"])
+    sm["has_password"] = bool(sm.pop("password", ""))
+    return {"config": dict(cfg, smtp=sm), "events": monitor.EVENTS, "active": [dict(a, key=k) for k, a in _alerts["active"].items()],
+            "last_error": _alerts["last_error"]}
+
+
+def alerts_save(data):
+    with _alerts["lock"]:
+        cfg = monitor.clean_config(data, load_alerts())
+        atomic_write(ALERTS_FILE, json.dumps(cfg, ensure_ascii=False, indent=1), 0o600)   # contient le mot de passe SMTP
+
+
+def alert_snapshot():
+    now = time.time()
+    recent = [x for x in list(_metrics["samples"]) if x.get("t", 0) > now - 600]
+    tps = [x["tps"] for x in recent if x.get("tps")]
+    st = status()
+    servers = [{"name": x["name"], "online": (_fleet_state.get(x["id"]) or {}).get("state") == "en ligne"} for x in load_fleet()
+               if (_fleet_state.get(x["id"]) or {}).get("state") not in (None, "en attente")]
+    return {"service": st["ollama"]["service"], "disk": st["disk"], "gpus": st["gpu_live"], "offload": st["offload"], "servers": servers,
+            "tps": {"avg": round(sum(tps) / len(tps), 1) if tps else None, "count": sum(x.get("req") or 0 for x in recent)}, "update": st["update_available"]}
+
+
+def alerts_send(cfg, events, test=False):
+    """Envoie les événements par les canaux configurés ; retourne {canal: « ok » ou l'erreur}."""
+    host = socket.gethostname()
+    payload = {"source": "OllamaBuntu", "host": host, "version": VERSION, "test": test, "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "events": events}
+    res = {}
+    if cfg["webhook"].get("url"):
+        try:
+            monitor.post_webhook(cfg["webhook"]["url"], payload)
+            res["webhook"] = "ok"
+        except (OSError, ValueError) as e:
+            res["webhook"] = str(e)[:200]
+    sm = cfg["smtp"]
+    if sm.get("host") and sm.get("to"):
+        lines = ["%s : %s" % ({"alert": "ALERTE", "resolved": "RÉTABLI"}.get(e.get("state"), "INFO"), e["text"]) for e in events]
+        try:
+            monitor.send_mail(sm, sm.get("password"), "[OllamaBuntu %s] %s" % (host, "test" if test else "%d événement(s)" % len(events)), "\n".join(lines) + "\n")
+            res["email"] = "ok"
+        except (OSError, ValueError, smtplib.SMTPException) as e:
+            res["email"] = str(e)[:200]
+    return res
+
+
+def alerts_worker():
+    time.sleep(30)
+    while True:
+        try:
+            cfg = load_alerts()
+            active = monitor.evaluate(alert_snapshot(), dict(cfg, events=list(monitor.EVENTS)))   # toutes visibles dans la console
+            _alerts["active"] = {k: a for k, a in active.items() if k.split(":")[0] in cfg["events"]}
+            events = _alerts["notifier"].step(_alerts["active"], time.time())
+            if events and cfg["enabled"]:
+                res = alerts_send(cfg, events)
+                bad = {k: v for k, v in res.items() if v != "ok"}
+                _alerts["last_error"] = "; ".join("%s : %s" % kv for kv in bad.items())
+        except Exception as e:   # la supervision ne doit jamais s'arrêter
+            sys.stderr.write("alertes : %s\n" % e)
+        time.sleep(60)
+
+
+# ------------------------------------------------- réglages recommandés ---
+def tuning_view():
+    """Contexte et parallélisme qui tiennent dans la mémoire vidéo, pour chaque modèle installé."""
+    gpus = gpu_metrics()
+    vram = sum(g.get("mem_total") or 0 for g in gpus)
+    ctx = context_view()
+    try:
+        tags = {m["name"]: m for m in ollama_json("GET", "/api/tags", timeout=10)[1].get("models", [])}
+    except (OSError, ValueError):
+        tags = {}
+    models = []
+    for m in ctx["models"]:
+        if m["name"].endswith("-cloud") or re.search(r"-gpu\d+$", m["name"]):
+            continue
+        weights = (tags.get(m["name"]) or {}).get("size") or 0
+        models.append(dict(name=m["name"], weights=weights, max=m["max"], bytes_per_token=m["bytes_per_token"],
+                           **monitor.recommend(vram, weights, m["bytes_per_token"], m["max"])))
+    return {"vram": vram, "gpus": [g["name"] for g in gpus], "current": {"ctx": ctx["default"], "parallel": ctx["parallel"], "kv_type": ctx["kv_type"]}, "models": models}
+
+
+def tuning_apply(data):
+    try:
+        par, ctx = int(data.get("parallel")), int(data.get("ctx"))
+    except (TypeError, ValueError):
+        raise ValueError("valeurs invalides")
+    if not 1 <= par <= 16:
+        raise ValueError("parallélisme hors limites (1 à 16)")
+    check_ctx(ctx)
+    update_env({"OLLAMA_NUM_PARALLEL": str(par), "OLLAMA_CONTEXT_LENGTH": str(ctx)})
+
+
+# ------------------------------------------- limites par clé, règles, test du parc ---
+def limits_view():
+    lim = load_json_file(ROUTER_LIMITS, {})
+    queue, tokens = lim.get("queue") or {}, lim.get("tokens") or {}
+    keys = []
+    for k in load_publication().get("keys", []):
+        t, q = tokens.get(k["id"]) or {}, queue.get(k["id"]) or {}
+        keys.append({"id": k["id"], "name": k["name"], "max_concurrent": k.get("max_concurrent", 0), "quota_day": k.get("quota_day", 0), "quota_month": k.get("quota_month", 0),
+                     "running": q.get("running", 0), "waiting": q.get("waiting", 0), "day": t.get("day", 0), "month": t.get("month", 0), "total": t.get("total", 0), "requests": t.get("req", 0)})
+    return {"keys": keys, "queue_total": {"running": sum(v.get("running", 0) for v in queue.values()), "waiting": sum(v.get("waiting", 0) for v in queue.values())},
+            "updated": lim.get("t")}
+
+
+def load_rules():
+    return load_json_file(RULES_FILE, {}).get("rules", [])
+
+
+def rules_save(rules):
+    if not isinstance(rules, list) or len(rules) > 100:
+        raise ValueError("règles invalides (100 au maximum)")
+    key_ids = {k["id"] for k in load_publication().get("keys", [])}
+    fleet_ids = {x["id"] for x in load_fleet() if x.get("route_token")}
+    out = []
+    for r in rules:
+        key, model, server, mode = (str(r.get(f) or "").strip() for f in ("key", "model", "server", "mode"))
+        if key != "*" and key not in key_ids:
+            raise ValueError("clé inconnue dans une règle")
+        if not re.match(r"^[A-Za-z0-9._:/*?\[\]-]{1,100}$", model):
+            raise ValueError("motif de modèle invalide : %s" % model[:40])
+        if server != "local" and server not in fleet_ids:
+            raise ValueError("serveur inconnu ou sans répartition dans une règle")
+        if mode not in ("only", "never"):
+            raise ValueError("mode de règle invalide")
+        out.append({"key": key, "model": model.lower(), "server": server, "mode": mode})
+    atomic_write(RULES_FILE, json.dumps({"rules": out}, ensure_ascii=False, indent=1), 0o600)
+    write_fleet_routes()
+
+
+def fleet_check(model=None):
+    """Interroge chaque serveur du parc en répartition avec une courte génération : serveur joignable, modèle réellement utilisé, débit."""
+    local_tags = ollama_json("GET", "/api/tags", timeout=10)[1].get("models", [])
+    names = [short_name(m["name"]) for m in local_tags]
+    model = short_name(model) if model else (names[0] if names else None)
+    if not model or not MODEL_RE.match(model):
+        raise ValueError("aucun modèle à tester")
+    body = {"model": None, "prompt": "Réponds : ok", "stream": False, "options": {"num_predict": 8}}
+    results = []
+    lock = threading.Lock()
+
+    def probe(name, call, note=""):
+        t0 = time.time()
+        try:
+            code, data = call()
+            ok = code == 200 and isinstance(data, dict) and "response" in data
+            tps = round(data["eval_count"] / (data["eval_duration"] / 1e9), 1) if ok and data.get("eval_count") and data.get("eval_duration") else None
+            r = {"server": name, "ok": ok, "ms": round((time.time() - t0) * 1000), "tps": tps, "note": note, "error": None if ok else (data.get("error") if isinstance(data, dict) else None) or "HTTP %s" % code}
+        except (OSError, ssl.SSLError, FleetError, ValueError) as e:
+            r = {"server": name, "ok": False, "ms": round((time.time() - t0) * 1000), "tps": None, "note": note, "error": str(e)[:160]}
+        with lock:
+            results.append(r)
+    threads = []
+    if model in names:
+        threads.append(threading.Thread(target=probe, args=("ce serveur", lambda: ollama_json("POST", "/api/generate", dict(body, model=model), timeout=300), "modèle " + model)))
+    for x in load_fleet():
+        if not x.get("route_token"):
+            continue
+        st = (_fleet_state.get(x["id"]) or {})
+        have = {short_name(m.get("name", "")) for m in (st.get("data") or {}).get("model_tags", [])}
+        mp = {short_name(k): short_name(v) for k, v in (x.get("model_map") or {}).items() if k != "*"}
+        use = model if model in have else (mp.get(model) or (short_name(x["model_map"]["*"]) if (x.get("model_map") or {}).get("*") else None))
+        if st.get("state") != "en ligne":
+            results.append({"server": x["name"], "ok": False, "ms": 0, "tps": None, "note": "", "error": "hors ligne"})
+        elif not use or use not in have:
+            results.append({"server": x["name"], "ok": False, "ms": 0, "tps": None, "note": "", "error": "modèle absent, sans modèle de remplacement installé"})
+        else:
+            threads.append(threading.Thread(target=probe, args=(x["name"], (lambda x=x, use=use: fleet_request(x["url"], "/api/fleet/ollama/api/generate", x["route_token"], x["fingerprint"], "POST", dict(body, model=use), timeout=300)[:2]),
+                                                                 ("modèle " + use) + (" (remplacement de %s)" % model if use != model else ""))))
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(330)
+    return {"model": model, "results": sorted(results, key=lambda r: r["server"])}
 
 
 def fleet_set_route(sid, enabled):
@@ -2768,6 +2990,8 @@ def status():
                    "publication": {k: load_publication()[k] for k in ("enabled", "port", "tls", "auth")}},
         "reboot_required": gpu["reboot_required"],
         "update_available": updater.available(),
+        "offload": monitor.offload(running, has_gpu=bool(gpu_metrics())),
+        "alerts": [dict(a, key=k) for k, a in _alerts["active"].items()],
     }
 
 
@@ -3498,7 +3722,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -3637,6 +3861,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, pending_updates(refresh))
             if path == "/api/update/online":
                 return self.send_json(200, updater.view())
+            if path == "/api/alerts":
+                return self.send_json(200, alerts_view())
+            if path == "/api/tuning":
+                return self.send_json(200, tuning_view())
+            if path == "/api/limits":
+                return self.send_json(200, limits_view())
+            if path == "/api/fleet/rules":
+                return self.send_json(200, {"rules": load_rules()})
             if path in ("/api/hf/search", "/api/hf/files"):
                 try:
                     if path == "/api/hf/search":
@@ -3765,6 +3997,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/api/fleet/servers/route":
                 fleet_set_route(str(data.get("id", "")), bool(data.get("enabled")))
                 return self.send_json(200, {"ok": True})
+            if path == "/api/alerts/config":
+                alerts_save(data)
+                return self.send_json(200, {"ok": True})
+            if path == "/api/alerts/test":
+                cfg = load_alerts()
+                res = alerts_send(cfg, [{"state": "alert", "key": "test", "severity": "info", "text": "Message de test d'OllamaBuntu"}], test=True)
+                return self.send_json(200, {"ok": True, "results": res or {"aucun canal": "configurez un webhook ou un e-mail"}})
+            if path == "/api/tuning/apply":
+                tuning_apply(data)
+                return self.send_json(200, {"ok": True})
+            if path == "/api/fleet/rules":
+                rules_save(data.get("rules"))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/fleet/check":
+                return self.send_json(200, fleet_check(data.get("model")))
             if path == "/api/fleet/servers/modelmap":
                 fleet_set_modelmap(str(data.get("id", "")), data.get("map"))
                 return self.send_json(200, {"ok": True})
@@ -4224,6 +4471,7 @@ def main():
     threading.Thread(target=preload_worker, daemon=True).start()
     threading.Thread(target=fleet_worker, daemon=True).start()
     threading.Thread(target=metrics_worker, daemon=True).start()
+    threading.Thread(target=alerts_worker, daemon=True).start()
     print("OllamaBuntu %s : console d'administration sur le port %d" % (VERSION, HTTPS_PORT), flush=True)
     httpd.serve_forever()
 
