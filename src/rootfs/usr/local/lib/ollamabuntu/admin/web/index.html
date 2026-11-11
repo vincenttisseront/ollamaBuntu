@@ -41,6 +41,7 @@
           <a href="#security" data-admin>Sécurité</a>
           <a href="#webui" data-admin>Open WebUI</a>
           <a href="#users" data-admin>Utilisateurs</a>
+          <a href="#rag" data-admin>Documents</a>
           <a href="#lab" data-admin>Laboratoire</a>
           <a href="#about">À propos</a>
         </div>
@@ -197,6 +198,7 @@
         <div class="toolbar">
           <select id="chat-model"></select>
           <select id="chat-ctx" aria-label="Taille du contexte de la conversation" title="Taille du contexte de la conversation"><option value="">Contexte : réglage du modèle</option><option value="2048">2 K jetons</option><option value="4096">4 K jetons</option><option value="8192">8 K jetons</option><option value="16384">16 K jetons</option><option value="32768">32 K jetons</option><option value="65536">64 K jetons</option><option value="131072">128 K jetons</option><option value="262144">256 K jetons</option></select>
+          <select id="chat-rag" class="hidden" aria-label="Base de documents" title="Base de documents"><option value="">Sans documents</option></select>
           <button id="chat-clear" class="btn" type="button">Nouvelle conversation</button>
           <span id="chat-info" class="muted small"></span>
         </div>
@@ -251,6 +253,46 @@
         <form id="env-form"><div id="env-fields" class="env-grid"></div>
           <div class="row"><button class="btn primary" type="submit">Enregistrer et redémarrer Ollama</button><span id="env-msg" class="small"></span></div>
         </form>
+      </div>
+    </section>
+
+    <section id="view-rag" class="view hidden">
+      <div class="section-title"><h1>Documents</h1><button id="rag-refresh" class="btn" type="button">Actualiser</button></div>
+      <div class="card wide" data-admin data-panel="docs" data-label="Documents">
+        <h2>Base de documents</h2>
+        <p class="muted small">Déposez vos documents : ils sont découpés puis indexés sur ce serveur (aucun envoi hors de l'appliance). Dans la conversation, choisissez une base pour que le modèle réponde d'après ces documents, avec ses sources. Les mêmes recherches sont disponibles par l'API (voir la documentation).</p>
+        <div id="rag-msg" class="small" aria-live="polite"></div>
+        <div id="rag-warn"></div>
+        <form id="rag-form" class="row" autocomplete="off">
+          <label>Fichiers <input id="rag-files" name="files" type="file" multiple required></label>
+          <label>Base de documents <input name="collection" maxlength="40" list="rag-coll-list" value="Général" required></label><datalist id="rag-coll-list"></datalist>
+          <button class="btn primary" type="submit">Ajouter</button><span id="rag-form-msg" class="small" aria-live="polite"></span>
+        </form>
+        <p id="rag-formats" class="muted small"></p>
+        <div id="rag-jobs"></div>
+        <div id="rag-docs"></div>
+        <p id="rag-totals" class="muted small"></p>
+      </div>
+      <div class="card" data-admin data-panel="try" data-label="Essayer">
+        <h2>Essayer une recherche</h2>
+        <form id="rag-try-form" class="row" autocomplete="off">
+          <label>Question <input name="question" maxlength="500" required placeholder="ex. Combien de jours de congés par an ?"></label>
+          <label>Base <select name="collection"><option value="">Toutes</option></select></label>
+          <button class="btn" type="submit">Chercher</button>
+        </form>
+        <div id="rag-try-out" class="small" aria-live="polite"></div>
+      </div>
+      <div class="card" data-admin data-panel="settings" data-label="Réglages">
+        <h2>Réglages</h2>
+        <form id="rag-cfg-form" class="user-form" autocomplete="off">
+          <label>Modèle d'embeddings<select name="embed_model"></select></label>
+          <label>Taille des extraits (caractères)<input name="chunk_chars" type="number" min="200" max="3000" step="50" required></label>
+          <label>Chevauchement (caractères)<input name="overlap" type="number" min="0" max="1000" step="10" required></label>
+          <label>Extraits donnés au modèle<input name="top_k" type="number" min="1" max="12" required></label>
+          <label>Score minimal (0 à 1)<input name="min_score" type="number" min="0" max="1" step="0.01" required></label>
+          <div class="row"><button class="btn primary" type="submit">Enregistrer</button><button id="rag-reindex" class="btn hidden" type="button">Réindexer les documents</button><span id="rag-cfg-msg" class="small" aria-live="polite"></span></div>
+        </form>
+        <p class="muted small">Changer le modèle d'embeddings ou la taille des extraits ne touche pas les documents déjà indexés : seul le modèle oblige à les réindexer (le texte découpé est conservé, pas besoin de les redéposer). Un modèle d'embeddings s'installe comme les autres (Modèles), par exemple nomic-embed-text.</p>
       </div>
     </section>
 
@@ -359,6 +401,7 @@
               <label>Réponse maximale (jetons, 0 = sans plafond) <input name="max_output" type="number" min="0" max="1000000" value="0"></label>
               <label>Équipe (facultatif, pour répartir les coûts) <input name="team" maxlength="40" list="team-list" placeholder="ex. Ressources humaines"></label><datalist id="team-list"></datalist>
               <label>Termes interdits pour cette clé (facultatif, séparés par des virgules) <input name="words" maxlength="600" placeholder="ex. salaire, projet orion"></label>
+              <label>Bases de documents autorisées (facultatif, vide = toutes) <input name="collections" maxlength="600" placeholder="ex. RH, Juridique"></label>
               <label>Priorité dans la file d'attente <select name="priority"><option value="1">Haute (passe en premier)</option><option value="2" selected>Normale</option><option value="3">Basse (traitements de fond)</option></select></label></div>
             <p class="muted small">Au-delà du plafond, les requêtes d'un client attendent leur tour (jusqu'à 10 minutes). Au-delà d'un quota, elles sont refusées (erreur 429) jusqu'à la période suivante.</p>
             <div class="row"><button class="btn primary" type="submit">Créer la clé</button><span id="key-msg" class="small"></span></div>

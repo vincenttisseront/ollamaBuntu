@@ -225,8 +225,8 @@ $('#logout').addEventListener('click', async () => {
 });
 
 /* ------------------------------------------------------------- navigation */
-const VIEWS = ['dashboard', 'models', 'chat', 'gpu', 'perf', 'system', 'security', 'fleet', 'webui', 'users', 'logs', 'lab', 'account', 'about'];
-const ADMIN_VIEWS = ['dashboard', 'gpu', 'perf', 'system', 'webui', 'users', 'logs', 'lab'];
+const VIEWS = ['dashboard', 'models', 'chat', 'gpu', 'perf', 'system', 'security', 'fleet', 'webui', 'users', 'logs', 'lab', 'rag', 'account', 'about'];
+const ADMIN_VIEWS = ['dashboard', 'gpu', 'perf', 'system', 'webui', 'users', 'logs', 'lab', 'rag'];
 function route() {
   let [v, sub] = location.hash.slice(1).split('/');
   if (!VIEWS.includes(v)) v = isAdmin() ? 'dashboard' : 'chat';
@@ -241,10 +241,11 @@ function route() {
   clearInterval(state.timer); state.timer = null;
   if (v === 'dashboard') { loadDashboard(); loadPerf(); state.timer = setInterval(() => { loadDashboard(); loadPerf(); }, 10000); }
   if (v === 'models') { loadModels(); if (isAdmin()) { loadCustom(); loadContext(); if (currentTab('models') === 'disk') loadModelsDisk(); if (currentTab('models') === 'updates') loadMu(); } }
-  if (v === 'chat') loadChatModels();
+  if (v === 'chat') { loadChatModels(); loadChatRag(); }
   if (v === 'gpu') loadGpu();
   if (v === 'perf') loadPerformance();
   if (v === 'lab') loadLab();
+  if (v === 'rag') loadRag();
   if (v === 'system') { loadSystem(); loadProm(); const tab = currentTab('system'); if (tab === 'hardware') loadHardware(); if (tab === 'audit') loadAudit(); if (tab === 'report') loadReport(); }
   if (v === 'webui') loadWebui();
   if (v === 'users') { loadUsers(); loadSso(); }
@@ -568,7 +569,7 @@ async function sendChat() {
   const b = bubble('assistant', ''), content = b.querySelector('.content'), think = b.querySelector('.think');
   const thinkBody = think.querySelector('.think-body'), thinkLabel = think.querySelector('.t-label'), thinkMeta = think.querySelector('.t-meta');
   content.replaceChildren(el('span', { class: 'typing', 'aria-label': 'Réponse en cours' }, el('i'), el('i'), el('i')));
-  let answer = '', thinking = '', raw = '', thinkStart = 0, thinkEnd = 0;
+  let answer = '', thinking = '', raw = '', thinkStart = 0, thinkEnd = 0, ragSrc = null, system = [];
   const showThink = (txt, running) => {
     if (!txt) return;
     if (!thinkStart) thinkStart = performance.now();
@@ -588,7 +589,11 @@ async function sendChat() {
   $('#chat-info').textContent = '';
   try {
     const ctx = Number($('#chat-ctx').value) || undefined;   // taille du contexte de la conversation (sinon réglage du modèle)
-    const r = await api('/api/chat', { json: { model, messages: chat.messages, num_ctx: ctx }, raw: true, signal: chat.controller.signal });
+    if ($('#chat-rag').value) {   // base de documents : extraits les plus proches de la question, fournis au modèle en consigne système
+      const found = await api('/api/rag/search', { json: { question: text, collection: $('#chat-rag').value } });
+      system = [{ role: 'system', content: found.system }]; ragSrc = found.sources;
+    }
+    const r = await api('/api/chat', { json: { model, messages: system.concat(chat.messages), num_ctx: ctx }, raw: true, signal: chat.controller.signal });
     await readNDJSON(r, (o) => {
       if (o.error) throw new Error(o.error);
       const msg = o.message || {};
@@ -607,6 +612,7 @@ async function sendChat() {
     });
     if (!think.classList.contains('hidden') && think.classList.contains('running')) showThink(thinkBody.textContent, false);
     if (!answer) content.textContent = '(réponse vide)';
+    if (ragSrc) b.append(ragSources(ragSrc));
     chat.messages.push({ role: 'assistant', content: answer });
   } catch (e) {
     if (e.name === 'AbortError') {
@@ -849,7 +855,7 @@ $('#key-form').addEventListener('submit', async (ev) => {
   const f = ev.target;
   try {
     const r = await api('/api/publication/keys/create', { json: { name: f.elements.name.value.trim(), perms: checkedValues(f, 'perm'), models: checkedValues(f, 'model'), deny: checkedValues(f, 'deny'),
-      max_concurrent: Number(f.elements.max_concurrent.value) || 0, priority: Number(f.elements.priority.value) || 2, team: f.elements.team.value.trim(), words: f.elements.words.value, max_ctx: Number(f.elements.max_ctx.value) || 0, max_output: Number(f.elements.max_output.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
+      max_concurrent: Number(f.elements.max_concurrent.value) || 0, priority: Number(f.elements.priority.value) || 2, team: f.elements.team.value.trim(), words: f.elements.words.value, collections: f.elements.collections.value, max_ctx: Number(f.elements.max_ctx.value) || 0, max_output: Number(f.elements.max_output.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
     f.elements.name.value = ''; f.elements.expires.value = ''; $('#key-msg').textContent = '';
     await loadPublication();
     const code = el('code', { class: 'token', text: r.token });
@@ -1765,6 +1771,105 @@ $('#privacy-test-form').addEventListener('submit', async (ev) => {
   } catch (e) { out.className = 'small error'; out.textContent = e.message; }
 });
 
+/* ------------------------------------------------ base de documents (RAG) */
+const rag = { timer: null, state: null };
+async function loadChatRag() {
+  const sel = $('#chat-rag'), prev = sel.value;
+  let d;
+  try { d = await api('/api/rag/collections'); } catch (e) { return; }
+  sel.replaceChildren(el('option', { value: '', text: 'Sans documents' }), ...d.collections.map((c) => el('option', { value: c.name, text: 'Documents : ' + c.name })));
+  if (d.collections.some((c) => c.name === prev)) sel.value = prev;
+  sel.classList.toggle('hidden', !d.collections.length);
+}
+function ragSources(sources) {
+  return el('div', { class: 'rag-sources small' }, el('strong', { text: 'Sources' }),
+    ...sources.map((s) => el('div', { title: s.excerpt }, '[' + s.n + '] ' + s.name + (s.heading ? ' › ' + s.heading : ''), s.page ? ', p. ' + s.page : '', el('span', { class: 'muted', text: ' (' + DEC(s.score.toFixed(2)) + ')' }))));
+}
+async function loadRag() {
+  clearTimeout(rag.timer);
+  if (!isAdmin()) return;
+  let d;
+  try { d = await api('/api/rag'); } catch (e) { $('#rag-msg').className = 'small error'; $('#rag-msg').textContent = e.message; return; }
+  rag.state = d;
+  $('#rag-msg').textContent = '';
+  const f = $('#rag-cfg-form'), c = d.settings;
+  const models = d.embed_models.includes(c.embed_model) ? d.embed_models : [c.embed_model].concat(d.embed_models);
+  if (w_active() !== f.elements.embed_model) f.elements.embed_model.replaceChildren(...models.map((m) => el('option', { value: m, text: m })));
+  f.elements.embed_model.value = c.embed_model;
+  for (const k of ['chunk_chars', 'overlap', 'top_k', 'min_score']) if (w_active() !== f.elements[k]) f.elements[k].value = c[k];
+  $('#rag-reindex').classList.toggle('hidden', !d.stale);
+  $('#rag-warn').replaceChildren(...[
+    d.model_ok ? null : el('p', { class: 'error', text: 'Le modèle d\'embeddings « ' + c.embed_model + ' » n\'est pas installé : installez-le dans Modèles (par exemple nomic-embed-text) avant de déposer des documents.' }),
+    d.stale ? el('p', { class: 'error', text: d.stale + ' document(s) indexé(s) avec un autre modèle d\'embeddings : ils sont ignorés par la recherche tant qu\'ils ne sont pas réindexés (Réglages).' }) : null].filter(Boolean));
+  $('#rag-formats').replaceChildren(el('span', { text: d.pdf ? 'Formats : texte, Markdown, CSV, JSON, HTML, Word (.docx), OpenDocument (.odt), PDF.' : 'Formats : texte, Markdown, CSV, JSON, HTML, Word (.docx), OpenDocument (.odt).' }),
+    d.pdf ? null : el('span', { text: ' Les PDF demandent le programme pdftotext (apt install poppler-utils), absent de ce serveur.' }),
+    el('span', { text: ' Taille maximale par fichier : ' + fmtBytes(d.max_upload) }));
+  $('#rag-coll-list').replaceChildren(...d.collections.map((x) => el('option', { value: x.name })));
+  const ts = $('#rag-try-form').elements.collection, cur = ts.value;
+  ts.replaceChildren(el('option', { value: '', text: 'Toutes' }), ...d.collections.map((x) => el('option', { value: x.name, text: x.name })));
+  ts.value = d.collections.some((x) => x.name === cur) ? cur : '';
+  const active = d.jobs.some((j) => ['queued', 'extract', 'embed'].includes(j.state));
+  const STATE = { queued: 'en attente', extract: 'lecture du fichier', embed: 'indexation', error: 'échec' };
+  $('#rag-jobs').replaceChildren(...d.jobs.map((j) => el('div', { class: 'rag-job' + (j.state === 'error' ? ' error' : '') },
+    el('strong', { text: j.name }), el('span', { class: 'muted', text: ' (' + j.collection + ') : ' }), el('span', { text: j.state === 'error' ? j.error : j.total ? 'indexation ' + j.done + ' / ' + j.total : STATE[j.state] }),
+    j.state === 'error' ? el('button', { class: 'btn sm', type: 'button', text: 'Retirer', onclick: async () => { try { await api('/api/rag/delete', { json: { id: j.id } }); } catch (e) { fail(e.message); } loadRag(); } }) : null)));
+  $('#rag-docs').replaceChildren(d.docs.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Document', 'Base', 'Extraits', 'Taille', 'Ajouté le', ''].map((h, i) => el('th', { class: i >= 2 && i <= 3 ? 'num' : '', text: h })))),
+    el('tbody', {}, ...d.docs.map((x) => el('tr', {}, el('td', { class: 'name', text: x.name }, x.model !== c.embed_model ? el('span', { class: 'sso-tag', text: 'à réindexer' }) : null), el('td', { text: x.collection }), el('td', { class: 'num', text: String(x.chunks) }),
+      el('td', { class: 'num', text: fmtBytes(x.size) }), el('td', { text: fmtDate(x.added) }),
+      el('td', {}, el('button', { class: 'btn sm danger', type: 'button', text: 'Supprimer', onclick: () => ragDelete(x) }))))))) : el('p', { class: 'muted', text: 'Aucun document pour le moment.' }));
+  $('#rag-totals').textContent = d.docs.length ? d.chunks + ' extraits sur ' + d.max_chunks + ' possibles, dans ' + d.collections.length + ' base(s).' : '';
+  if (active) rag.timer = setTimeout(() => { if (location.hash === '#rag') loadRag(); }, 1500);
+}
+async function ragDelete(x) {
+  if (!(await ask('Supprimer le document « ' + x.name + ' » de la base « ' + x.collection + ' » ?'))) return;
+  try { await api('/api/rag/delete', { json: { id: x.id } }); } catch (e) { fail(e.message); }
+  loadRag();
+}
+const fileB64 = (file) => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result).split(',')[1] || '');
+  r.onerror = () => reject(new Error('lecture du fichier impossible'));
+  r.readAsDataURL(file);
+});
+$('#rag-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, out = $('#rag-form-msg'), files = [...f.elements.files.files];
+  out.className = 'small'; out.textContent = '';
+  let done = 0; const errors = [];
+  for (const file of files) {
+    try { await api('/api/rag/upload', { json: { name: file.name, collection: f.elements.collection.value.trim(), content_b64: await fileB64(file) } }); done++; }
+    catch (e) { errors.push([file.name, e.message]); }
+  }
+  f.elements.files.value = '';
+  out.className = 'small ' + (errors.length ? 'error' : 'okmsg');
+  out.replaceChildren(...(done ? [el('span', { text: done + ' fichier(s) envoyé(s) pour indexation.' })] : []), ...errors.map(([n, m]) => el('div', {}, el('span', { text: n + ' : ' }), el('span', { text: m }))));
+  loadRag();
+});
+$('#rag-refresh').addEventListener('click', loadRag);
+$('#rag-cfg-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, out = $('#rag-cfg-msg');
+  try {
+    await api('/api/rag/config', { json: { embed_model: f.elements.embed_model.value, chunk_chars: f.elements.chunk_chars.value, overlap: f.elements.overlap.value, top_k: f.elements.top_k.value, min_score: f.elements.min_score.value } });
+    out.className = 'small okmsg'; out.textContent = 'Enregistré.'; loadRag();
+  } catch (e) { out.className = 'small error'; out.textContent = e.message; }
+});
+$('#rag-reindex').addEventListener('click', async () => {
+  try { await api('/api/rag/reindex', { json: {} }); } catch (e) { fail(e.message); }
+  loadRag();
+});
+$('#rag-try-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, out = $('#rag-try-out');
+  out.className = 'small'; out.textContent = 'Recherche en cours...';
+  try {
+    const d = await api('/api/rag/search', { json: { question: f.elements.question.value, collection: f.elements.collection.value || undefined } });
+    out.replaceChildren(d.sources.length ? ragSources(d.sources) : el('p', { class: 'muted', text: 'Aucun extrait assez proche (score minimal ' + DEC(String(rag.state ? rag.state.settings.min_score : '')) + ').' }),
+      ...(d.stale ? [el('p', { class: 'error', text: d.stale + ' document(s) ignoré(s) : à réindexer.' })] : []));
+  } catch (e) { out.className = 'small error'; out.textContent = e.message; }
+});
+
 /* ------------------------------------------------ file d'attente */
 const fmtWait = (s) => (s >= 90 ? Math.round(s / 60) + ' min' : s < 10 ? DEC(Number(s).toFixed(1)) + ' s' : DEC(Math.round(s)) + ' s');
 async function loadQueue() {
@@ -2403,6 +2508,7 @@ function keyLimits(k, u) {
   if (k.quota_month) parts.push('mois : ' + n((u && u.month) || 0) + ' / ' + n(k.quota_month) + ' jetons');
   if (k.team) parts.push('équipe : ' + k.team);
   if (k.words && k.words.length) parts.push(k.words.length + ' terme(s) interdit(s)');
+  if (k.collections && k.collections.length) parts.push('documents : ' + k.collections.join(', '));
   if (k.priority && k.priority !== 2) parts.push('priorité ' + PRIO_NAME[k.priority]);
   if (k.max_ctx) parts.push('contexte ≤ ' + n(k.max_ctx) + ' jetons');
   if (k.max_output) parts.push('réponse ≤ ' + n(k.max_output) + ' jetons');
@@ -3019,10 +3125,11 @@ async function keyCaps(k) {
   prio.value = String(k.priority || 2);
   const team = el('input', { type: 'text', maxlength: '40', list: 'team-list', value: k.team || '', 'aria-label': 'Équipe' });
   const words = el('input', { type: 'text', maxlength: '600', value: (k.words || []).join(', '), placeholder: 'ex. salaire, projet orion', 'aria-label': 'Termes interdits' });
+  const colls = el('input', { type: 'text', maxlength: '600', value: (k.collections || []).join(', '), placeholder: 'ex. RH, Juridique', 'aria-label': 'Bases de documents autorisées' });
   const ok = await modal({ title: 'Plafonds de la clé « ' + k.name + ' »', message: 'Ramène les demandes qui dépassent ces valeurs au plafond (en-tête de réponse X-OllamaBuntu-Clamped). 0 = sans plafond. Le contexte n\'est plafonné que s\'il est demandé explicitement. La priorité décide de l\'ordre de passage quand le serveur est saturé.',
-    body: el('div', { class: 'row' }, el('label', {}, 'Contexte maximal (jetons) ', ctx), el('label', {}, 'Réponse maximale (jetons) ', out), el('label', {}, 'Priorité dans la file d\'attente ', prio), el('label', {}, 'Équipe (pour répartir les coûts) ', team), el('label', {}, 'Termes interdits (séparés par des virgules) ', words)), ok: 'Enregistrer' });
+    body: el('div', { class: 'row' }, el('label', {}, 'Contexte maximal (jetons) ', ctx), el('label', {}, 'Réponse maximale (jetons) ', out), el('label', {}, 'Priorité dans la file d\'attente ', prio), el('label', {}, 'Équipe (pour répartir les coûts) ', team), el('label', {}, 'Termes interdits (séparés par des virgules) ', words), el('label', {}, 'Bases de documents autorisées (vide = toutes) ', colls)), ok: 'Enregistrer' });
   if (!ok) return;
-  try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0, priority: Number(prio.value), team: team.value.trim(), words: words.value } }); await loadPublication(); } catch (e) { fail(e.message); }
+  try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0, priority: Number(prio.value), team: team.value.trim(), words: words.value, collections: colls.value } }); await loadPublication(); } catch (e) { fail(e.message); }
 }
 $('#bal-affinity').addEventListener('change', async () => {
   try { await api('/api/fleet/balance/strategy', { json: { affinity: $('#bal-affinity').checked } }); $('#bal-msg').className = 'small okmsg'; $('#bal-msg').textContent = 'Enregistré.'; } catch (e) { $('#bal-msg').className = 'small error'; $('#bal-msg').textContent = e.message; }

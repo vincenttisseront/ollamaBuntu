@@ -39,6 +39,7 @@ import urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # modules partagés avec le routeur
 import privacy  # noqa: E402  détection et masquage des données sensibles, termes interdits
+import rag  # noqa: E402  base de documents : extraction, découpage, vecteurs, recherche
 import updater  # noqa: E402  mise à jour depuis Internet (GitHub)
 import monitor  # noqa: E402  débordement CPU/GPU, alertes, réglages recommandés
 import backup  # noqa: E402  sauvegarde chiffrée de la configuration
@@ -407,6 +408,194 @@ def set_admin_cli(user, password):
         rec.update({"role": "admin", "linux": True, "updated": int(time.time()), "rev": secrets.token_hex(8)})
         users[user] = rec
         save_users(users)
+
+
+# ------------------------------------------------ base de documents (RAG) ---
+RAG_CONF = os.path.join(ETC, "rag.json")   # lu à chaud par le routeur (aucun secret)
+RAG_DIR = os.environ.get("OB_RAG", os.path.join(os.environ.get("OB_STATE", "/var/lib/ollamabuntu"), "rag"))
+EMBED_MODEL_RE = re.compile(r"embed|bge-|nomic|minilm|e5-", re.I)
+MAX_UPLOAD_BODY = rag.MAX_UPLOAD * 4 // 3 + 4096   # base64 : un tiers de plus
+_rag_store = {"s": None, "dir": None}
+_rag_jobs = {}
+_rag_lock = threading.Lock()
+_rag_index_lock = threading.Lock()      # une indexation à la fois : le modèle d'embeddings sert aussi les conversations
+
+
+def rag_store():
+    if _rag_store["dir"] != RAG_DIR:
+        _rag_store.update(s=rag.Store(RAG_DIR), dir=RAG_DIR)
+    return _rag_store["s"]
+
+
+def rag_config():
+    try:
+        return rag.config_clean(load_json_file(RAG_CONF, {}))
+    except ValueError:
+        return dict(rag.DEFAULTS)
+
+
+def rag_save(data):
+    cfg = rag.config_clean(data, rag_config())
+    atomic_write(RAG_CONF, json.dumps(cfg), 0o644)
+    return cfg
+
+
+def rag_plain(name):
+    s = short_name(name)
+    return s[:-7] if s.endswith(":latest") else s
+
+
+def rag_embed_models():
+    try:
+        tags = ollama_json("GET", "/api/tags", timeout=10)[1].get("models", [])
+    except (OSError, ValueError):
+        return []
+    return sorted({rag_plain(m.get("name", "")) for m in tags if EMBED_MODEL_RE.search(m.get("name", ""))})
+
+
+def rag_view():
+    cfg, store = rag_config(), rag_store()
+    docs = store.docs()
+    with _rag_lock:
+        jobs = [dict(j) for j in _rag_jobs.values()]
+    models = rag_embed_models()
+    stale = sum(1 for d in docs if d.get("model") != cfg["embed_model"])
+    return {"settings": cfg, "docs": docs, "jobs": sorted(jobs, key=lambda j: -j["started"]), "collections": store.collections(), "chunks": sum(d.get("chunks", 0) for d in docs),
+            "max_chunks": rag.MAX_CHUNKS, "embed_models": models, "model_ok": rag_plain(cfg["embed_model"]) in models, "stale": stale,
+            "pdf": bool(shutil.which("pdftotext")), "max_upload": rag.MAX_UPLOAD}
+
+
+def rag_job(jid, **kw):
+    with _rag_lock:
+        if jid in _rag_jobs:
+            _rag_jobs[jid].update(kw)
+
+
+def rag_embed_chunks(jid, model, texts):
+    """Vecteurs des extraits, avec progression."""
+    doc_prefix = rag.prefixes(model)[0]
+    out = []
+    for i in range(0, len(texts), 16):
+        out.extend(rag.embed(main_addr(), model, [doc_prefix + t for t in texts[i:i + 16]], timeout=600))
+        rag_job(jid, done=len(out))
+    return out
+
+
+def rag_index(jid, name, data, collection, sha, cfg):
+    store = rag_store()
+    try:
+        with _rag_index_lock:
+            rag_job(jid, state="extract")
+            chunks = rag.chunk(rag.extract(name, data), cfg["chunk_chars"], cfg["overlap"])
+            if not chunks:
+                raise ValueError("aucun texte trouvé dans ce fichier")
+            if len(chunks) > rag.MAX_DOC_CHUNKS:
+                raise ValueError("document trop long : %d extraits (au plus %d) ; découpez-le ou augmentez la taille des extraits" % (len(chunks), rag.MAX_DOC_CHUNKS))
+            if store.chunk_count() + len(chunks) > rag.MAX_CHUNKS:
+                raise ValueError("la base atteindrait plus de %d extraits ; supprimez des documents" % rag.MAX_CHUNKS)
+            rag_job(jid, state="embed", total=len(chunks), done=0)
+            vecs = rag_embed_chunks(jid, cfg["embed_model"], [c["t"] for c in chunks])
+            meta = {"id": jid, "name": name, "collection": collection, "model": cfg["embed_model"], "dim": len(vecs[0]), "chunks": len(chunks), "size": len(data),
+                    "sha": sha, "added": int(time.time())}
+            store.save(meta, chunks, vecs)
+        with _rag_lock:
+            _rag_jobs.pop(jid, None)
+    except (ValueError, OSError, MemoryError) as e:
+        sys.stderr.write("documents : indexation de « %s » impossible : %s\n" % (name, e))
+        rag_job(jid, state="error", error=str(e)[:300])
+
+
+def rag_reindex_doc(jid, did, cfg):
+    store = rag_store()
+    try:
+        with _rag_index_lock:
+            c = store._load(did)
+            if not c:
+                raise ValueError("document introuvable ou illisible")
+            rag_job(jid, state="embed", total=len(c["chunks"]), done=0)
+            vecs = rag_embed_chunks(jid, cfg["embed_model"], [x["t"] for x in c["chunks"]])
+            store.save(dict(c["meta"], model=cfg["embed_model"], dim=len(vecs[0])), c["chunks"], vecs)
+        with _rag_lock:
+            _rag_jobs.pop(jid, None)
+    except (ValueError, OSError, MemoryError) as e:
+        sys.stderr.write("documents : réindexation impossible : %s\n" % e)
+        rag_job(jid, state="error", error=str(e)[:300])
+
+
+def rag_start(jid, name, collection, target, *args):
+    with _rag_lock:
+        if sum(1 for j in _rag_jobs.values() if j["state"] in ("queued", "extract", "embed")) >= 20:
+            raise ValueError("trop de dépôts en cours d'indexation : attendez qu'ils se terminent")
+        _rag_jobs[jid] = {"id": jid, "name": name, "collection": collection, "state": "queued", "done": 0, "total": 0, "error": "", "started": time.time()}
+    threading.Thread(target=target, args=args, daemon=True).start()
+    return jid
+
+
+def rag_upload(data):
+    name = os.path.basename(str(data.get("name") or "").replace("\\", "/")).strip()
+    if not rag.NAME_RE.match(name):
+        raise ValueError("nom de fichier invalide")
+    collection = rag.collection_clean(data.get("collection") or "Général")
+    try:
+        raw = base64.b64decode(str(data.get("content_b64") or ""), validate=True)
+    except (ValueError, TypeError):
+        raise ValueError("contenu du fichier illisible")
+    if not raw:
+        raise ValueError("fichier vide")
+    if len(raw) > rag.MAX_UPLOAD:
+        raise ValueError("fichier trop volumineux (25 Mo au plus)")
+    sha = hashlib.sha256(raw).hexdigest()
+    store = rag_store()
+    if any(d.get("sha") == sha and d["collection"] == collection for d in store.docs()):
+        raise ValueError("ce document est déjà dans la base « %s »" % collection)
+    ext = os.path.splitext(name.lower())[1]
+    if ext not in rag.TEXT_EXT | {".html", ".htm", ".docx", ".odt", ".pdf"}:
+        raise ValueError("format non pris en charge (%s) : texte, Markdown, CSV, JSON, HTML, Word (.docx), OpenDocument (.odt) ou PDF" % (ext or "sans extension"))
+    if ext == ".pdf" and not shutil.which("pdftotext"):
+        raise ValueError("PDF : le programme pdftotext n'est pas installé sur ce serveur (apt install poppler-utils) ; convertissez le fichier en texte ou en Word")
+    cfg = rag_config()
+    jid = store.new_id()
+    rag_start(jid, name, collection, rag_index, jid, name, raw, collection, sha, cfg)
+    return jid
+
+
+def rag_delete(did):
+    did = str(did or "")
+    with _rag_lock:
+        j = _rag_jobs.get(did)
+        if j and j["state"] == "error":
+            del _rag_jobs[did]
+            return
+        if j:
+            raise ValueError("indexation en cours : attendez la fin avant de supprimer")
+    rag_store().delete(did)
+
+
+def rag_reindex(did=None):
+    cfg, store = rag_config(), rag_store()
+    todo = [d for d in store.docs() if (d["id"] == did if did else d.get("model") != cfg["embed_model"])]
+    if did and not todo:
+        raise ValueError("document introuvable")
+    ids = []
+    for d in todo:
+        ids.append(rag_start(d["id"], d["name"], d["collection"], rag_reindex_doc, d["id"], d["id"], cfg))
+    return ids
+
+
+def rag_search(data, allowed=None):
+    """Recherche pour la console : extraits les plus proches de la question + consigne système prête à l'emploi."""
+    question = " ".join(str(data.get("question") or "").split())[:2000]
+    if not question:
+        raise ValueError("question vide")
+    cfg, store = rag_config(), rag_store()
+    colls = rag.collections_clean(data.get("collection") if data.get("collection") is not None else [])
+    try:
+        k = max(1, min(int(data.get("k") or cfg["top_k"]), 12))
+    except (TypeError, ValueError):
+        k = cfg["top_k"]
+    q = rag.embed(main_addr(), cfg["embed_model"], [rag.prefixes(cfg["embed_model"])[1] + question], timeout=120)[0]
+    hits, stale = store.search(q, colls, k, cfg["min_score"], cfg["embed_model"], allowed)
+    return {"system": rag.build_system(hits), "sources": rag.citations(hits), "stale": stale, "model": cfg["embed_model"]}
 
 
 # ------------------------------------------------ confidentialité : données sensibles et termes interdits ---
@@ -1231,6 +1420,8 @@ def key_create(data):
             key["team"] = costs.team_clean(data["team"])
         if data.get("words"):
             key["words"] = privacy.words_clean(data["words"], privacy.MAX_KEY_WORDS)
+        if data.get("collections"):
+            key["collections"] = rag.collections_clean(data["collections"])
         key["expires"] = validate_expiry(data.get("expires"))
         pub["keys"].append(key)
         save_publication(pub)   # le routeur relit le fichier : aucune interruption
@@ -1310,6 +1501,12 @@ def key_update(data):
             key.update(validate_limits(data, key))
         if "expires" in data:
             key["expires"] = validate_expiry(data.get("expires"))
+        if "collections" in data:
+            colls = rag.collections_clean(data["collections"])
+            if colls:
+                key["collections"] = colls
+            else:
+                key.pop("collections", None)
         if "words" in data:
             words = privacy.words_clean(data["words"], privacy.MAX_KEY_WORDS)
             if words:
@@ -1973,6 +2170,8 @@ def member_sync(caller, payload):
                 try:
                     if k.get("words"):
                         incoming[-1]["words"] = privacy.words_clean(k["words"], privacy.MAX_KEY_WORDS)
+                    if k.get("collections"):
+                        incoming[-1]["collections"] = rag.collections_clean(k["collections"])
                 except ValueError:
                     pass
             names = {k["name"].lower() for k in incoming}
@@ -2198,7 +2397,7 @@ def fleet_sync(sid, kinds):
     if "policy" in kinds:
         payload["policy"] = {k: v for k, v in load_policy().items() if k in ("cloud", "ollama_internet", "webui_locked", "webui")}
     if "keys" in kinds:   # empreintes seulement : les clés elles-mêmes ne sont jamais conservées
-        payload["keys"] = [{k: v for k, v in key.items() if k in ("id", "name", "hash", "prefix", "perms", "models", "deny", "enabled", "created", "words")}
+        payload["keys"] = [{k: v for k, v in key.items() if k in ("id", "name", "hash", "prefix", "perms", "models", "deny", "enabled", "created", "words", "collections")}
                            for key in load_publication()["keys"] if not key.get("synced_from")]
     custom = load_custom()
     if "custom" in kinds:
@@ -5314,7 +5513,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/costs", "/api/costs/export", "/api/privacy", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/costs", "/api/costs/export", "/api/privacy", "/api/rag", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -5362,9 +5561,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_head(200, ctype, len(body))
         self.wfile.write(body)
 
-    def read_json(self):
+    def read_json(self, limit=None):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > MAX_BODY:
+        if n > (limit or MAX_BODY):
             raise ValueError("requête trop volumineuse")
         data = json.loads(self.rfile.read(n) or b"{}") if n else {}
         if not isinstance(data, dict):
@@ -5476,6 +5675,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send_json(200, member_view())
         if path == "/api/fleet/servers":
             return self.send_json(200, fleet_view())
+        if path == "/api/rag/collections":   # noms et tailles seulement, pour le choix d'une base dans la conversation
+            return self.send_json(200, {"collections": rag_store().collections()})
         if path in ADMIN_GET and role != "admin":
             return self.forbidden()
         try:
@@ -5541,6 +5742,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_head(200, "text/csv; charset=utf-8", len(body), {"Content-Disposition": 'attachment; filename="couts-%s.csv"' % month}) or self.wfile.write(body)
             if path == "/api/privacy":
                 return self.send_json(200, privacy_view())
+            if path == "/api/rag":
+                return self.send_json(200, rag_view())
             if path == "/api/update/backups":
                 return self.send_json(200, {"backups": backups_list(), "installed": VERSION})
             if path == "/api/fleet/rules":
@@ -5647,8 +5850,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         if self.headers.get("X-OB") != "1":
             return self.send_json(403, {"error": "requête refusée"})
+        limit = MAX_BODY
+        if path == "/api/rag/upload":   # gros corps : seulement pour un administrateur connecté (vérifié AVANT de lire)
+            sess = session_get(self.token())
+            if not sess or sess[1] != "admin":
+                self.close_connection = True
+                return self.send_json(401 if not sess else 403, {"error": "authentification requise" if not sess else "Réservé aux administrateurs."})
+            limit = MAX_UPLOAD_BODY
         try:
-            data = self.read_json()
+            data = self.read_json(limit)
         except ValueError as e:
             return self.send_json(400, {"error": str(e)})
         if path == "/api/login":
@@ -5680,8 +5890,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.change_own_password(user, data)
             if path == "/api/chat":
                 return self.chat(data)
+            if path == "/api/rag/search":   # tout utilisateur connecté, comme la conversation
+                return self.send_json(200, rag_search(data))
             if role != "admin":
                 return self.forbidden()
+            if path == "/api/rag/upload":
+                return self.send_json(200, {"ok": True, "id": rag_upload(data)})
+            if path == "/api/rag/delete":
+                rag_delete(data.get("id"))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/rag/reindex":
+                return self.send_json(200, {"ok": True, "ids": rag_reindex(data.get("id"))})
+            if path == "/api/rag/config":
+                return self.send_json(200, {"ok": True, "config": rag_save(data)})
             if path == "/api/models/pull":
                 name = str(data.get("name", "")).strip()
                 if not MODEL_RE.match(name):

@@ -276,3 +276,6 @@ label.block{display:block;margin:8px 0}
 .sso-role input{flex:1 1 280px}
 .sso-tag{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:var(--brand);color:#fff;font-size:11px;vertical-align:middle}
 .privacy-cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:2px 16px;margin-top:6px}
+.rag-sources{margin-top:8px;padding-top:6px;border-top:1px dashed var(--line)}
+.rag-job{margin:6px 0}
+.rag-job button{margin-left:8px}

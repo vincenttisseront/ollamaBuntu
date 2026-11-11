@@ -32,12 +32,16 @@ python3 tests/unit/router_failover_test.py      # routeur : reprise automatique 
 python3 tests/unit/queue_test.py                 # file d'attente : priorités, vieillissement, plafond global, file pleine, délai dépassé, routeur en vrais échanges HTTP
 python3 tests/unit/privacy_test.py               # confidentialité : motifs (IBAN, carte, sécu, téléphone, e-mail, IP, secrets), anonymisation avant le modèle, termes interdits globaux et par clé, routeur de bout en bout
 python3 tests/unit/privacy_admin_test.py         # confidentialité côté console : réglages, statistiques, essai, termes par clé, routes, audit
+python3 tests/unit/rag_test.py                   # base de documents : extraction (texte, HTML, Word, OpenDocument, PDF), découpage, vecteurs, recherche exacte, citations, stockage
+python3 tests/unit/rag_router_test.py            # base de documents par l'API : /rag/search et /rag/ask, droits, bases autorisées par clé, en-tête des sources (Ollama simulé)
+python3 tests/unit/rag_admin_test.py             # base de documents côté console : dépôt, indexation en arrière-plan, réindexation, suppression, routes, audit
 python3 tests/unit/sso_test.py                   # connexion unique : jetons OIDC (RS256, nonce, aud, exp), PKCE, LDAP/AD simulé (LDAPS, StartTLS, injection de filtre), rôles par groupe, comptes SSO, routes HTTP
 python3 tests/unit/costs_test.py                 # coûts : temps de calcul, énergie, registre mensuel alimenté par le journal, équipes, export CSV, rapport hebdomadaire
 python3 tests/unit/modelupdate_test.py          # mise à jour des modèles : fenêtre de maintenance, copie de sécurité, retour arrière automatique ou manuel (Ollama simulé)
 python3 tests/unit/evals_test.py                  # laboratoire : critères, comparaison, jeux de tests, rejeu automatique (Ollama simulé)
 node tests/unit/queue_ui_test.js             # console : Serveurs > File d'attente, protection de la carte graphique, priorité d'une clé, FR et EN
 node tests/unit/privacy_ui_test.js           # console : Journaux > Confidentialité (statistiques, réglages, essai), termes interdits d'une clé, FR et EN
+node tests/unit/rag_ui_test.js               # console : écran Documents (dépôt, progression, réglages, essai), base choisie dans la conversation avec sources, bases autorisées d'une clé, FR et EN
 node tests/unit/sso_ui_test.js               # console : bouton de la page de connexion, codes d'erreur, Utilisateurs > Connexion unique (SSO), comptes SSO, FR et EN
 node tests/unit/costs_ui_test.js             # console : Journaux > Coûts (mois, équipes, clés, paramètres, export), équipe d'une clé, FR et EN
 node tests/unit/modelupdate_ui_test.js      # console : Modèles > Mises à jour (réglages, vérification, retour arrière, historique) en jsdom, FR et EN

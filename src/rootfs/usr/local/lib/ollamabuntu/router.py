@@ -27,6 +27,7 @@ import urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import limits  # noqa: E402
 import privacy  # noqa: E402
+import rag  # noqa: E402
 
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
 POOLS_FILE = os.path.join(ETC, "pools.json")
@@ -120,6 +121,26 @@ def reqlog_conf():
     except (TypeError, ValueError):
         chars = 120
     return {"prompt_excerpt": d.get("prompt_excerpt") is True, "chars": chars}
+
+
+RAG_CONF = os.path.join(ETC, "rag.json")   # écrit par la console : modèle d'embeddings, nombre d'extraits, score minimal
+RAG_DIR = os.environ.get("OB_RAG", "/var/lib/ollamabuntu/rag")
+RAG_PATHS = ("/rag/search", "/rag/ask")
+_ragc = {"mtime": None, "data": {}}
+_rag_store = {"s": None, "dir": None}
+
+
+def rag_conf():
+    try:
+        return rag.config_clean(hot_json(RAG_CONF, _ragc))
+    except ValueError:
+        return dict(rag.DEFAULTS)
+
+
+def rag_store():
+    if _rag_store["dir"] != RAG_DIR:
+        _rag_store.update(s=rag.Store(RAG_DIR), dir=RAG_DIR)
+    return _rag_store["s"]
 
 
 PRIVACY_CONF = os.path.join(ETC, "privacy.json")   # écrit par la console : catégories masquées, anonymisation, termes interdits
@@ -626,6 +647,8 @@ class Router(http.server.BaseHTTPRequestHandler):
             self.send_header("X-OllamaBuntu-Instance", label)
             if getattr(self, "_clamped", None):
                 self.send_header("X-OllamaBuntu-Clamped", ",".join(self._clamped))
+            if getattr(self, "_rag_sources", None):
+                self.send_header("X-OllamaBuntu-Sources", self._rag_sources)
             self.end_headers()
             if self.command != "HEAD":
                 while True:
@@ -719,6 +742,66 @@ class Router(http.server.BaseHTTPRequestHandler):
                 continue
         self.json_reply(200, {"models": models})
 
+    def rag_prepare(self, method, path, body, r):
+        """Base de documents par l'API. /rag/search : extraits les plus proches (JSON). /rag/ask : la demande est réécrite en conversation
+        (/api/chat) avec les extraits comme consigne système, puis suit le chemin habituel (confidentialité, file d'attente, mesures, parc).
+        Retourne (chemin, corps) pour poursuivre, ou None quand la réponse a déjà été envoyée."""
+        if method != "POST":
+            self.deny(405, "méthode non autorisée : utilisez POST")
+            return None
+        who = "local" if r is None else r[0]
+        if r is not None and "inference" not in r[1]:
+            self.deny(403, "droit « utilisation des modèles » non accordé à « %s »" % who)
+            return None
+        try:
+            d = json.loads(body or b"{}")
+            if not isinstance(d, dict):
+                raise ValueError("objet JSON attendu")
+        except ValueError:
+            self.json_reply(400, {"error": "corps JSON invalide"})
+            return None
+        allowed = rag.collections_clean((self._key or {}).get("collections")) if r is not None else []
+        try:
+            colls = rag.collections_clean(d.get("collection") if d.get("collection") is not None else d.get("collections"))
+            cfg = rag_conf()
+            question = " ".join(str(d.get("question") or d.get("query") or rag.last_question(d.get("messages")) or "").split())[:2000]
+            if not question:
+                raise ValueError("question vide (champ « question » ou dernier message utilisateur)")
+            try:
+                k = max(1, min(int(d.get("k") or cfg["top_k"]), 12))
+            except (TypeError, ValueError):
+                k = cfg["top_k"]
+        except ValueError as e:
+            self.json_reply(400, {"error": str(e)})
+            return None
+        if allowed and colls and not set(colls) <= set(allowed):
+            self.deny(403, "base de documents non autorisée pour « %s »" % who)
+            return None
+        try:
+            q = rag.embed(MAIN, cfg["embed_model"], [rag.prefixes(cfg["embed_model"])[1] + question], timeout=120)[0]
+        except ValueError as e:
+            self.json_reply(503, {"error": str(e)})
+            return None
+        hits, stale = rag_store().search(q, colls, k, cfg["min_score"], cfg["embed_model"], allowed or None)
+        cits = rag.citations(hits)
+        if path == "/rag/search":
+            self.json_reply(200, {"sources": cits, "passages": [{"n": i, "text": h["text"]} for i, h in enumerate(hits, 1)], "model": cfg["embed_model"], "stale_documents": stale})
+            return None
+        model = d.get("model")
+        if not isinstance(model, str) or not model:
+            self.json_reply(400, {"error": "champ « model » requis (modèle de conversation)"})
+            return None
+        history = [{"role": m["role"], "content": m["content"]} for m in (d.get("messages") or []) if isinstance(m, dict) and m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
+        if not history or history[-1]["role"] != "user":
+            history = history + [{"role": "user", "content": question}]
+        req = {"model": model, "messages": [{"role": "system", "content": rag.build_system(hits)}] + history, "stream": d.get("stream") is True}
+        for opt in ("options", "keep_alive", "think"):
+            if opt in d:
+                req[opt] = d[opt]
+        self._rag_sources = rag.header_value(cits)
+        self.path = "/api/chat"
+        return "/api/chat", json.dumps(req, ensure_ascii=False).encode()
+
     def category(self, method, path):
         if path in INFERENCE:
             return "inference"
@@ -805,6 +888,12 @@ class Router(http.server.BaseHTTPRequestHandler):
             r = self.rights()
         except PermissionError as e:
             return self.deny(*e.args)
+        self._rag_sources = None
+        if path in RAG_PATHS:   # base de documents : /rag/search répond ici ; /rag/ask devient une conversation ordinaire enrichie
+            res = self.rag_prepare(method, path, body, r)
+            if res is None:
+                return
+            path, body = res
         allowed = None
         if path in INFERENCE:   # requêtes mesurées : utilisation des modèles
             self.req_meta = {"client": "local" if r is None else r[0], "ip": self.client_address[0], "path": path,
