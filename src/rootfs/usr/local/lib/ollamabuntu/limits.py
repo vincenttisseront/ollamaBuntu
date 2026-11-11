@@ -9,39 +9,106 @@ import threading
 import time
 
 
+PRIORITIES = (1, 2, 3)   # 1 haute, 2 normale, 3 basse
+AGING = 120              # une requête qui attend gagne un niveau de priorité toutes les 120 s : aucune ne reste bloquée indéfiniment
+
+
+def priority_of(v):
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        return 2
+    return v if v in PRIORITIES else 2
+
+
 class Limiter:
-    """Au plus `cap` requêtes en cours par clé ; les suivantes attendent leur tour (au plus `wait` secondes)."""
+    """File d'attente des requêtes d'inférence.
+    - Au plus `cap` requêtes en cours par clé ; au plus `total` en même temps pour tout le serveur (protège la mémoire de la carte graphique).
+    - Quand il faut attendre, la requête de plus haute priorité passe d'abord, à priorité égale la plus ancienne (avec vieillissement).
+    - Une requête dont la clé a atteint son plafond ne bloque pas les autres.
+    Chaque requête attend au plus `wait` secondes."""
 
     def __init__(self):
         self._cv = threading.Condition()
         self._running = {}
         self._waiting = {}
+        self._tickets = []
+        self._seq = 0
+        self._total = 0
+        self._waits = []   # (instant, secondes d'attente, priorité) des requêtes admises après avoir attendu
         self.dirty = threading.Event()
 
-    def acquire(self, kid, cap, wait):
-        cap = int(cap or 0)
-        if not kid or cap <= 0:
-            return True
-        deadline = time.time() + wait
+    @staticmethod
+    def gated(kid, cap, total):
+        """La requête passe-t-elle par la file ? Non si ni plafond de clé ni plafond global ne s'applique."""
+        return bool(kid) and (int(cap or 0) > 0 or int(total or 0) > 0)
+
+    def _eff(self, t, now):
+        return max(1, t["prio"] - int((now - t["t"]) // AGING))
+
+    def _rank(self, t, now):
+        return (self._eff(t, now), t["seq"])
+
+    def _blocked(self, t):
+        return t["cap"] > 0 and self._running.get(t["kid"], 0) >= t["cap"]
+
+    def _my_turn(self, me, total, now):
+        if self._blocked(me):
+            return False
+        if total > 0 and self._total >= total:
+            return False
+        mine = self._rank(me, now)
+        return not any(w is not me and not self._blocked(w) and self._rank(w, now) < mine for w in self._tickets)
+
+    def acquire_ex(self, kid, cap, wait, prio=2, total=0, info=None, max_queue=0, now=None):
+        """Retourne (admis, raison). raison : None | « timeout » (attente trop longue) | « full » (file pleine)."""
+        cap, total = int(cap or 0), int(total or 0)
+        if not self.gated(kid, cap, total):
+            return True, None
+        clock = now if callable(now) else time.time
+        t0 = clock()
+        deadline = t0 + wait
         with self._cv:
+            if max_queue and len(self._tickets) >= int(max_queue) and not self._can_go_now(kid, cap, total, t0):
+                return False, "full"
+            self._seq += 1
+            me = {"kid": kid, "cap": cap, "prio": priority_of(prio), "seq": self._seq, "t": t0, "info": dict(info or {})}
+            self._tickets.append(me)
             self._waiting[kid] = self._waiting.get(kid, 0) + 1
             self.dirty.set()
             try:
-                while self._running.get(kid, 0) >= cap:
-                    left = deadline - time.time()
+                while not self._my_turn(me, total, clock()):
+                    left = deadline - clock()
                     if left <= 0:
-                        return False
-                    self._cv.wait(left)
+                        return False, "timeout"
+                    self._cv.wait(min(left, 2))
                 self._running[kid] = self._running.get(kid, 0) + 1
-                return True
+                self._total += 1
+                waited = clock() - t0
+                if waited >= 0.05:
+                    self._waits.append((clock(), waited, me["prio"]))
+                    del self._waits[:-300]
+                return True, None
             finally:
+                self._tickets.remove(me)
                 self._waiting[kid] -= 1
+                self._cv.notify_all()   # le suivant de la file peut maintenant passer
                 self.dirty.set()
+
+    def _can_go_now(self, kid, cap, total, now):
+        if cap > 0 and self._running.get(kid, 0) >= cap:
+            return False
+        return not (total > 0 and self._total >= total) and not self._tickets
+
+    def acquire(self, kid, cap, wait, **kw):
+        return self.acquire_ex(kid, cap, wait, **kw)[0]
 
     def release(self, kid):
         with self._cv:
             if self._running.get(kid, 0) > 0:
                 self._running[kid] -= 1
+                if self._total > 0:
+                    self._total -= 1
             self._cv.notify_all()
         self.dirty.set()
 
@@ -50,6 +117,30 @@ class Limiter:
             keys = set(self._running) | set(self._waiting)
             return {k: {"running": self._running.get(k, 0), "waiting": self._waiting.get(k, 0)} for k in keys
                     if self._running.get(k, 0) or self._waiting.get(k, 0)}
+
+    def waiting_list(self, now=None):
+        """File d'attente dans l'ordre de passage : [{kid, who, model, prio, eff, waited}]."""
+        now = now or time.time()
+        with self._cv:
+            ts = sorted(self._tickets, key=lambda t: self._rank(t, now))
+            return [{"kid": t["kid"], "who": t["info"].get("who"), "model": t["info"].get("model"), "prio": t["prio"], "eff": self._eff(t, now),
+                     "waited": round(now - t["t"], 1)} for t in ts]
+
+    def total_running(self):
+        with self._cv:
+            return self._total
+
+    def wait_stats(self, since=3600, now=None):
+        """Attente des requêtes admises dans la dernière heure : nombre, moyenne et maximum (secondes), par priorité."""
+        now = now or time.time()
+        with self._cv:
+            rows = [w for w in self._waits if now - w[0] <= since]
+        out = {"n": len(rows), "avg": round(sum(w[1] for w in rows) / len(rows), 1) if rows else 0, "max": round(max([w[1] for w in rows] or [0]), 1), "by_prio": {}}
+        for p in PRIORITIES:
+            xs = [w[1] for w in rows if w[2] == p]
+            if xs:
+                out["by_prio"][str(p)] = {"n": len(xs), "avg": round(sum(xs) / len(xs), 1)}
+        return out
 
 
 class Tokens:

@@ -355,7 +355,8 @@
               <label>Quota de jetons par mois (0 = sans limite) <input name="quota_month" type="number" min="0" value="0"></label>
               <label>Expire le (vide = jamais) <input name="expires" type="date"></label></div>
             <div class="row"><label>Contexte maximal (jetons, 0 = sans plafond) <input name="max_ctx" type="number" min="0" max="2000000" value="0"></label>
-              <label>Réponse maximale (jetons, 0 = sans plafond) <input name="max_output" type="number" min="0" max="1000000" value="0"></label></div>
+              <label>Réponse maximale (jetons, 0 = sans plafond) <input name="max_output" type="number" min="0" max="1000000" value="0"></label>
+              <label>Priorité dans la file d'attente <select name="priority"><option value="1">Haute (passe en premier)</option><option value="2" selected>Normale</option><option value="3">Basse (traitements de fond)</option></select></label></div>
             <p class="muted small">Au-delà du plafond, les requêtes d'un client attendent leur tour (jusqu'à 10 minutes). Au-delà d'un quota, elles sont refusées (erreur 429) jusqu'à la période suivante.</p>
             <div class="row"><button class="btn primary" type="submit">Créer la clé</button><span id="key-msg" class="small"></span></div>
           </form>
@@ -550,6 +551,23 @@
         <div id="bal-servers"></div>
         <h3>Modèles</h3>
         <div id="bal-models"></div>
+      </div>
+      <div class="card" data-panel="queue" data-label="File d'attente">
+        <div class="card-head"><h2>File d'attente</h2><button id="queue-refresh" class="btn" type="button">Actualiser</button></div>
+        <p class="muted small">Quand le serveur est saturé, les requêtes attendent leur tour : celle d'une clé de priorité haute passe avant une clé de priorité basse (une requête qui attend longtemps gagne un niveau toutes les 2 minutes, aucune ne reste bloquée). La priorité de chaque clé se règle dans Système &gt; Publication de l'API &gt; Plafonds.</p>
+        <div id="queue-state"></div>
+        <h3>Ce qui attend</h3>
+        <div id="queue-list"></div>
+      </div>
+      <div class="card" data-admin data-panel="queue" data-label="File d'attente">
+        <h2>Protection de la carte graphique</h2>
+        <p class="muted small">Chaque requête en cours occupe de la mémoire (contexte, cache). Au-delà de ce que la carte peut tenir, Ollama décharge des modèles ou échoue. Limitez ici le nombre de requêtes traitées en même temps ; les suivantes attendent dans la file. 0 = sans limite.</p>
+        <form id="queue-form" class="pool-form row">
+          <label>Requêtes simultanées au total <input name="max_active" type="number" min="0" max="256" value="0"></label>
+          <label>Taille maximale de la file (au-delà : refus immédiat, erreur 429) <input name="max_queue" type="number" min="0" max="10000" value="0"></label>
+          <button class="btn primary" type="submit">Enregistrer</button><span id="queue-msg" class="small" aria-live="polite"></span>
+        </form>
+        <p class="muted small" id="queue-hint"></p>
       </div>
       <div class="card wide" data-admin data-panel="rules" data-label="Règles de routage">
         <h2>Règles de routage</h2>

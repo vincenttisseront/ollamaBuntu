@@ -1028,6 +1028,14 @@ def validate_limits(data, current=None):
         if not 0 <= v <= hi:
             raise ValueError("%s hors limites (0 à %d)" % (k, hi))
         out[k] = v
+    if "priority" in data:
+        try:
+            pr = int(data["priority"])
+        except (TypeError, ValueError):
+            raise ValueError("priorité invalide")
+        if pr not in (1, 2, 3):
+            raise ValueError("priorité : 1 (haute), 2 (normale) ou 3 (basse)")
+        out["priority"] = pr
     return out
 
 
@@ -1050,7 +1058,7 @@ def key_update(data):
             key["enabled"] = bool(data["enabled"])
         if "deny" in data:
             key["deny"] = [x for x in KEY_RESTRICTIONS if x in (data.get("deny") or [])]
-        if any(k in data for k in LIMIT_FIELDS):
+        if any(k in data for k in LIMIT_FIELDS) or "priority" in data:
             key.update(validate_limits(data, key))
         if "expires" in data:
             key["expires"] = validate_expiry(data.get("expires"))
@@ -3163,9 +3171,60 @@ def limits_view():
     for k in load_publication().get("keys", []):
         t, q = tokens.get(k["id"]) or {}, queue.get(k["id"]) or {}
         keys.append({"id": k["id"], "name": k["name"], "max_concurrent": k.get("max_concurrent", 0), "quota_day": k.get("quota_day", 0), "quota_month": k.get("quota_month", 0),
-                     "max_ctx": k.get("max_ctx", 0), "max_output": k.get("max_output", 0), "running": q.get("running", 0), "waiting": q.get("waiting", 0), "day": t.get("day", 0), "month": t.get("month", 0), "total": t.get("total", 0), "requests": t.get("req", 0)})
+                     "max_ctx": k.get("max_ctx", 0), "max_output": k.get("max_output", 0), "priority": k.get("priority", 2), "running": q.get("running", 0), "waiting": q.get("waiting", 0), "day": t.get("day", 0), "month": t.get("month", 0), "total": t.get("total", 0), "requests": t.get("req", 0)})
     return {"keys": keys, "queue_total": {"running": sum(v.get("running", 0) for v in queue.values()), "waiting": sum(v.get("waiting", 0) for v in queue.values())},
             "updated": lim.get("t")}
+
+
+QUEUE_CONF = os.path.join(ETC, "queue.json")   # lu à chaud par le routeur
+QUEUE_LIMITS = {"max_active": (0, 256), "max_queue": (0, 10000)}
+PRIO_NAMES = {1: "haute", 2: "normale", 3: "basse"}
+
+
+def queue_settings():
+    d = load_json_file(QUEUE_CONF, {})
+    out = {}
+    for k, (lo, hi) in QUEUE_LIMITS.items():
+        try:
+            out[k] = max(lo, min(hi, int(d.get(k) or 0)))
+        except (TypeError, ValueError):
+            out[k] = 0
+    return out
+
+
+def queue_save(data):
+    """Plafond global de requêtes en cours (protège la mémoire de la carte graphique) et taille maximale de la file ; 0 = sans limite."""
+    new = queue_settings()
+    labels = {"max_active": "requêtes simultanées au total", "max_queue": "taille de la file"}
+    for k, (lo, hi) in QUEUE_LIMITS.items():
+        if k in data:
+            try:
+                v = int(data[k] or 0)
+            except (TypeError, ValueError):
+                raise ValueError("valeur invalide : %s" % labels[k])
+            if not lo <= v <= hi:
+                raise ValueError("%s : %d à %d (0 = sans limite)" % (labels[k], lo, hi))
+            new[k] = v
+    atomic_write(QUEUE_CONF, json.dumps(new), 0o644)
+    return new
+
+
+def queue_view():
+    """File d'attente en direct (écrite par le routeur), réglages et priorité de chaque clé."""
+    lim = load_json_file(ROUTER_LIMITS, {})
+    names = {k["id"]: k["name"] for k in load_publication().get("keys", [])}
+    fresh = time.time() - int(lim.get("t") or 0) < 30
+    wait = []
+    for w in (lim.get("waiting") or []) if fresh else []:
+        wait.append({"who": names.get(w.get("kid")) or w.get("who") or w.get("kid"), "model": w.get("model"), "prio": w.get("prio", 2), "eff": w.get("eff", w.get("prio", 2)), "waited": w.get("waited", 0)})
+    par = 1
+    try:
+        par = int(read_env().get("OLLAMA_NUM_PARALLEL") or 1)
+    except (TypeError, ValueError, OSError, NameError):
+        pass
+    return {"settings": queue_settings(), "active": int(lim.get("active") or 0) if fresh else 0, "waiting": wait, "waits": lim.get("waits") or {},
+            "parallel": par, "live": fresh,
+            "keys": [{"id": k["id"], "name": k["name"], "priority": k.get("priority", 2), "max_concurrent": k.get("max_concurrent", 0)} for k in load_publication().get("keys", [])]}
 
 
 def load_rules():
@@ -4891,7 +4950,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -5051,6 +5110,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, tuning_view())
             if path == "/api/limits":
                 return self.send_json(200, limits_view())
+            if path == "/api/queue":
+                return self.send_json(200, queue_view())
             if path == "/api/update/backups":
                 return self.send_json(200, {"backups": backups_list(), "installed": VERSION})
             if path == "/api/fleet/rules":
@@ -5378,6 +5439,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, {"ok": True})
             if path == "/api/fleet/balance/test":
                 return self.send_json(200, balance_test(data.get("model")))
+            if path == "/api/queue/config":
+                return self.send_json(200, {"ok": True, "settings": queue_save(data)})
             if path == "/api/models/context":
                 set_model_context(data.get("model"), data.get("num_ctx"))
                 return self.send_json(200, {"ok": True})

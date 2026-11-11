@@ -89,6 +89,21 @@ def hot_json(path, cache):
         return cache["data"] if isinstance(cache["data"], dict) else {}
 
 
+QUEUE_CONF = os.path.join(ETC, "queue.json")   # écrit par la console : plafond global et taille de la file
+_qc = {"mtime": None, "data": {}}
+
+
+def queue_conf():
+    d = hot_json(QUEUE_CONF, _qc)
+
+    def num(k, hi):
+        try:
+            return max(0, min(int(d.get(k) or 0), hi))
+        except (TypeError, ValueError):
+            return 0
+    return {"max_active": num("max_active", 256), "max_queue": num("max_queue", 10000)}
+
+
 def balance_strategy():
     return "warm" if hot_json(BALANCE_FILE, _bal).get("strategy") == "warm" else "spread"
 
@@ -819,10 +834,20 @@ class Router(http.server.BaseHTTPRequestHandler):
                 why = _tokens.exceeded(kid, key.get("quota_day"), key.get("quota_month"))
                 if why:
                     return self.deny(429, "%s pour « %s »" % (why, who))
-                if not _limiter.acquire(kid, key.get("max_concurrent"), QUEUE_WAIT):
-                    return self.deny(429, "trop de requêtes simultanées pour « %s » (plafond %s) : file d'attente pleine" % (who, key.get("max_concurrent")))
-                if key.get("max_concurrent"):
-                    self._slot = kid
+        if path in INFERENCE:   # file d'attente : priorité de la clé, plafond de la clé, plafond global (mémoire de la carte graphique)
+            if r is not None:
+                gk, gwho, gkey = r[3] or "anonyme", r[0], self._key or {}
+            else:
+                gk, gwho, gkey = "local", "local", {}
+            qc = queue_conf()
+            ok, why = _limiter.acquire_ex(gk, gkey.get("max_concurrent"), QUEUE_WAIT, prio=gkey.get("priority"), total=qc["max_active"],
+                                          info={"who": gwho, "model": (self.req_meta or {}).get("model")}, max_queue=qc["max_queue"])
+            if not ok:
+                if why == "full":
+                    return self.deny(429, "file d'attente pleine (%d requêtes déjà en attente) : réessayez dans un instant" % qc["max_queue"])
+                return self.deny(429, "trop de requêtes en cours pour « %s » : attente de %d s dépassée" % (gwho, QUEUE_WAIT))
+            if limits.Limiter.gated(gk, gkey.get("max_concurrent"), qc["max_active"]):
+                self._slot = gk
         self._kid = kid if r is not None else None
         body = with_context(path, body)
         self._clamped = []
@@ -919,7 +944,8 @@ def limits_writer():
         _limiter.dirty.clear()
         if _tokens.dirty.is_set() or time.time() - last > 5:
             _tokens.dirty.clear()
-        limits.write_json(LIMITS_FILE, {"t": int(time.time()), "queue": _limiter.snapshot(), "tokens": _tokens.snapshot()})
+        limits.write_json(LIMITS_FILE, {"t": int(time.time()), "queue": _limiter.snapshot(), "tokens": _tokens.snapshot(), "waiting": _limiter.waiting_list(),
+                                        "active": _limiter.total_running(), "waits": _limiter.wait_stats()})
         last = time.time()
         time.sleep(2)
 

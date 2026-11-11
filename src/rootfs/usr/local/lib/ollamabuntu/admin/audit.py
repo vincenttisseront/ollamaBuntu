@@ -15,7 +15,7 @@ LABELS = {
     "/api/models/context": "Taille de contexte d'un modèle", "/api/ollama-env": "Réglages d'Ollama",
     "/api/keys/create": "Création d'une clé d'API", "/api/keys/update": "Modification d'une clé d'API", "/api/keys/delete": "Suppression d'une clé d'API", "/api/keys/regenerate": "Renouvellement d'une clé d'API",
     "/api/publication": "Publication de l'API", "/api/alerts": "Réglage des alertes", "/api/alerts/test": "Test d'envoi des alertes",
-    "/api/fleet/balance/strategy": "Répartition de charge", "/api/fleet/balance/test": "Test de répartition",
+    "/api/fleet/balance/strategy": "Répartition de charge", "/api/fleet/balance/test": "Test de répartition", "/api/queue/config": "File d'attente",
     "/api/prom/token": "Jeton Prometheus", "/api/gpu/guard/config": "Réparation automatique du GPU", "/api/gpu/guard/repair": "Réparation du GPU",
     "/api/perf/profile": "Profil de performance", "/api/perf/fix": "Réglage système de performance", "/api/perf/guard": "Garde-fou de débit",
     "/api/perf/apply-suggestion": "Réglage suggéré appliqué", "/api/perf/warmup": "Préchauffage des modèles", "/api/perf/warmup/run": "Préchauffage immédiat",

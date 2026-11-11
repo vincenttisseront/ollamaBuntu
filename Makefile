@@ -15,6 +15,7 @@ i18n-check:
 test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/router_balance_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/router_failover_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/queue_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/gpu_auto_test.py
 	bash tests/unit/crypt_engine_test.sh
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/online_update_test.py
@@ -46,6 +47,7 @@ test-ui:
 	node tests/unit/modelmap_ui_test.js
 	node tests/unit/lab_ui_test.js
 	node tests/unit/modelupdate_ui_test.js
+	node tests/unit/queue_ui_test.js
 
 # Archive de mise à jour en ligne (OB_VERSION=AAAA.MM.JJ-HHMM, OB_SIGNING_KEY=clé privée pour signer)
 bundle:
