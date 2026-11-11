@@ -119,7 +119,7 @@ const $$e_tabs = (win, v) => [...win.document.querySelectorAll('#view-' + v + ' 
   ok([...$$('#view-gpu > .subtabs a')].map((a) => a.dataset.key).join() === 'cards,availability,placement,advanced' && [...$$('#view-system > .subtabs a')].map((a) => a.dataset.key).join().includes('alerts,report,hardware,audit,backup') && [...$$('#view-models > .subtabs a')].map((a) => a.dataset.key).includes('disk'), 'onglets Disponibilité, Rapport, Matériel, Audit et Espace disque');
 
   // --- menu : une seule ligne, les écrans rares sont dans « Plus »
-  ok($$('#nav > a').length === 6 && $$('#nav-more-list a').map((a) => a.getAttribute('href')).join() === '#fleet,#logs,#security,#webui,#users,#about', 'menu : 6 entrées directes, 6 écrans dans « Plus »');
+  ok($$('#nav > a').length === 6 && $$('#nav-more-list a').map((a) => a.getAttribute('href')).join() === '#fleet,#logs,#security,#webui,#users,#lab,#about', 'menu : 6 entrées directes, 7 écrans dans « Plus »');
   ok($('#nav-more-list').classList.contains('hidden') && $('#nav-more-btn').getAttribute('aria-expanded') === 'false', '« Plus » fermé au départ');
   $('#nav-more-btn').click();
   ok(!$('#nav-more-list').classList.contains('hidden') && $('#nav-more-btn').getAttribute('aria-expanded') === 'true', '« Plus » s\'ouvre au clic');

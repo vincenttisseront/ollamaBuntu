@@ -201,8 +201,8 @@ $('#logout').addEventListener('click', async () => {
 });
 
 /* ------------------------------------------------------------- navigation */
-const VIEWS = ['dashboard', 'models', 'chat', 'gpu', 'perf', 'system', 'security', 'fleet', 'webui', 'users', 'logs', 'account', 'about'];
-const ADMIN_VIEWS = ['dashboard', 'gpu', 'perf', 'system', 'webui', 'users', 'logs'];
+const VIEWS = ['dashboard', 'models', 'chat', 'gpu', 'perf', 'system', 'security', 'fleet', 'webui', 'users', 'logs', 'lab', 'account', 'about'];
+const ADMIN_VIEWS = ['dashboard', 'gpu', 'perf', 'system', 'webui', 'users', 'logs', 'lab'];
 function route() {
   let [v, sub] = location.hash.slice(1).split('/');
   if (!VIEWS.includes(v)) v = isAdmin() ? 'dashboard' : 'chat';
@@ -220,6 +220,7 @@ function route() {
   if (v === 'chat') loadChatModels();
   if (v === 'gpu') loadGpu();
   if (v === 'perf') loadPerformance();
+  if (v === 'lab') loadLab();
   if (v === 'system') { loadSystem(); loadProm(); const tab = currentTab('system'); if (tab === 'hardware') loadHardware(); if (tab === 'audit') loadAudit(); if (tab === 'report') loadReport(); }
   if (v === 'webui') loadWebui();
   if (v === 'users') loadUsers();
@@ -1714,7 +1715,151 @@ $('#ctx-default-save').addEventListener('click', async () => {
 /* Les éléments marqués data-panel sont regroupés en onglets ; l'adresse #écran/onglet
    permet un lien direct, et l'onglet choisi est mémorisé. */
 const TABS = {};
-const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'system'], fleet: ['fleet', 'balance', 'rules', 'add'] };
+/* ------------------------------------------------ laboratoire : comparateur et tests de non-régression */
+const lab = { data: null, timer: null };
+async function loadLab() {
+  let d;
+  try { d = await api('/api/lab'); } catch (e) { $('#lab-cmp-result').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  lab.data = d;
+  renderLabCompare(d); renderLabSuites(d);
+  clearInterval(lab.timer); lab.timer = null;
+  if (d.cmp_state.running || d.eval_state.running) lab.timer = setInterval(() => { if (location.hash.split('/')[0] !== '#lab') { clearInterval(lab.timer); lab.timer = null; return; } loadLab(); }, 3000);
+}
+function labModelSelect(sel, models, optional, keep) {
+  const cur = keep || sel.value;
+  sel.replaceChildren(...(optional ? [el('option', { value: '', text: '(aucun)' })] : []), ...models.map((m) => el('option', { value: m, text: m })));
+  sel.value = models.includes(cur) || (optional && cur === '') ? cur : (optional ? '' : models[0] || '');
+}
+function renderLabCompare(d) {
+  const first = !$('#lab-m1').options.length, last = d.compare;
+  if (first || ![$('#lab-m1'), $('#lab-m2'), $('#lab-m3'), $('#lab-prompts')].includes(w_active())) {
+    labModelSelect($('#lab-m1'), d.models, false, first && last ? last.models[0] : null);
+    labModelSelect($('#lab-m2'), d.models, false, first ? (last ? last.models[1] : d.models[1]) : null);
+    labModelSelect($('#lab-m3'), d.models, true, first && last ? last.models[2] || '' : null);
+  }
+  if (first) $('#lab-prompts').value = (last ? last.prompts : d.default_prompts.slice(0, 2)).join('\n');
+  const c = d.cmp_state, st = $('#lab-cmp-state');
+  $('#lab-cmp-run').disabled = c.running || d.models.length < 2;
+  st.className = 'small' + (c.error ? ' error' : '');
+  st.textContent = c.running ? 'Comparaison en cours : ' + c.step + ' réponse(s) sur ' + c.total + '...' : (c.error || (d.models.length < 2 ? 'Il faut au moins 2 modèles installés.' : ''));
+  const res = $('#lab-cmp-result');
+  if (!last) { res.replaceChildren(el('p', { class: 'muted small', text: 'Aucune comparaison : choisissez les modèles et lancez-la.' })); return; }
+  const sm = last.summary, best = sm.best;
+  const star = (m, key) => (best[key] === m ? [' ', pill('le meilleur', 'ok')] : []);
+  const table = el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Modèle', 'Débit', '1er jeton', 'Mémoire vidéo', 'Taille', 'Réponse moyenne', 'Recouvrement'].map((x, i) => el('th', { class: i ? 'num' : '', text: x })))),
+    el('tbody', {}, ...sm.models.map((m) => el('tr', {}, el('td', { class: 'name' }, m.model, ...(m.model === sm.reference ? [' ', pill('référence', 'info')] : []), ...(m.errors ? [' ', pill(m.errors + ' erreur(s)', 'err')] : [])),
+      el('td', { class: 'num' }, m.tps == null ? '-' : DEC(m.tps) + ' jetons/s', ...star(m.model, 'tps')), el('td', { class: 'num' }, fmtMs(m.ttft_ms), ...star(m.model, 'ttft')),
+      el('td', { class: 'num', text: m.vram_pct == null ? '-' : m.vram_pct + ' %' }), el('td', { class: 'num', text: m.size ? fmtBytes(m.size) : '-' }),
+      el('td', { class: 'num', text: m.chars + ' car.' }), el('td', { class: 'num', text: m.similarity == null ? '-' : m.similarity + ' %' }))))));
+  const answers = last.prompts.map((p, pi) => el('div', { class: 'card' }, el('h3', { text: 'Question ' + (pi + 1) }), el('p', { class: 'small', text: p }),
+    el('div', { class: 'lab-cols' }, ...last.models.map((m) => {
+      const r = last.rows.find((x) => x.model === m && x.prompt === pi) || {};
+      return el('div', { class: 'lab-ans' }, el('strong', { text: m }), ' ', r.tps != null ? el('span', { class: 'small muted', text: DEC(r.tps) + ' jetons/s' }) : null,
+        r.error ? el('p', { class: 'error small', text: r.error }) : el('pre', { text: r.response + (r.truncated ? ' […]' : '') }));
+    }))));
+  res.replaceChildren(el('p', { class: 'small muted', text: 'Dernière comparaison : ' + fmtDate(last.t) + '. Le délai du 1er jeton écarte la 1re question (chargement du modèle) quand il y en a plusieurs.' }), table, ...answers);
+}
+$('#lab-refresh').addEventListener('click', loadLab);
+$('#lab-cmp-default').addEventListener('click', () => { if (lab.data) $('#lab-prompts').value = lab.data.default_prompts.join('\n'); });
+$('#lab-cmp-run').addEventListener('click', async () => {
+  const models = [$('#lab-m1').value, $('#lab-m2').value, $('#lab-m3').value].filter(Boolean), prompts = $('#lab-prompts').value.split('\n').map((x) => x.trim()).filter(Boolean);
+  if (new Set(models).size !== models.length) { fail('Choisissez des modèles différents.'); return; }
+  try { await api('/api/lab/compare', { json: { models, prompts, num_predict: Number($('#lab-len').value) } }); loadLab(); } catch (e) { fail(e.message); }
+});
+const LAB_STARTER = { name: 'Contrôle de base', model: '', auto: false, cases: [
+  { name: 'Culture générale', prompt: 'Quelle est la capitale de la France ? Réponds en une phrase.', expect: { contains: ['Paris'], language: 'fr', max_chars: 400 } },
+  { name: 'Format JSON', prompt: 'Réponds uniquement par un objet JSON avec les clés "ville" et "pays" pour Lyon.', expect: { json: true, contains: ['Lyon'] } },
+  { name: 'Calcul', prompt: 'Combien font 17 multiplié par 6 ? Donne seulement le nombre.', expect: { contains: ['102'] } }] };
+const caseForm = (c) => {
+  const x = c.expect || {}, f = el('div', { class: 'lab-case' }), t = {};
+  const area = (label, v, ph) => { const e = el('textarea', { rows: 2, 'aria-label': label, placeholder: ph, class: 'mono' }); e.value = v; return e; };
+  t.name = el('input', { type: 'text', value: c.name || '', placeholder: 'Nom du cas', 'aria-label': 'Nom du cas' });
+  t.prompt = area('Question', c.prompt || '', 'Question posée au modèle');
+  t.contains = area('Doit contenir', (x.contains || []).join('\n'), 'Doit contenir (un texte par ligne)');
+  t.not = area('Ne doit pas contenir', (x.not_contains || []).join('\n'), 'Ne doit pas contenir (un texte par ligne)');
+  t.regex = el('input', { type: 'text', value: x.regex || '', placeholder: 'Expression régulière (facultatif)', 'aria-label': 'Expression régulière' });
+  t.json = el('input', { type: 'checkbox', checked: x.json || null });
+  t.language = el('select', { 'aria-label': 'Langue attendue' }, el('option', { value: '', text: 'Langue libre' }), el('option', { value: 'fr', text: 'Français' }), el('option', { value: 'en', text: 'Anglais' })); t.language.value = x.language || '';
+  t.min = el('input', { type: 'number', min: 1, max: 100000, value: x.min_chars || '', placeholder: 'min.', 'aria-label': 'Longueur minimale', style: 'width:90px' });
+  t.max = el('input', { type: 'number', min: 1, max: 100000, value: x.max_chars || '', placeholder: 'max.', 'aria-label': 'Longueur maximale', style: 'width:90px' });
+  f.t = t;
+  f.append(t.name, t.prompt, el('div', { class: 'lab-cols' }, t.contains, t.not), t.regex,
+    el('div', { class: 'row' }, el('label', { class: 'inline' }, t.json, ' Doit être du JSON valide'), t.language, el('label', { class: 'inline' }, 'Longueur (caractères) ', t.min, ' à ', t.max),
+      el('button', { class: 'btn sm', type: 'button', text: 'Retirer ce cas', onclick: () => f.remove() })));
+  return f;
+};
+const caseValue = (f) => {
+  const t = f.t, lines = (e) => e.value.split('\n').map((s) => s.trim()).filter(Boolean), expect = {};
+  if (lines(t.contains).length) expect.contains = lines(t.contains);
+  if (lines(t.not).length) expect.not_contains = lines(t.not);
+  if (t.regex.value.trim()) expect.regex = t.regex.value.trim();
+  if (t.json.checked) expect.json = true;
+  if (t.language.value) expect.language = t.language.value;
+  if (t.min.value) expect.min_chars = Number(t.min.value);
+  if (t.max.value) expect.max_chars = Number(t.max.value);
+  return { name: t.name.value.trim(), prompt: t.prompt.value.trim(), expect };
+};
+async function suiteEditor(suite) {
+  const s = suite || LAB_STARTER, models = (lab.data && lab.data.models) || [];
+  const name = el('input', { type: 'text', value: s.name, maxlength: 60, 'aria-label': 'Nom du jeu' }), model = el('select', { 'aria-label': 'Modèle testé' }, el('option', { value: '', text: '(à choisir à chaque exécution)' }), ...models.map((m) => el('option', { value: m, text: m })));
+  model.value = models.includes(s.model) ? s.model : '';
+  const auto = el('input', { type: 'checkbox', checked: s.auto || null }), cases = el('div', {}, ...s.cases.map(caseForm));
+  const body = el('div', {}, el('label', { class: 'block' }, 'Nom du jeu', name), el('label', { class: 'block' }, 'Modèle testé', model),
+    el('label', { class: 'inline' }, auto, ' Rejouer automatiquement après un changement de profil ou une mise à jour (exige un modèle choisi)'), cases,
+    el('button', { class: 'btn sm', type: 'button', text: 'Ajouter un cas', onclick: () => cases.append(caseForm({})) }));
+  for (;;) {
+    const go = await modal({ title: suite ? 'Modifier le jeu de tests' : 'Nouveau jeu de tests', message: 'Chaque cas pose une question au modèle (température 0) et vérifie la réponse avec les critères choisis. Indiquez au moins un critère par cas.', body, ok: 'Enregistrer', kind: 'wide' });
+    if (!go) return;
+    try {
+      if (auto.checked && !model.value) throw new Error('Choisissez le modèle à tester pour le rejeu automatique.');
+      await api('/api/lab/suite', { json: { suite: { id: suite ? suite.id : '', name: name.value.trim(), model: model.value, auto: auto.checked, cases: [...cases.children].map(caseValue) } } });
+      loadLab(); return;
+    } catch (e) { await fail(e.message); }
+  }
+}
+function renderLabSuites(d) {
+  const e = d.eval_state, st = $('#lab-eval-state');
+  st.className = 'small' + (e.error ? ' error' : '');
+  st.textContent = e.running ? 'Tests en cours : cas ' + e.step + ' sur ' + e.total + ' (' + e.model + ')...' : (e.error || '');
+  const lastRun = (sid) => d.runs.find((r) => r.suite === sid);
+  const diffPills = (r) => (!r.diff ? [] : [r.diff.regressions.length ? pill(r.diff.regressions.length + ' cas dégradé(s)', 'err') : null, r.diff.fixed.length ? pill(r.diff.fixed.length + ' cas réparé(s)', 'ok') : null,
+    r.diff.tps_pct != null && r.diff.tps_pct !== 0 ? deltaPill(r.diff.tps_pct, true) : null].filter(Boolean));
+  $('#lab-suites').replaceChildren(...(d.suites.length ? [el('div', { class: 'grid' }, ...d.suites.map((s) => {
+    const r = lastRun(s.id);
+    return el('div', { class: 'card' }, el('h2', { text: s.name }), el('div', { class: 'small muted', text: s.cases.length + ' cas - ' + (s.model || 'modèle à choisir') }),
+      el('div', {}, s.auto ? pill('automatique', 'info') : null, ' ', r ? pill(r.summary.passed + ' / ' + r.summary.total + ' réussis', r.summary.passed === r.summary.total ? 'ok' : 'err') : pill('jamais exécuté', ''), ' ', ...(r ? diffPills(r) : [])),
+      el('div', { class: 'row' }, el('button', { class: 'btn primary sm', type: 'button', disabled: e.running ? true : null, text: 'Lancer', onclick: () => labRun(s) }), el('button', { class: 'btn sm', type: 'button', text: 'Modifier', onclick: () => suiteEditor(s) }),
+        el('button', { class: 'btn sm danger', type: 'button', text: 'Supprimer', onclick: () => labDelete(s) })));
+  }))] : [el('p', { class: 'muted small', text: 'Aucun jeu de tests : créez-en un (un exemple prêt à l\'emploi est proposé).' })]));
+  $('#lab-runs').replaceChildren(d.runs.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Date', 'Jeu', 'Modèle', 'Déclencheur', 'Résultat', 'Débit', 'Écart', ''].map((c, i) => el('th', { class: i === 4 || i === 5 ? 'num' : '', text: c })))),
+    el('tbody', {}, ...d.runs.map((r) => el('tr', {}, el('td', { class: 'small', text: fmtDate(r.t) }), el('td', { class: 'name', text: r.suite_name }), el('td', { class: 'name', text: r.model }),
+      el('td', { class: 'small', text: r.reason === 'manuel' ? 'manuel (' + r.who + ')' : r.who + ' après ' + r.reason }),
+      el('td', { class: 'num' }, pill(r.summary.passed + ' / ' + r.summary.total, r.summary.passed === r.summary.total ? 'ok' : 'err')), el('td', { class: 'num', text: r.summary.tps == null ? '-' : DEC(r.summary.tps) + ' j/s' }),
+      el('td', {}, ...diffPills(r)), el('td', {}, el('button', { class: 'btn sm', type: 'button', text: 'Détails', onclick: () => labDetails(r) }))))))) : el('p', { class: 'muted small', text: 'Aucune exécution.' }));
+}
+$('#lab-suite-new').addEventListener('click', () => suiteEditor());
+async function labRun(s) {
+  let model = s.model;
+  if (!model) {
+    const sel = el('select', { 'aria-label': 'Modèle à tester' }, ...lab.data.models.map((m) => el('option', { value: m, text: m })));
+    if (!(await modal({ title: 'Lancer « ' + s.name + ' »', message: 'Choisissez le modèle à tester.', body: sel, ok: 'Lancer' }))) return;
+    model = sel.value;
+  }
+  try { await api('/api/lab/run', { json: { id: s.id, model } }); loadLab(); } catch (e) { fail(e.message); }
+}
+async function labDelete(s) {
+  if (!(await ask('Supprimer le jeu « ' + s.name + ' » et son historique d\'exécutions ?', { ok: 'Supprimer', danger: true }))) return;
+  try { await api('/api/lab/suite/delete', { json: { id: s.id } }); loadLab(); } catch (e) { fail(e.message); }
+}
+function labDetails(r) {
+  return modal({ title: 'Détail de l\'exécution', message: r.suite_name + ' - ' + r.model + ' - ' + fmtDate(r.t), cancel: null, kind: 'wide', body: el('div', { class: 'lab-detail' }, ...r.results.map((x) => el('div', { class: 'lab-case' },
+    el('div', {}, pill(x.error ? 'erreur' : x.ok ? 'réussi' : 'échec', x.ok ? 'ok' : 'err'), ' ', el('strong', { text: x.name })),
+    ...(x.error ? [el('p', { class: 'error small', text: x.error })] : x.why.map((w) => el('div', { class: 'small error', text: w }))),
+    el('pre', { class: 'small', text: x.response || '' })))) });
+}
+const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'system'], fleet: ['fleet', 'balance', 'rules', 'add'] };
 function setupTabs() {
   for (const sec of $$('section.view')) {
     const items = [...sec.querySelectorAll('[data-panel]')];

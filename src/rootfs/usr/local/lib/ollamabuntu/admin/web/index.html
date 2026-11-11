@@ -40,6 +40,7 @@
           <a href="#security" data-admin>Sécurité</a>
           <a href="#webui" data-admin>Open WebUI</a>
           <a href="#users" data-admin>Utilisateurs</a>
+          <a href="#lab" data-admin>Laboratoire</a>
           <a href="#about">À propos</a>
         </div>
       </div>
@@ -227,6 +228,27 @@
         <form id="env-form"><div id="env-fields" class="env-grid"></div>
           <div class="row"><button class="btn primary" type="submit">Enregistrer et redémarrer Ollama</button><span id="env-msg" class="small"></span></div>
         </form>
+      </div>
+    </section>
+
+    <section id="view-lab" class="view hidden">
+      <div class="section-title"><h1>Laboratoire</h1><button id="lab-refresh" class="btn" type="button">Actualiser</button></div>
+      <div class="card wide" data-panel="compare" data-label="Comparateur">
+        <h2>Comparer des modèles</h2>
+        <p class="muted small">Envoie les mêmes questions (température 0) à 2 ou 3 modèles, l'un après l'autre, et place les réponses côte à côte avec le débit, le délai avant le premier jeton et la mémoire utilisée. Le premier modèle sert de référence : « Recouvrement » est la part de mots communs avec ses réponses, un simple repère et non une note de qualité. Évitez de lancer la comparaison pendant que des utilisateurs travaillent : les modèles sont chargés tour à tour.</p>
+        <div class="row"><label>Modèle 1 (référence) <select id="lab-m1"></select></label><label>Modèle 2 <select id="lab-m2"></select></label><label>Modèle 3 (facultatif) <select id="lab-m3"></select></label>
+          <label>Réponse jusqu'à <select id="lab-len"><option value="128">128 jetons</option><option value="200" selected>200 jetons</option><option value="320">320 jetons</option><option value="512">512 jetons</option></select></label></div>
+        <label class="block">Questions (une par ligne, 5 au plus)<textarea id="lab-prompts" rows="4" class="mono" style="width:100%" aria-label="Questions à poser aux modèles"></textarea></label>
+        <div class="row"><button id="lab-cmp-run" class="btn primary" type="button">Comparer</button><button id="lab-cmp-default" class="btn" type="button">Questions d'exemple</button><span id="lab-cmp-state" class="small" aria-live="polite"></span></div>
+        <div id="lab-cmp-result"></div>
+      </div>
+      <div class="card wide" data-panel="tests" data-label="Tests de non-régression">
+        <h2>Jeux de tests de non-régression</h2>
+        <p class="muted small">Un jeu est une liste de questions avec le résultat attendu (mots présents ou interdits, JSON valide, langue, longueur, expression régulière). On le rejoue pour vérifier qu'un changement de modèle, de profil ou une mise à jour n'a rien dégradé : les cas devenus faux et une chute de débit de 30 % ou plus sont signalés (et envoyés par les alertes si elles sont activées). Un jeu marqué « automatique » est rejoué après chaque changement de profil et chaque mise à jour de la console.</p>
+        <div class="row"><button id="lab-suite-new" class="btn primary" type="button">Nouveau jeu de tests</button><span id="lab-eval-state" class="small" aria-live="polite"></span></div>
+        <div id="lab-suites"></div>
+        <h3>Dernières exécutions</h3>
+        <div id="lab-runs"></div>
       </div>
     </section>
 

@@ -28,6 +28,8 @@ python3 tests/unit/catalog_sources_test.py  # catalogue « Recommandés » multi
 python3 tests/unit/ops3_test.py            # journal d'audit, rapport hebdomadaire par e-mail, espace disque des modèles (routes HTTP réelles)
 node tests/unit/batch2_ui_test.js          # console : thème, cloche, statistiques, filtres, palette Ctrl+K (jsdom, FR et EN)
 node tests/unit/batch3_ui_test.js          # console : Performance, disponibilité GPU, matériel, audit, rapport, espace disque, plafonds, catalogue multi-registres (jsdom, FR et EN)
+python3 tests/unit/evals_test.py                  # laboratoire : critères, comparaison, jeux de tests, rejeu automatique (Ollama simulé)
+node tests/unit/lab_ui_test.js              # console : Laboratoire (comparateur, jeux de tests de non-régression) en jsdom, FR et EN
 node tests/unit/modelmap_ui_test.js         # console : modèles de remplacement par listes déroulantes, proposition automatique (jsdom, FR et EN)
 python3 tests/unit/hf_test.py            # recherche Hugging Face (faux serveur local)
 python3 tests/unit/gpu_auto_test.py

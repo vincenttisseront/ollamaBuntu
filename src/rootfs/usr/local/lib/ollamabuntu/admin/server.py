@@ -46,6 +46,7 @@ import hw  # noqa: E402  disponibilité des GPU pour Ollama, santé du matériel
 import perf  # noqa: E402  mesure de débit, profils, préchauffage, garde-fou de débit
 import audit  # noqa: E402  journal d'audit des actions d'administration
 import report  # noqa: E402  rapport hebdomadaire
+import evals  # noqa: E402  laboratoire : comparateur de modèles, tests de non-régression
 
 VERSION = "@@OB_VERSION@@"
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
@@ -1983,6 +1984,191 @@ def write_fleet_routes():
         if gid is not None and os.geteuid() == 0:
             os.chown(FLEET_ROUTES, 0, gid)   # lisible par le routeur (utilisateur ollama), pas par les autres
 
+
+
+# ------------------------------------------------------- laboratoire : comparateur et tests ---
+LAB_FILE = os.path.join(os.environ.get("OB_STATE", "/var/lib/ollamabuntu"), "lab.json")
+_lab_lock = threading.Lock()
+_lab = {"cmp": {"running": False, "models": [], "prompts": [], "step": 0, "total": 0, "error": ""},
+        "eval": {"running": False, "suite": "", "model": "", "step": 0, "total": 0, "error": ""}}
+
+
+def lab_load():
+    d = load_json_file(LAB_FILE, {})
+    return {"suites": [x for x in d.get("suites", []) if isinstance(x, dict)], "runs": [x for x in d.get("runs", []) if isinstance(x, dict)][-60:],
+            "compare": d.get("compare") if isinstance(d.get("compare"), dict) else None, "last_version": str(d.get("last_version") or "")}
+
+
+def lab_save(d):
+    atomic_write(LAB_FILE, json.dumps({"suites": d["suites"], "runs": d["runs"][-60:], "compare": d.get("compare"), "last_version": d.get("last_version", "")}, ensure_ascii=False), 0o600)
+
+
+def lab_generate(model, prompt, num_predict, addr):
+    """Une génération déterministe (température 0, graine fixe). Retourne (réponse Ollama, ligne /api/ps du modèle)."""
+    code, gen = ollama_json("POST", "/api/generate", {"model": model, "prompt": prompt, "stream": False, "keep_alive": "10m",
+                                                      "options": {"temperature": 0, "seed": 1, "num_predict": num_predict}}, timeout=600, addr=addr)
+    if code != 200:
+        raise ValueError(str(gen.get("error") or "erreur Ollama %s" % code)[:200])
+    ps = next((m for m in ollama_json("GET", "/api/ps", timeout=5, addr=addr)[1].get("models", []) if m.get("name") == model), None)
+    return gen, ps
+
+
+def lab_compare_run(models, prompts, num_predict):
+    c, rows = _lab["cmp"], []
+    try:
+        for model in models:
+            addr = bench_addr(model)
+            for pi, p in enumerate(prompts):
+                c["step"] += 1
+                try:
+                    gen, ps = lab_generate(model, p, num_predict, addr)
+                    rows.append(evals.compare_row(model, pi, gen, ps))
+                except (OSError, ValueError) as e:
+                    rows.append({"model": model, "prompt": pi, "response": "", "error": str(e)[:200], "tokens": 0, "tps": None, "ttft_ms": None, "load_ms": 0, "total_ms": 0, "size": None, "vram_pct": None})
+        d = lab_load()
+        d["compare"] = {"t": int(time.time()), "models": models, "prompts": prompts, "num_predict": num_predict, "rows": rows, "summary": evals.compare_summary(models, rows)}
+        with _lab_lock:
+            lab_save(d)
+        c["error"] = ""
+    except Exception as e:
+        c["error"] = str(e)[:200]
+    finally:
+        c["running"] = False
+
+
+def lab_compare_start(models, prompts, num_predict):
+    models, prompts, num_predict = evals.compare_clean(models, prompts, num_predict)
+    if any(not MODEL_RE.match(m) for m in models):
+        raise ValueError("nom de modèle invalide")
+    if _lab["cmp"]["running"]:
+        raise ValueError("une comparaison est déjà en cours")
+    _lab["cmp"].update(running=True, models=models, prompts=prompts, step=0, total=len(models) * len(prompts), error="")
+    threading.Thread(target=lab_compare_run, args=(models, prompts, num_predict), daemon=True).start()
+
+
+def lab_suite_find(d, sid):
+    return next((x for x in d["suites"] if x.get("id") == sid), None)
+
+
+def lab_suite_save(data):
+    suite = evals.suite_clean(data)
+    if suite["model"] and not MODEL_RE.match(suite["model"]):
+        raise ValueError("nom de modèle invalide")
+    with _lab_lock:
+        d = lab_load()
+        if suite["id"]:
+            if not lab_suite_find(d, suite["id"]):
+                raise ValueError("jeu de tests inconnu")
+            d["suites"] = [suite if x.get("id") == suite["id"] else x for x in d["suites"]]
+        else:
+            if len(d["suites"]) >= evals.MAX_SUITES:
+                raise ValueError("%d jeux de tests au plus" % evals.MAX_SUITES)
+            suite["id"] = secrets.token_hex(4)
+            d["suites"].append(suite)
+        lab_save(d)
+    return suite["id"]
+
+
+def lab_suite_delete(sid):
+    with _lab_lock:
+        d = lab_load()
+        d["suites"] = [x for x in d["suites"] if x.get("id") != sid]
+        d["runs"] = [r for r in d["runs"] if r.get("suite") != sid]
+        lab_save(d)
+
+
+def lab_eval_run(sid, model, who, reason):
+    """Rejoue un jeu de tests : un résultat par cas, comparé à la dernière exécution du même jeu et du même modèle."""
+    e = _lab["eval"]
+    try:
+        d = lab_load()
+        suite = lab_suite_find(d, sid)
+        addr, results = bench_addr(model), []
+        for case in suite["cases"]:
+            e["step"] += 1
+            try:
+                gen, _ps = lab_generate(model, case["prompt"], 400, addr)
+                results.append(evals.case_result(case, gen))
+            except (OSError, ValueError) as err:
+                results.append({"name": case["name"], "ok": False, "why": [], "error": str(err)[:200], "response": "", "tps": None, "ttft_ms": None, "tokens": 0})
+        run = {"id": secrets.token_hex(4), "suite": sid, "suite_name": suite["name"], "model": model, "t": int(time.time()), "who": who, "reason": reason, "version": VERSION,
+               "env": perf.detect_profile(read_env()), "results": results, "summary": evals.run_summary(results)}
+        with _lab_lock:
+            d = lab_load()
+            prev = next((r for r in reversed(d["runs"]) if r.get("suite") == sid and r.get("model") == model), None)
+            run["diff"] = evals.compare_runs(prev, run)
+            d["runs"].append(run)
+            lab_save(d)
+        e["error"] = ""
+        if run["diff"] and run["diff"]["degraded"]:
+            cfg = load_alerts()
+            if cfg.get("enabled"):
+                txt = "Tests « %s » (%s) : dégradation après %s — %s" % (suite["name"], model, reason, ("%d cas échoue(nt) maintenant" % len(run["diff"]["regressions"])) if run["diff"]["regressions"] else ("débit %+.0f %%" % run["diff"]["tps_pct"]))
+                alerts_send(cfg, [{"state": "alert", "text": txt}])
+    except Exception as err:
+        e["error"] = str(err)[:200]
+    finally:
+        e["running"] = False
+
+
+def lab_eval_start(sid, model, who, reason="manuel"):
+    d = lab_load()
+    suite = lab_suite_find(d, sid)
+    if not suite:
+        raise ValueError("jeu de tests inconnu")
+    model = str(model or suite.get("model") or "")
+    if not MODEL_RE.match(model):
+        raise ValueError("choisissez un modèle")
+    if _lab["eval"]["running"]:
+        raise ValueError("un jeu de tests est déjà en cours")
+    _lab["eval"].update(running=True, suite=sid, model=model, step=0, total=len(suite["cases"]), error="")
+    threading.Thread(target=lab_eval_run, args=(sid, model, who, reason), daemon=True).start()
+
+
+def lab_autorun(reason, delay=0):
+    """Rejoue, l'un après l'autre, les jeux marqués « automatique » (après un changement de profil ou une mise à jour)."""
+    def go():
+        time.sleep(delay)   # laisse à Ollama le temps de redémarrer
+        for suite in [x for x in lab_load()["suites"] if x.get("auto") and x.get("model")]:
+            for _ in range(600):   # attend la fin d'une éventuelle exécution en cours
+                if not _lab["eval"]["running"]:
+                    break
+                time.sleep(2)
+            try:
+                lab_eval_start(suite["id"], suite["model"], "automatique", reason)
+            except ValueError:
+                continue
+            while _lab["eval"]["running"]:
+                time.sleep(2)
+    threading.Thread(target=go, daemon=True).start()
+
+
+def lab_worker():
+    """Après une mise à jour de la console (version différente de la dernière connue), rejoue les jeux automatiques."""
+    time.sleep(150)
+    try:
+        d = lab_load()
+        if d["last_version"] and d["last_version"] != VERSION:
+            lab_autorun("la mise à jour %s" % VERSION)
+        if d["last_version"] != VERSION:
+            with _lab_lock:
+                d = lab_load()
+                d["last_version"] = VERSION
+                lab_save(d)
+    except Exception as e:
+        sys.stderr.write("laboratoire : %s\n" % e)
+
+
+def lab_view():
+    d = lab_load()
+    models = []
+    try:
+        models = sorted(m.get("name") for m in ollama_json("GET", "/api/tags", timeout=4)[1].get("models", []) if m.get("name") and not m["name"].endswith("-cloud") and not re.search(r"-gpu\d+$", m["name"]))
+    except (OSError, ValueError):
+        pass
+    runs = list(reversed(d["runs"]))[:40]
+    return {"models": models, "suites": d["suites"], "runs": [dict(r, results=[dict(x, response=x.get("response", "")[:600]) for x in r.get("results", [])]) for r in runs],
+            "compare": d["compare"], "cmp_state": dict(_lab["cmp"]), "eval_state": dict(_lab["eval"]), "default_prompts": evals.COMPARE_PROMPTS}
 
 
 # ---------------------------------------------------------------- alertes ---
@@ -4421,7 +4607,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -4624,6 +4810,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, guard_status())
             if path == "/api/perf":
                 return self.send_json(200, perf_view())
+            if path == "/api/lab":
+                return self.send_json(200, lab_view())
             if path == "/api/audit":
                 return self.send_json(200, audit_view(query))
             if path == "/api/audit/export":
@@ -4798,6 +4986,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if diff:
                     update_env(perf.normalize_env({d["key"]: d["to"] for d in diff}, read_env()))
                     perf_store(event={"t": int(time.time()), "who": user, "text": "Profil « %s » appliqué" % perf.PROFILES[name]["label"], "changes": {d["key"]: d["to"] for d in diff}}, changed=True)
+                    lab_autorun("le profil « %s »" % perf.PROFILES[name]["label"], 25)
                 return self.send_json(200, {"ok": True, "changed": len(diff)})
             if path == "/api/perf/fix":
                 sys_fix(str(data.get("id", "")), data.get("value"))
@@ -4832,6 +5021,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, {"ok": True})
             if path == "/api/bench/run":
                 bench_start(data.get("model"), data.get("runs"))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/lab/compare":
+                lab_compare_start(data.get("models"), data.get("prompts"), data.get("num_predict"))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/lab/suite":
+                return self.send_json(200, {"ok": True, "id": lab_suite_save(data.get("suite"))})
+            if path == "/api/lab/suite/delete":
+                lab_suite_delete(str(data.get("id", "")))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/lab/run":
+                lab_eval_start(str(data.get("id", "")), data.get("model"), user)
                 return self.send_json(200, {"ok": True})
             if path == "/api/bench/clear":
                 atomic_write(BENCH_FILE, json.dumps({"history": []}), 0o600)
@@ -5334,6 +5534,7 @@ def main():
     threading.Thread(target=guard_worker, daemon=True).start()
     threading.Thread(target=warmup_worker, daemon=True).start()
     threading.Thread(target=report_worker, daemon=True).start()
+    threading.Thread(target=lab_worker, daemon=True).start()
     print("OllamaBuntu %s : console d'administration sur le port %d" % (VERSION, HTTPS_PORT), flush=True)
     httpd.serve_forever()
 

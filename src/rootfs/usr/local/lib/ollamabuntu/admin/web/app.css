@@ -261,3 +261,10 @@ td .spark{width:120px;height:28px;display:block}
 .map-rows{display:flex;flex-direction:column;gap:8px;margin:8px 0}
 .map-row{display:flex;flex-wrap:nowrap;align-items:center;gap:8px}
 .map-row select{flex:1 1 110px;min-width:0;max-width:100%}
+.modal.wide .modal-box{width:min(780px,100%)}
+.lab-case{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
+.lab-case textarea,.lab-case input[type=text]{width:100%}
+.lab-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.lab-ans{border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
+.lab-ans pre{white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto;margin:6px 0 0;font-size:13px}
+label.block{display:block;margin:8px 0}
