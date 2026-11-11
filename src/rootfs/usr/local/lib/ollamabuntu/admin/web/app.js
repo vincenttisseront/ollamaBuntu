@@ -166,9 +166,33 @@ const state = { timer: null, status: null, user: '', role: '', version: '' };
 const isAdmin = () => state.role === 'admin';
 const bell = { items: [], timer: null, fleetAt: 0 };
 
+const SSO_MSG = {
+  state: 'La connexion unique a expiré ou n\'a pas été lancée depuis ce navigateur. Recommencez.',
+  idp: 'Le fournisseur de connexion a refusé ou n\'a pas répondu correctement. Recommencez ou contactez un administrateur.',
+  denied: 'Votre compte est reconnu mais n\'appartient à aucun groupe autorisé à utiliser cette console.',
+  config: 'La connexion unique n\'est pas configurée correctement. Contactez un administrateur.',
+  user: 'Ce compte ne peut pas être utilisé : un compte local porte déjà ce nom.' };
+async function loadSsoButtons() {
+  const box = $('#login-sso');
+  let p = {};
+  try { p = await (await fetch('/api/sso/providers', { cache: 'no-store' })).json(); } catch (e) { /* vide */ }
+  box.classList.toggle('hidden', !p.oidc);
+  if (p.oidc) $('#login-oidc').textContent = 'Se connecter avec ' + p.oidc;
+  $('#login-form').classList.toggle('with-sso', !!p.oidc);
+}
+function ssoReturn() {
+  let code = '';
+  try { code = new URLSearchParams(location.search).get('sso') || ''; } catch (e) { /* vide */ }
+  if (!code) return;
+  try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) { /* vide */ }
+  if (SSO_MSG[code]) { $('#login-error').textContent = SSO_MSG[code]; }
+}
+$('#login-oidc').addEventListener('click', () => { location.href = '/sso/oidc/start'; });
 function showLogin() {
   $('#app').classList.add('hidden');
   $('#login').classList.remove('hidden');
+  loadSsoButtons();
+  ssoReturn();
   clearInterval(state.timer); clearInterval(bell.timer); bell.timer = null;
   ping().then((p) => { if (p) $('#login-version').textContent = 'OllamaBuntu ' + p.version; });
   setTimeout(() => $('#login-form [name=user]').focus(), 50);
@@ -223,7 +247,7 @@ function route() {
   if (v === 'lab') loadLab();
   if (v === 'system') { loadSystem(); loadProm(); const tab = currentTab('system'); if (tab === 'hardware') loadHardware(); if (tab === 'audit') loadAudit(); if (tab === 'report') loadReport(); }
   if (v === 'webui') loadWebui();
-  if (v === 'users') loadUsers();
+  if (v === 'users') { loadUsers(); loadSso(); }
   if (v === 'logs') { loadRequests(); loadReqSettings(); loadLogs(); if (currentTab('logs') === 'stats') loadStats(); if (isAdmin()) loadCosts(); state.timer = setInterval(() => { if ($('#req-live').checked && currentTab('logs') === 'requests') loadRequests(); }, 4000); }
   if (v === 'account') loadAccount();
   if (v === 'about') loadCredits();
@@ -1505,8 +1529,9 @@ async function loadUsers() {
   try { d = await api('/api/users'); } catch (e) { box.replaceChildren(el('p', { class: 'error', text: e.message })); return; }
   const tbody = el('tbody');
   for (const u of d.users) {
-    const me = u.user === state.user;
+    const me = u.user === state.user, sso = u.sso === 'ldap' ? 'Annuaire' : u.sso ? 'SSO' : '';
     const role = me ? el('span', { text: (u.role === 'admin' ? 'Administrateur' : 'Utilisateur') + ' (vous)' })
+      : sso ? el('span', { text: (u.role === 'admin' ? 'Administrateur' : 'Utilisateur') + ' (selon ses groupes)' })
       : el('select', { onchange: (e) => updateUser(u.user, { role: e.target.value }) },
         el('option', { value: 'admin', text: 'Administrateur', selected: u.role === 'admin' }),
         el('option', { value: 'utilisateur', text: 'Utilisateur', selected: u.role === 'utilisateur' }));
@@ -1514,12 +1539,12 @@ async function loadUsers() {
     const pwInput = el('input', { type: 'password', placeholder: 'nouveau mot de passe', minlength: '8', autocomplete: 'new-password' });
     pwBox.append(pwInput, el('button', { class: 'btn sm primary', type: 'button', text: 'OK', onclick: () => updateUser(u.user, { password: pwInput.value }) }));
     tbody.append(el('tr', {},
-      el('td', {}, el('strong', { text: u.user })),
+      el('td', {}, el('strong', { text: u.display || u.user }), u.display ? el('div', { class: 'muted small', text: u.user }) : null, sso ? el('span', { class: 'sso-tag', text: sso }) : null),
       el('td', {}, role),
       el('td', { text: u.linux ? 'oui (console + SSH)' : 'non' }),
       el('td', { text: fmtDate(u.created) }),
       el('td', {}, el('div', { class: 'row' },
-        el('button', { class: 'btn sm', type: 'button', text: 'Mot de passe', onclick: () => { pwBox.classList.toggle('hidden'); pwInput.focus(); } }), pwBox,
+        sso ? null : el('button', { class: 'btn sm', type: 'button', text: 'Mot de passe', onclick: () => { pwBox.classList.toggle('hidden'); pwInput.focus(); } }), sso ? null : pwBox,
         me ? null : el('button', { class: 'btn sm danger', type: 'button', text: 'Supprimer', onclick: () => deleteUser(u) })))));
   }
   box.replaceChildren(el('div', { class: 'table-wrap' }, el('table', {},
@@ -1545,6 +1570,66 @@ $('#user-form').addEventListener('submit', async (ev) => {
     out.textContent = 'Compte « ' + f.elements.user.value.trim() + ' » créé.'; out.classList.add('okmsg'); f.reset(); loadUsers();
   } catch (e) { out.textContent = e.message; out.classList.add('error'); }
 });
+
+/* ------------------------------------------------ connexion unique (SSO) */
+const SSO_TEXT = ['name', 'issuer', 'client_id', 'scopes', 'groups_claim', 'redirect_base', 'ca_pem'];
+const SSO_LDAP_TEXT = ['host', 'port', 'tls', 'bind_dn', 'base_dn', 'user_filter', 'group_attr', 'group_base', 'group_filter', 'ca_pem'];
+function ssoRoleRow(group, role) {
+  const row = el('div', { class: 'row sso-role' },
+    el('input', { class: 'sso-group', value: group || '', placeholder: 'nom du groupe ou DN complet', maxlength: '500', 'aria-label': 'Groupe' }),
+    el('select', { class: 'sso-rolesel', 'aria-label': 'Rôle' },
+      el('option', { value: 'utilisateur', text: 'Utilisateur', selected: role !== 'admin' }),
+      el('option', { value: 'admin', text: 'Administrateur', selected: role === 'admin' })),
+    el('button', { class: 'btn sm danger', type: 'button', text: 'Retirer', onclick: () => row.remove() }));
+  return row;
+}
+async function loadSso() {
+  let d;
+  try { d = await api('/api/sso/config'); } catch (e) { $('#sso-msg').className = 'small error'; $('#sso-msg').textContent = e.message; return; }
+  const f = $('#sso-form'), o = d.oidc, l = d.ldap;
+  f.elements.oidc_enabled.checked = !!o.enabled; f.elements.ldap_enabled.checked = !!l.enabled;
+  for (const k of SSO_TEXT) if (w_active() !== f.elements['oidc_' + k]) f.elements['oidc_' + k].value = o[k] == null ? '' : o[k];
+  for (const k of SSO_LDAP_TEXT) if (w_active() !== f.elements['ldap_' + k]) f.elements['ldap_' + k].value = l[k] == null ? '' : l[k];
+  f.elements.oidc_client_secret.value = ''; f.elements.ldap_bind_password.value = '';
+  f.elements.oidc_client_secret.placeholder = o.client_secret_set ? 'déjà enregistré (laisser vide pour le conserver)' : '';
+  f.elements.ldap_bind_password.placeholder = l.bind_password_set ? 'déjà enregistré (laisser vide pour le conserver)' : '';
+  f.elements.default_role.value = d.default_role || '';
+  $('#sso-redirect').textContent = o.redirect_uri || 'renseignez l\'adresse publique de la console';
+  $('#sso-roles').replaceChildren(...(d.roles || []).map((r) => ssoRoleRow(r.group, r.role)));
+}
+function ssoPayload() {
+  const f = $('#sso-form'), v = (n) => f.elements[n].value;
+  const oidc = { enabled: f.elements.oidc_enabled.checked }, ldap = { enabled: f.elements.ldap_enabled.checked };
+  for (const k of SSO_TEXT) oidc[k] = v('oidc_' + k);
+  for (const k of SSO_LDAP_TEXT) ldap[k] = v('ldap_' + k);
+  if (v('oidc_client_secret')) oidc.client_secret = v('oidc_client_secret');
+  if (v('ldap_bind_password')) ldap.bind_password = v('ldap_bind_password');
+  const roles = [...$$('#sso-roles .sso-role')].map((r) => ({ group: r.querySelector('.sso-group').value.trim(), role: r.querySelector('.sso-rolesel').value })).filter((r) => r.group);
+  return { oidc, ldap, roles, default_role: v('default_role') };
+}
+$('#sso-role-add').addEventListener('click', () => { const r = ssoRoleRow('', 'utilisateur'); $('#sso-roles').append(r); r.querySelector('input').focus(); });
+$('#sso-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const out = $('#sso-msg');
+  try { await api('/api/sso/config', { json: ssoPayload() }); out.className = 'small okmsg'; out.textContent = 'Enregistré.'; loadSso(); }
+  catch (e) { out.className = 'small error'; out.textContent = e.message; }
+});
+async function ssoTest(kind) {
+  const out = $('#sso-test-out'), f = $('#sso-test-form');
+  out.className = 'small'; out.textContent = 'Essai en cours...';
+  const body = { kind };
+  if (kind === 'ldap' && f.elements.user.value) { body.user = f.elements.user.value.trim(); body.password = f.elements.password.value; }
+  try {
+    const d = await api('/api/sso/test', { json: body });
+    f.elements.password.value = '';
+    const lines = kind === 'oidc'
+      ? ['Fournisseur joignable : ' + d.issuer + ', ' + d.keys + ' clé(s) de signature.']
+      : ['Annuaire joignable, connecté en tant que « ' + d.bound + ' ».'].concat(d.dn ? ['Compte trouvé : ' + d.dn + '.', 'Groupes : ' + ((d.groups || []).length ? d.groups.join(' ; ') : 'aucun') + '.', 'Rôle obtenu : ' + (d.role === 'admin' ? 'administrateur' : d.role === 'utilisateur' ? 'utilisateur' : 'connexion refusée (aucun groupe autorisé)') + '.'] : []);
+    out.className = 'small okmsg'; out.replaceChildren(...lines.map((t) => el('div', { text: t })));
+  } catch (e) { f.elements.password.value = ''; out.className = 'small error'; out.textContent = e.message; }
+}
+$('#sso-test-oidc').addEventListener('click', () => ssoTest('oidc'));
+$('#sso-test-ldap').addEventListener('click', () => ssoTest('ldap'));
 
 /* ---------------------------------------------------------------- à propos */
 async function loadCredits() {

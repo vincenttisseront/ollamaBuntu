@@ -49,6 +49,7 @@ import report  # noqa: E402  rapport hebdomadaire
 import modelupdate  # noqa: E402  mise à jour des modèles avec retour arrière
 import evals  # noqa: E402  laboratoire : comparateur de modèles, tests de non-régression
 import costs  # noqa: E402  imputation des coûts par clé et par équipe
+import sso  # noqa: E402  connexion unique : OpenID Connect, LDAP / Active Directory
 
 VERSION = "@@OB_VERSION@@"
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
@@ -390,7 +391,7 @@ def linux_delete(user):
 
 
 def public_users():
-    return [{"user": u, "role": r.get("role", "utilisateur"), "linux": bool(r.get("linux")),
+    return [{"user": u, "role": r.get("role", "utilisateur"), "linux": bool(r.get("linux")), "sso": r.get("sso") or "", "display": r.get("display") or "",
              "created": r.get("created"), "updated": r.get("updated")}
             for u, r in sorted(load_users().items())]
 
@@ -404,6 +405,207 @@ def set_admin_cli(user, password):
         rec.update({"role": "admin", "linux": True, "updated": int(time.time()), "rev": secrets.token_hex(8)})
         users[user] = rec
         save_users(users)
+
+
+# ------------------------------------------------ connexion unique (SSO) : OpenID Connect, LDAP / Active Directory ---
+SSO_FILE = os.path.join(ETC, "sso.json")   # contient le secret client et le mot de passe du compte de service : 0600
+_sso_pending = {}    # state -> {nonce, verifier, exp} : connexions OIDC commencées (10 minutes, usage unique)
+_sso_cache = {}      # découverte et clés publiques du fournisseur
+_sso_lock = threading.Lock()
+SSO_ERRORS = ("state", "idp", "denied", "config", "user")   # codes affichés sur la page de connexion (jamais de texte venu du fournisseur)
+
+
+def sso_config():
+    try:
+        return sso.config_clean(load_json_file(SSO_FILE, {}))
+    except ValueError:
+        return json.loads(json.dumps(sso.DEFAULTS))
+
+
+def sso_save(data):
+    cfg = sso.config_clean(data, sso_config())
+    atomic_write(SSO_FILE, json.dumps(cfg, ensure_ascii=False), 0o600)
+    with _sso_lock:
+        _sso_cache.clear()
+    return cfg
+
+
+def sso_view():
+    cfg = sso_config()
+    v = sso.public_view(cfg)
+    v["oidc"]["redirect_uri"] = (cfg["oidc"]["redirect_base"] + "/sso/oidc/callback") if cfg["oidc"]["redirect_base"] else ""
+    v["users"] = sum(1 for r in load_users().values() if r.get("sso"))
+    return v
+
+
+def sso_providers():
+    """Ce que la page de connexion doit proposer (public : aucun secret, aucun détail de configuration)."""
+    cfg = sso_config()
+    return {"oidc": cfg["oidc"]["name"] if cfg["oidc"]["enabled"] else None, "ldap": bool(cfg["ldap"]["enabled"])}
+
+
+def sso_upsert(kind, raw, role, sub=None, display=None):
+    """Crée ou met à jour le compte local d'un utilisateur SSO (nom préfixé, aucun mot de passe). Le rôle suit les groupes à chaque connexion."""
+    name = sso.account_name(kind, raw)
+    if not name:
+        raise ValueError("identifiant SSO inutilisable")
+    with _users_lock:
+        users = load_users()
+        rec = users.get(name)
+        now = int(time.time())
+        if rec:
+            if rec.get("sso") != kind or (sub and rec.get("sub") and rec["sub"] != sub):
+                raise ValueError("ce nom est déjà associé à une autre identité")   # un fournisseur qui réattribue un identifiant ne reprend pas le compte
+            if rec.get("role") != role or rec.get("display") != display:
+                rec.update(role=role, display=display, updated=now)
+                save_users(users)
+        else:
+            rec = {"role": role, "linux": False, "sso": kind, "created": now, "updated": now, "rev": secrets.token_hex(8), "display": display}
+            if sub:
+                rec["sub"] = sub
+            users[name] = rec
+            save_users(users)
+    return name, rec
+
+
+def sso_ldap_login(username, password):
+    """Connexion par l'annuaire. Retourne (compte, rôle, enregistrement). AuthFailed : refus ; ValueError : annuaire mal réglé ou injoignable ; PermissionError : aucun groupe autorisé."""
+    cfg = sso_config()
+    if not cfg["ldap"]["enabled"]:
+        raise sso.AuthFailed("annuaire désactivé")
+    info = sso.ldap_login(cfg["ldap"], username, password)
+    role = sso.role_for(info["groups"], cfg["roles"], cfg["default_role"])
+    if not role:
+        raise PermissionError(info["login"])
+    name, rec = sso_upsert("ldap", info["login"], role, sub=info["dn"].lower(), display=info["name"])
+    return name, role, rec
+
+
+def sso_disco(oc):
+    with _sso_lock:
+        hit = _sso_cache.get("disco")
+        if hit and time.time() - hit[0] < 600:
+            return hit[1]
+    doc = sso.discovery(oc)
+    with _sso_lock:
+        _sso_cache["disco"] = (time.time(), doc)
+    return doc
+
+
+def sso_jwks(oc, disco, refresh=False):
+    with _sso_lock:
+        hit = _sso_cache.get("jwks")
+        if hit and not refresh and time.time() - hit[0] < 3600:
+            return hit[1]
+        if hit and refresh and time.time() - hit[0] < 60:   # pas plus d'un rechargement par minute
+            return hit[1]
+    doc = sso.fetch_json(disco["jwks_uri"], ca_pem=oc.get("ca_pem", ""))
+    with _sso_lock:
+        _sso_cache["jwks"] = (time.time(), doc)
+    return doc
+
+
+def sso_oidc_begin():
+    """Début d'une connexion OIDC : (adresse d'autorisation, state)."""
+    cfg = sso_config()
+    oc = cfg["oidc"]
+    if not oc["enabled"]:
+        raise ValueError("config")
+    disco = sso_disco(oc)
+    state, nonce = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
+    verifier, challenge = sso.pkce_pair()
+    now = time.time()
+    with _sso_lock:
+        for k in [k for k, v in _sso_pending.items() if v["exp"] < now]:
+            del _sso_pending[k]
+        if len(_sso_pending) >= 500:
+            raise ValueError("trop de connexions en cours")
+        _sso_pending[state] = {"nonce": nonce, "verifier": verifier, "exp": now + 600}
+    return sso.auth_url(disco["authorization_endpoint"], oc["client_id"], oc["redirect_base"] + "/sso/oidc/callback", oc["scopes"], state, nonce, challenge), state
+
+
+def sso_oidc_finish(code, state):
+    """Fin d'une connexion OIDC. Retourne (compte, rôle, enregistrement). ValueError(code) avec un code de SSO_ERRORS."""
+    with _sso_lock:
+        pend = _sso_pending.pop(state, None)
+    if not pend or pend["exp"] < time.time():
+        raise ValueError("state")
+    cfg = sso_config()
+    oc = cfg["oidc"]
+    if not oc["enabled"]:
+        raise ValueError("config")
+    try:
+        disco = sso_disco(oc)
+        tok = sso.token_request(oc, disco, code, oc["redirect_base"] + "/sso/oidc/callback", pend["verifier"])
+        idt = tok.get("id_token")
+        if not idt:
+            raise ValueError("pas de jeton d'identité")
+        try:
+            claims = sso.verify_id_token(idt, sso_jwks(oc, disco), oc["issuer"], oc["client_id"], pend["nonce"])
+        except ValueError as e:
+            if "clé de signature inconnue" not in str(e):
+                raise
+            claims = sso.verify_id_token(idt, sso_jwks(oc, disco, refresh=True), oc["issuer"], oc["client_id"], pend["nonce"])
+        groups = sso.claim_values(claims, oc["groups_claim"])
+        if not groups and disco.get("userinfo_endpoint") and tok.get("access_token"):
+            ui = sso.fetch_json(disco["userinfo_endpoint"], headers={"Authorization": "Bearer " + str(tok["access_token"])}, ca_pem=oc.get("ca_pem", ""))
+            if ui.get("sub") == claims["sub"]:
+                groups = sso.claim_values(ui, oc["groups_claim"])
+                for k in ("preferred_username", "email", "name"):
+                    claims.setdefault(k, ui.get(k))
+    except ValueError as e:
+        sys.stderr.write("SSO OIDC : %s\n" % e)
+        raise ValueError("idp")
+    role = sso.role_for(groups, cfg["roles"], cfg["default_role"])
+    if not role:
+        raise ValueError("denied")
+    raw = claims.get("preferred_username") or claims.get("email") or claims["sub"]
+    try:
+        name, rec = sso_upsert("sso", raw, role, sub=claims["sub"], display=str(claims.get("name") or raw)[:80])
+    except ValueError:
+        raise ValueError("user")
+    return name, role, rec
+
+
+def sso_test(data):
+    """Essai de la configuration enregistrée. OIDC : découverte + clés. LDAP : connexion et compte de service, puis, si un identifiant est fourni, une vraie connexion (sans créer de compte)."""
+    cfg = sso_config()
+    kind = data.get("kind")
+    if kind == "oidc":
+        oc = cfg["oidc"]
+        if not oc["issuer"]:
+            raise ValueError("renseignez et enregistrez d'abord l'émetteur")
+        with _sso_lock:
+            _sso_cache.clear()
+        disco = sso.discovery(oc)
+        keys = sso.fetch_json(disco["jwks_uri"], ca_pem=oc.get("ca_pem", "")).get("keys") or []
+        rsa = [k for k in keys if isinstance(k, dict) and k.get("kty") == "RSA"]
+        if not rsa:
+            raise ValueError("le fournisseur ne publie aucune clé RSA (seul RS256/384/512 est pris en charge)")
+        algs = disco.get("id_token_signing_alg_values_supported")
+        if algs and not any(a in algs for a in ("RS256", "RS384", "RS512")):
+            raise ValueError("le fournisseur ne signe pas en RS256 (algorithmes annoncés : %s)" % ", ".join(str(a) for a in algs[:6]))
+        return {"ok": True, "issuer": disco["issuer"], "keys": len(rsa), "groups_claim_advertised": "groups" in (disco.get("claims_supported") or [])}
+    if kind == "ldap":
+        lc = cfg["ldap"]
+        if not lc["host"] or not lc["base_dn"]:
+            raise ValueError("renseignez et enregistrez d'abord le serveur et la base de recherche")
+        user, pw = str(data.get("user") or ""), str(data.get("password") or "")
+        if not user:
+            c = sso.ldap_connect(lc)
+            try:
+                code, diag = c.bind(lc["bind_dn"], lc["bind_password"]) if lc["bind_dn"] else c.bind("", "")
+                if code != 0:
+                    raise ValueError("le compte de service est refusé (code %d) : %s" % (code, diag[:100]))
+            finally:
+                c.close()
+            return {"ok": True, "bound": lc["bind_dn"] or "(anonyme)"}
+        try:
+            info = sso.ldap_login(lc, user, pw)
+        except sso.AuthFailed:
+            raise ValueError("identifiant introuvable (ou ambigu), ou mot de passe incorrect")
+        return {"ok": True, "dn": info["dn"], "name": info["name"], "groups": info["groups"][:30], "role": sso.role_for(info["groups"], cfg["roles"], cfg["default_role"])}
+    raise ValueError("type d'essai inconnu")
 
 
 # ------------------------------------------------------------- certificat ---
@@ -5058,7 +5260,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/costs", "/api/costs/export", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/costs", "/api/costs/export", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -5115,14 +5317,59 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise ValueError("objet JSON attendu")
         return data
 
-    def token(self):
+    def cookie(self, name):
         jar = http.cookies.SimpleCookie()
         try:
             jar.load(self.headers.get("Cookie", ""))
         except http.cookies.CookieError:
             return None
-        m = jar.get("ob_session")
+        m = jar.get(name)
         return m.value if m else None
+
+    def token(self):
+        return self.cookie("ob_session")
+
+    def redirect(self, location, cookies=()):
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for c in cookies:
+            self.send_header("Set-Cookie", c)
+        self.end_headers()
+
+    def sso_start(self):
+        if too_many_failures(self.client_address[0]):
+            return self.redirect("/?sso=idp")
+        try:
+            url, state = sso_oidc_begin()
+        except ValueError as e:
+            sys.stderr.write("SSO OIDC : début de connexion impossible : %s\n" % e)
+            return self.redirect("/?sso=" + ("config" if str(e) == "config" else "idp"))
+        return self.redirect(url, ["ob_sso=%s; Path=/sso; HttpOnly; Secure; SameSite=Lax; Max-Age=600" % state])
+
+    def sso_callback(self, query):
+        ip, one = self.client_address[0], (lambda k: (query.get(k) or [""])[0])
+        clear = "ob_sso=; Path=/sso; HttpOnly; Secure; SameSite=Lax; Max-Age=0"
+        state, code, mine = one("state"), one("code"), self.cookie("ob_sso") or ""
+        if not state or not code or not mine or not hmac.compare_digest(mine, state) or one("error"):
+            with _sso_lock:
+                _sso_pending.pop(state, None)
+            record_failure(ip)
+            audit_record("?", "", ip, "/sso/oidc/callback", {"erreur": "state" if not one("error") else "fournisseur"}, 403)
+            return self.redirect("/?sso=" + ("idp" if one("error") else "state"), [clear])
+        try:
+            name, role, rec = sso_oidc_finish(code, state)
+        except ValueError as e:
+            err = str(e) if str(e) in SSO_ERRORS else "idp"
+            record_failure(ip)
+            audit_record("?", "", ip, "/sso/oidc/callback", {"erreur": err}, 403)
+            return self.redirect("/?sso=" + err, [clear])
+        audit_record(name, role, ip, "/sso/oidc/callback", {}, 200)
+        token = new_session(name, role, rec.get("rev"))
+        return self.redirect("/", ["ob_session=%s; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=%d" % (token, SESSION_TTL), clear])
 
     def forbidden(self):
         return self.send_json(403, {"error": "Réservé aux administrateurs."})
@@ -5140,6 +5387,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             lang = read_text(os.path.join(ETC, "lang"), "fr").strip()
             return self.send_json(200, {"ok": True, "version": VERSION, "lang": lang if lang in ("fr", "en") else "fr",
                                         "boot": hashlib.sha256(boot_id().encode()).hexdigest()[:12]})
+        if path == "/api/sso/providers":   # public : boutons de la page de connexion
+            return self.send_json(200, sso_providers())
+        if path == "/sso/oidc/start":
+            return self.sso_start()
+        if path == "/sso/oidc/callback":
+            return self.sso_callback(query)
         if path == "/metrics":   # jeton dédié (lecture seule des mesures), pas de session
             try:
                 prom_auth(self.headers, self.client_address[0])
@@ -5220,6 +5473,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, limits_view())
             if path == "/api/queue":
                 return self.send_json(200, queue_view())
+            if path == "/api/sso/config":
+                return self.send_json(200, sso_view())
             if path == "/api/costs":
                 return self.send_json(200, costs_view((query.get("month") or [""])[0]))
             if path == "/api/costs/export":
@@ -5557,6 +5812,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, {"ok": True})
             if path == "/api/fleet/balance/test":
                 return self.send_json(200, balance_test(data.get("model")))
+            if path == "/api/sso/config":
+                sso_save(data)
+                return self.send_json(200, {"ok": True, "config": sso_view()})
+            if path == "/api/sso/test":
+                return self.send_json(200, sso_test(data))
             if path == "/api/costs/config":
                 return self.send_json(200, {"ok": True, "config": costs_save(data)})
             if path == "/api/queue/config":
@@ -5648,14 +5908,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send_json(503, {"error": "Aucun compte n'est configuré."})
         name, password = str(data.get("user", "")), str(data.get("password", ""))
         rec = users.get(name)
-        ok = verify_password(password, rec or {"salt": "AAAA", "hash": "AAAA", "iterations": PBKDF2_ITERATIONS})
-        if not (rec and ok):
+        local = bool(rec and "hash" in rec)   # un compte SSO n'a pas de mot de passe local
+        ok = verify_password(password, rec if local else {"salt": "AAAA", "hash": "AAAA", "iterations": PBKDF2_ITERATIONS}) and local
+        via = None
+        if not ok and name and not name.startswith(("ldap:", "sso:")) and sso_providers()["ldap"]:
+            try:   # compte local absent ou mot de passe différent : on essaie l'annuaire
+                name, role, rec = sso_ldap_login(name, password)
+                ok, via = True, "ldap"
+            except PermissionError as e:
+                record_failure(ip)
+                audit_record("ldap:" + str(e.args[0])[:40], "", ip, "/api/login", {"via": "ldap", "erreur": "aucun groupe autorisé"}, 403)
+                time.sleep(1)
+                return self.send_json(403, {"error": "Connexion refusée : votre compte n'appartient à aucun groupe autorisé."})
+            except sso.AuthFailed:
+                pass
+            except ValueError as e:
+                sys.stderr.write("SSO LDAP : %s\n" % e)
+                audit_record(name, "", ip, "/api/login", {"via": "ldap", "erreur": "annuaire indisponible"}, 503)
+        if not ok:
             record_failure(ip)
             audit_record(name or "?", "", ip, "/api/login", {}, 403)
             time.sleep(1)
             return self.send_json(403, {"error": "Identifiant ou mot de passe incorrect."})
         role = rec.get("role", "utilisateur")
-        audit_record(name, role, ip, "/api/login", {}, 200)
+        audit_record(name, role, ip, "/api/login", {"via": via} if via else {}, 200)
         token = new_session(name, role, rec.get("rev"))
         cookie = "ob_session=%s; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=%d" % (token, SESSION_TTL)
         return self.send_json(200, {"user": name, "role": role, "version": VERSION}, {"Set-Cookie": cookie})
@@ -5884,10 +6160,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not rec:
                 raise ValueError("Compte inconnu.")
             role = data.get("role")
+            if rec.get("sso") and ((role is not None and role != rec.get("role")) or data.get("password")):
+                raise ValueError("Compte géré par l'annuaire : le rôle suit les groupes et le mot de passe est celui de l'annuaire.")
             if role is not None and role != rec.get("role"):
                 if role not in ROLES:
                     raise ValueError("Rôle invalide.")
-                if rec.get("role") == "admin" and sum(1 for r in users.values() if r.get("role") == "admin") <= 1:
+                if rec.get("role") == "admin" and sum(1 for r in users.values() if r.get("role") == "admin" and not r.get("sso")) <= 1:
                     raise ValueError("Impossible : il doit rester au moins un administrateur.")
                 if name == me:
                     raise ValueError("Vous ne pouvez pas modifier votre propre rôle.")
@@ -5918,8 +6196,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError("Compte inconnu.")
             if name == me:
                 raise ValueError("Vous ne pouvez pas supprimer votre propre compte.")
-            if rec.get("role") == "admin" and sum(1 for r in users.values() if r.get("role") == "admin") <= 1:
-                raise ValueError("Impossible : il doit rester au moins un administrateur.")
+            if rec.get("role") == "admin" and not rec.get("sso") and sum(1 for r in users.values() if r.get("role") == "admin" and not r.get("sso")) <= 1:
+                raise ValueError("Impossible : il doit rester au moins un administrateur local.")
             if rec.get("linux"):
                 linux_delete(name)
             del users[name]

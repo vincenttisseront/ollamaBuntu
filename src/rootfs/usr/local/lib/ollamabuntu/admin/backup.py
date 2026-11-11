@@ -16,7 +16,7 @@ import time
 MAGIC = b"OBBK1"
 ITER = 600000
 FILES = ["users.json", "publication.json", "ai-policy.json", "custom-models.json", "preload.json", "fleet.json", "alerts.json", "routing-rules.json",
-         "model-context.json", "balance.json", "request-log.json", "firewall.json", "update.json", "ollama.env"]
+         "model-context.json", "balance.json", "request-log.json", "firewall.json", "update.json", "ollama.env", "sso.json", "queue.json", "costs.json"]
 LIMIT_FILE, LIMIT_TOTAL, LIMIT_BLOB = 1024 * 1024, 5 * 1024 * 1024, 1536 * 1024
 
 

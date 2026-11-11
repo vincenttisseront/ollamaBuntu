@@ -18,6 +18,7 @@
     <label>Mot de passe<input name="password" type="password" autocomplete="current-password" required></label>
     <button type="submit" class="btn primary wide">Se connecter</button>
     <p id="login-error" class="error"></p>
+    <div id="login-sso" class="login-sso hidden"><p class="muted small login-or">ou</p><button id="login-oidc" type="button" class="btn wide"></button></div>
     <p id="login-version" class="muted small"></p>
   </form>
 </div>
@@ -516,6 +517,63 @@
         </form>
       </div>
       <div class="card" data-panel="list" data-label="Comptes"><h2>Comptes</h2><div id="users-table"></div></div>
+      <div class="card" data-panel="sso" data-label="Connexion unique (SSO)">
+        <h2>Connexion unique (SSO)</h2>
+        <p class="muted small">Laissez vos collaborateurs se connecter avec leur compte d'entreprise : OpenID Connect (Microsoft Entra ID, Keycloak, Google Workspace, Okta...) et/ou annuaire LDAP / Active Directory. Le rôle vient des groupes du fournisseur ; le compte « admin » local reste utilisable en secours. Les comptes créés ainsi n'ont pas de mot de passe local.</p>
+        <form id="sso-form" class="sso-form" autocomplete="off">
+          <fieldset>
+            <legend>OpenID Connect</legend>
+            <label class="check"><input type="checkbox" name="oidc_enabled"> Activer le bouton de connexion unique</label>
+            <div class="user-form">
+              <label>Nom du bouton<input name="oidc_name" maxlength="30" placeholder="ex. Entreprise"></label>
+              <label>Émetteur (issuer)<input name="oidc_issuer" placeholder="https://login.exemple.fr/realms/corp"></label>
+              <label>Identifiant client<input name="oidc_client_id"></label>
+              <label>Secret client<input name="oidc_client_secret" type="password" autocomplete="new-password"></label>
+              <label>Scopes<input name="oidc_scopes"></label>
+              <label>Revendication des groupes<input name="oidc_groups_claim"></label>
+              <label>Adresse publique de la console<input name="oidc_redirect_base" placeholder="https://ollama.exemple.fr"></label>
+            </div>
+            <p class="muted small">Adresse de retour à déclarer chez le fournisseur : <code id="sso-redirect">-</code></p>
+            <label>Certificat de l'autorité (PEM, facultatif, si le fournisseur utilise une autorité interne)<textarea name="oidc_ca_pem" rows="3" spellcheck="false"></textarea></label>
+          </fieldset>
+          <fieldset>
+            <legend>Annuaire LDAP / Active Directory</legend>
+            <label class="check"><input type="checkbox" name="ldap_enabled"> Accepter les identifiants de l'annuaire dans le formulaire de connexion</label>
+            <div class="user-form">
+              <label>Serveur<input name="ldap_host" placeholder="ad.exemple.fr"></label>
+              <label>Port<input name="ldap_port" type="number" min="1" max="65535"></label>
+              <label>Chiffrement<select name="ldap_tls"><option value="ldaps">LDAPS (recommandé)</option><option value="starttls">StartTLS</option><option value="none">Aucun (déconseillé)</option></select></label>
+              <label>Compte de service (DN)<input name="ldap_bind_dn" placeholder="CN=svc-ollama,DC=example,DC=com"></label>
+              <label>Mot de passe du compte de service<input name="ldap_bind_password" type="password" autocomplete="new-password"></label>
+              <label>Base de recherche (DN)<input name="ldap_base_dn" placeholder="DC=example,DC=com"></label>
+              <label>Filtre de l'utilisateur<input name="ldap_user_filter" placeholder="(sAMAccountName={user})"></label>
+              <label>Attribut des groupes<input name="ldap_group_attr" placeholder="memberOf"></label>
+              <label>Base des groupes (facultatif)<input name="ldap_group_base"></label>
+              <label>Filtre des groupes (facultatif)<input name="ldap_group_filter" placeholder="(member={dn})"></label>
+            </div>
+            <label>Certificat de l'autorité (PEM, facultatif)<textarea name="ldap_ca_pem" rows="3" spellcheck="false"></textarea></label>
+          </fieldset>
+          <fieldset>
+            <legend>Rôles</legend>
+            <p class="muted small">Chaque connexion recalcule le rôle d'après les groupes du fournisseur (le nom du groupe ou le DN complet). Si plusieurs groupes correspondent, le rôle le plus élevé l'emporte.</p>
+            <div id="sso-roles"></div>
+            <div class="row"><button id="sso-role-add" class="btn sm" type="button">Ajouter un groupe</button>
+              <label>Autres personnes<select name="default_role"><option value="">Refuser la connexion</option><option value="utilisateur">Accepter comme utilisateur</option></select></label></div>
+          </fieldset>
+          <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="sso-msg" class="small" aria-live="polite"></span></div>
+        </form>
+        <h3>Essayer la configuration</h3>
+        <p class="muted small">Enregistrez d'abord. L'essai OpenID Connect lit la découverte et les clés du fournisseur ; l'essai LDAP se connecte avec le compte de service et, si vous indiquez un compte, vérifie ses groupes et le rôle obtenu. Le mot de passe saisi n'est ni enregistré ni consigné.</p>
+        <form id="sso-test-form" class="sso-form" autocomplete="off">
+          <div class="row">
+            <button id="sso-test-oidc" class="btn" type="button">Tester OpenID Connect</button>
+            <label>Compte d'essai<input name="user" autocomplete="off" placeholder="facultatif"></label>
+            <label>Mot de passe<input name="password" type="password" autocomplete="new-password" placeholder="facultatif"></label>
+            <button id="sso-test-ldap" class="btn" type="button">Tester l'annuaire</button>
+          </div>
+        </form>
+        <div id="sso-test-out" class="small" aria-live="polite"></div>
+      </div>
     </section>
 
     <section id="view-account" class="view hidden">
