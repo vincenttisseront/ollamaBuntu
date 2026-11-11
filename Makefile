@@ -23,6 +23,7 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/admin_features_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/backup_test.py
 	bash tests/unit/rollback_test.sh
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/router_limits_test.py
 
 # Console web (jsdom requis : npm install --no-save jsdom@24)
 test-ui:

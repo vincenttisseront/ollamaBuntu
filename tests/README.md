@@ -10,6 +10,7 @@
 ```sh
 make test          # ou, séparément :
 python3 tests/unit/router_balance_test.py
+python3 tests/unit/router_limits_test.py    # routeur de bout en bout : plafond, file d'attente, quotas (faux Ollama)
 python3 tests/unit/limits_test.py          # plafonds, quotas, règles de routage
 python3 tests/unit/monitor_test.py         # débordement CPU/GPU, recommandations, alertes
 python3 tests/unit/admin_features_test.py  # console : limites, règles, test du parc, alertes
