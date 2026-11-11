@@ -1576,6 +1576,7 @@
 "redirection refusée vers un hôte non autorisé": "redirect to an unauthorised host refused",
 "redémarrez le serveur pour activer les derniers correctifs (noyau...)": "restart the server to activate the latest fixes (kernel...)",
 "refusé": "refused",
+"repris": "retried",
 "requête de chat invalide": "invalid chat request",
 "requête non autorisée par la répartition de charge": "request not allowed by load balancing",
 "requête refusée": "request refused",
@@ -1671,6 +1672,7 @@
 "À traiter": "To do",
 "ÉCHEC DE LA MISE À JOUR": "UPDATE FAILED",
 "Écart": "Difference",
+"Échecs (24 h)": "Failures (24 h)",
 "Échéance": "Expiry",
 "Économe en mémoire": "Memory-saving",
 "Écran": "Screen",
@@ -1695,6 +1697,14 @@
 "↑ ↓ pour choisir, Entrée pour valider, Échap pour fermer.": "↑ ↓ to choose, Enter to confirm, Esc to close."
 },
 "patterns": [
+[
+"Reprise automatique \\(24 h\\) : (\\d+) requête\\(s\\) sauvée\\(s\\) par un autre serveur, (\\d+) perdue\\(s\\) faute de serveur disponible\\.",
+"Automatic retry (24 h): {1} request(s) saved by another server, {2} lost for lack of an available server."
+],
+[
+"Reprise automatique \\(24 h\\) : (\\d+) requête\\(s\\) sauvée\\(s\\) par un autre serveur\\.",
+"Automatic retry (24 h): {1} request(s) saved by another server."
+],
 [
 "(\\d+) erreur\\(s\\)",
 "{1} error(s)"

@@ -28,6 +28,7 @@ python3 tests/unit/catalog_sources_test.py  # catalogue « Recommandés » multi
 python3 tests/unit/ops3_test.py            # journal d'audit, rapport hebdomadaire par e-mail, espace disque des modèles (routes HTTP réelles)
 node tests/unit/batch2_ui_test.js          # console : thème, cloche, statistiques, filtres, palette Ctrl+K (jsdom, FR et EN)
 node tests/unit/batch3_ui_test.js          # console : Performance, disponibilité GPU, matériel, audit, rapport, espace disque, plafonds, catalogue multi-registres (jsdom, FR et EN)
+python3 tests/unit/router_failover_test.py      # routeur : reprise automatique sur un autre serveur (vrais échanges HTTPS simulés), disjoncteur, requêtes sauvées
 python3 tests/unit/modelupdate_test.py          # mise à jour des modèles : fenêtre de maintenance, copie de sécurité, retour arrière automatique ou manuel (Ollama simulé)
 python3 tests/unit/evals_test.py                  # laboratoire : critères, comparaison, jeux de tests, rejeu automatique (Ollama simulé)
 node tests/unit/modelupdate_ui_test.js      # console : Modèles > Mises à jour (réglages, vérification, retour arrière, historique) en jsdom, FR et EN

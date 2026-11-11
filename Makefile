@@ -14,6 +14,7 @@ i18n-check:
 
 test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/router_balance_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/router_failover_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/gpu_auto_test.py
 	bash tests/unit/crypt_engine_test.sh
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/online_update_test.py

@@ -63,6 +63,7 @@ BALANCE_FILE = os.path.join(ETC, "balance.json")
 REQLOG_CONF = os.path.join(ETC, "request-log.json")
 _bal = {"mtime": None, "data": {}}
 _rqc = {"mtime": None, "data": {}}
+_health = limits.Health()
 _aff = limits.Affinity()
 
 
@@ -357,6 +358,14 @@ def key_expired(key, today=None):
     return bool(exp) and (today or time.strftime("%Y-%m-%d")) > exp
 
 
+def retry_status(status, kind, last):
+    """Une réponse d'erreur justifie-t-elle d'essayer le serveur suivant ? Un serveur distant : jeton refusé (401), requête trop grosse (413), saturé ou en panne (429, 502-504),
+    toujours ; une erreur interne d'Ollama (500) et les mêmes pannes sur ce serveur : seulement s'il reste un autre candidat (sinon le client voit la vraie erreur)."""
+    if kind == "remote" and status in (401, 413, 429, 502, 503, 504):
+        return True
+    return (not last) and status in (429, 500, 502, 503, 504)
+
+
 def norm(name):
     """Forme canonique d'un nom de modèle : « llama3.1 » == « llama3.1:latest » ==
     « registry.ollama.ai/library/llama3.1:latest »."""
@@ -471,6 +480,9 @@ class Router(http.server.BaseHTTPRequestHandler):
                     use = sub
             if use:
                 out.append(("remote", use in {norm(x) for x in s.get("loaded", [])}, float(s.get("load") or 0), dict(s, use_model=use)))
+        t_now = time.time()
+        sound = [c for c in out if c[0] == "local" or not _health.tripped(c[3]["id"], t_now)]
+        out = sound or out   # un serveur qui vient d'échouer plusieurs fois est écarté un moment, sauf s'il n'y a pas d'autre choix
         matched = False
         rules = fl.get("rules") or []
         if rules:
@@ -502,13 +514,18 @@ class Router(http.server.BaseHTTPRequestHandler):
         return ordered
 
     def balanced(self, method, path, body, cands, model):
+        """Envoie la requête au premier serveur capable ; en cas d'échec avant le premier octet envoyé au client (connexion refusée, erreur 5xx,
+        réponse vide ou coupée), la même requête est rejouée sur le serveur suivant. Les échecs sont mémorisés (disjoncteur) et journalisés."""
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP and k.lower() not in ("content-length", "authorization", "x-api-key")}
         headers["Content-Length"] = str(len(body))
         table, _ = routes()
         for idx, (kind, _loaded, _load, srv) in enumerate(cands):
             ikey = "local" if kind == "local" else srv["id"]
+            name = "local" if kind == "local" else srv["name"]
+            last = idx == len(cands) - 1
             if idx:
                 inflight_add(ikey, 1)   # le premier choix est déjà réservé par candidates()
+            conn = None
             try:
                 if kind == "local":
                     target = table.get(norm(model), MAIN)
@@ -541,21 +558,49 @@ class Router(http.server.BaseHTTPRequestHandler):
                     label = "serveur:" + srv["name"]
                 resp = conn.getresponse()
             except (OSError, ssl.SSLError, http.client.HTTPException) as e:
-                print("répartition : %s indisponible (%s), serveur suivant" % (srv["name"] if srv else "local", e), flush=True)
+                print("répartition : %s indisponible (%s), serveur suivant" % (name, e), flush=True)
+                self.note_failure(ikey, name, "injoignable")
                 inflight_add(ikey, -1)
+                if conn is not None:
+                    conn.close()
                 continue
-            if resp.status in (401, 413, 429, 502, 503, 504) and kind == "remote":
-                print("répartition : %s a répondu %d, serveur suivant" % (srv["name"], resp.status), flush=True)
+            if retry_status(resp.status, kind, last):
+                print("répartition : %s a répondu %d, serveur suivant" % (name, resp.status), flush=True)
+                self.note_failure(ikey, name, str(resp.status))
                 conn.close()
                 inflight_add(ikey, -1)
                 continue
+            first, ttft0 = None, None
+            if self.req_meta is not None and not last and self.command != "HEAD" and resp.status < 400:
+                try:   # on attend le premier octet avant de répondre au client : tant qu'il n'a rien reçu, on peut encore changer de serveur
+                    first = resp.read1(65536)
+                except (OSError, http.client.HTTPException) as e:
+                    first = b""
+                    print("répartition : réponse de %s coupée (%s), serveur suivant" % (name, e), flush=True)
+                if not first:
+                    self.note_failure(ikey, name, "réponse vide ou coupée")
+                    conn.close()
+                    inflight_add(ikey, -1)
+                    continue
+                ttft0 = time.time() - self.t0
+            if resp.status < 500:
+                _health.ok(ikey)
             self._inflight_key = ikey
-            return self.stream_back(resp, conn, label)
+            return self.stream_back(resp, conn, label, first, ttft0)
+        if self.req_meta is not None:
+            log_request(dict(self.req_meta, ts=round(self.t0, 3), instance="-", status=503, aborted=False, ms=round((time.time() - self.t0) * 1000), ttft_ms=None,
+                             retried=list(self._retried)))
         return self.json_reply(503, {"error": "aucun serveur disponible pour le modèle « %s » (ce serveur et le parc)" % model})
 
-    def stream_back(self, resp, conn, label):
-        """Relais en flux de la réponse ; pour les requêtes vers les modèles, mesure et journalisation."""
-        ttft, tail, aborted = None, b"", False
+    def note_failure(self, ikey, name, why):
+        """Mémorise un échec : serveur écarté un moment après plusieurs échecs, et trace dans le journal de la requête."""
+        _health.fail(ikey)
+        self._retried.append("%s : %s" % (name, why))
+
+    def stream_back(self, resp, conn, label, first=None, ttft0=None):
+        """Relais en flux de la réponse ; pour les requêtes vers les modèles, mesure et journalisation.
+        first : premier morceau déjà lu par balanced() (pour pouvoir changer de serveur tant que le client n'a rien reçu)."""
+        ttft, tail, aborted = ttft0, b"", False
         try:
             self.send_response(resp.status)
             for k, v in resp.getheaders():
@@ -567,7 +612,10 @@ class Router(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             if self.command != "HEAD":
                 while True:
-                    chunk = resp.read1(65536)
+                    if first is not None:
+                        chunk, first = first, None
+                    else:
+                        chunk = resp.read1(65536)
                     if not chunk:
                         break
                     if ttft is None:
@@ -585,7 +633,8 @@ class Router(http.server.BaseHTTPRequestHandler):
                 elapsed = time.time() - getattr(self, "t0", time.time())
                 met = request_metrics(tail, elapsed, ttft)
                 log_request(dict(self.req_meta, ts=round(self.t0, 3), instance=label, status=resp.status, aborted=aborted,
-                                 ms=round(elapsed * 1000), ttft_ms=round(ttft * 1000) if ttft is not None else None, **met))
+                                 ms=round(elapsed * 1000), ttft_ms=round(ttft * 1000) if ttft is not None else None,
+                                 **({"retried": list(self._retried)} if getattr(self, "_retried", None) else {}), **met))
                 if getattr(self, "_kid", None):
                     _tokens.add(self._kid, (met.get("in_tok") or 0) + (met.get("out_tok") or 0))
 
@@ -721,7 +770,7 @@ class Router(http.server.BaseHTTPRequestHandler):
                 self._slot = None
 
     def _relay(self):
-        self.t0, self.req_meta, self._inflight_key = time.time(), None, None
+        self.t0, self.req_meta, self._inflight_key, self._retried = time.time(), None, None, []
         method = self.command
         path = urllib.parse.urlsplit(self.path).path
         try:

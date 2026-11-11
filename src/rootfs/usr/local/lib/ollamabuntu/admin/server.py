@@ -3706,8 +3706,16 @@ def balance_view():
     except (OSError, ValueError):
         tags = []
     local = sorted({short_name(m.get("name", "")) for m in tags})
-    served = {}
+    served, fails, rescued, lost = {}, {}, 0, 0
     for r in read_request_log(time.time() - 86400):
+        if r.get("retried"):   # reprise automatique : la requête a d'abord échoué sur d'autres serveurs
+            for x in r["retried"]:
+                nm = str(x).split(" : ")[0]
+                fails[nm] = fails.get(nm, 0) + 1
+            if r.get("status") == 200:
+                rescued += 1
+            else:
+                lost += 1
         if r.get("status") != 200:
             continue
         label = r.get("instance") or ""
@@ -3733,9 +3741,11 @@ def balance_view():
             on.setdefault(name, []).append(s["name"])
         sv = served.get(s["name"], {})
         servers.append({"id": s["id"], "name": s["name"], "state": st.get("state", "en attente"), "route": bool(s.get("route_token")),
-                        "models": len(names), "common": len(common), "served": sv.get("count", 0), "last": sv.get("last") or None, "issues": issues})
+                        "models": len(names), "common": len(common), "served": sv.get("count", 0), "last": sv.get("last") or None, "issues": issues,
+                        "failures": fails.get(s["name"], 0)})
     loc = served.get("", {})
-    return {"strategy": balance_strategy(), "affinity": balance_affinity(), "local": {"models": len(local), "served": loc.get("count", 0), "last": loc.get("last") or None},
+    return {"strategy": balance_strategy(), "affinity": balance_affinity(), "rescued": {"count": rescued, "lost": lost},
+            "local": {"models": len(local), "served": loc.get("count", 0), "last": loc.get("last") or None, "failures": fails.get("local", 0)},
             "servers": servers, "models": [{"name": k, "on": v} for k, v in sorted(on.items())], "active": any(not x["issues"] for x in servers)}
 
 

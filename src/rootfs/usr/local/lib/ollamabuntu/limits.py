@@ -233,3 +233,29 @@ def apply_caps(path, body, max_ctx=0, max_output=0):
     else:
         return body, []
     return (json.dumps(d).encode() if clamped else body), clamped
+
+
+class Health:
+    """Mémoire des échecs récents par serveur : un serveur qui échoue plusieurs fois de suite est écarté un court moment (disjoncteur)."""
+
+    def __init__(self, limit=3, window=60, cool=30):
+        self.limit, self.window, self.cool = limit, window, cool
+        self._lock = threading.Lock()
+        self._fails = {}
+
+    def fail(self, sid, now=None):
+        now = time.time() if now is None else now
+        with self._lock:
+            xs = [t for t in self._fails.get(sid, []) if now - t < self.window]
+            self._fails[sid] = xs + [now]
+
+    def ok(self, sid):
+        with self._lock:
+            self._fails.pop(sid, None)
+
+    def tripped(self, sid, now=None):
+        now = time.time() if now is None else now
+        with self._lock:
+            xs = [t for t in self._fails.get(sid, []) if now - t < self.window]
+            return len(xs) >= self.limit and now - xs[-1] < self.cool
+

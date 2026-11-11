@@ -81,14 +81,14 @@ async function fakeFetch(p, o = {}) {
       { name: 'llama3.3:70b', source: 'Ollama', category: 'Conversation', caps: [], description: 'Petit modèle polyvalent de Meta, à l\'aise même sur processeur.', installed: false, available: true, size: 42 * GB, params: '70B', quant: 'Q4_K_M', fit: { level: 'trop', label: 'Trop gros pour ce serveur' } },
       { name: 'hf.co/unsloth/Magistral-Small-2509-GGUF:Q4_K_M', source: 'Hugging Face', category: 'Raisonnement', caps: ['raisonnement'], description: 'Mistral Magistral Small : raisonnement pas à pas, vision, bon en français (Hugging Face).', installed: false, available: false, fit: null }] });
   if (p === '/api/models') return json({ models: [{ name: 'gemma4:12b' }, { name: 'llama3.2:3b' }, { name: 'x-cloud' }] });
-  if (p === '/api/fleet/balance') return json({ strategy: 'spread', affinity: true, local: { models: 2, served: 0, last: null }, servers: [], models: [], active: false });
+  if (p === '/api/fleet/balance') return json({ strategy: 'spread', affinity: true, rescued: { count: 3, lost: 1 }, local: { models: 2, served: 5, last: null, failures: 0 }, servers: [{ id: 's1', name: 'Srv1', state: 'en ligne', route: true, models: 2, common: 2, served: 4, last: null, issues: [], failures: 2 }], models: [], active: true });
   if (p === '/api/fleet/balance/strategy') return json({ ok: true });
   if (p === '/api/limits') return json({ keys: [] });
   if (p === '/api/publication') return json({ enabled: true, tls: true, port: 11443, auth: true, allow: [], anonymous: { perms: [], models: [] }, urls: ['https://srv:11443'], router: {}, keys: [
     { id: 'k1', name: 'RH', prefix: 'ob_a', perms: ['inference'], deny: [], models: [], enabled: true, usage: {}, expires: '', days_left: null, max_ctx: 8192, max_output: 1024 }] });
   if (p === '/api/publication/keys/update' || p === '/api/publication/keys/create') return json({ ok: true, token: 'ob_tok', key: {} });
   if (p.startsWith('/api/metrics')) return json({ span: 3600, interval: 10, gpus: {}, series: [] });
-  if (p.startsWith('/api/requests')) return json({ requests: [{ ts: now, client: 'DocManagement', model: 'gemma4:12b', path: '/api/chat', status: 200, ms: 900, ttft_ms: 100, in_tok: 5, out_tok: 9, tps: 70, instance: 'local', prompt: state.excerpt ? 'Résume ce contrat' : undefined }], summary: [], prompt_excerpt: !!state.excerpt });
+  if (p.startsWith('/api/requests')) return json({ requests: [{ ts: now, client: 'DocManagement', model: 'gemma4:12b', path: '/api/chat', status: 200, ms: 900, ttft_ms: 100, in_tok: 5, out_tok: 9, tps: 70, instance: 'local', prompt: state.excerpt ? 'Résume ce contrat' : undefined, retried: ['Srv1 : 500'] }], summary: [], prompt_excerpt: !!state.excerpt });
   if (p === '/api/prom') return json({ enabled: false, created: null, path: '/metrics' });
   return json({});
 }
@@ -263,11 +263,12 @@ const $$e_tabs = (win, v) => [...win.document.querySelectorAll('#view-' + v + ' 
   const caps = $$('#modal-extra input'); caps[0].value = '4096'; caps[1].value = '256'; $('#modal-ok').click();
   ok(await until(() => calls.some((c) => c[1] === '/api/publication/keys/update' && c[2].id === 'k1' && c[2].max_ctx === 4096 && c[2].max_output === 256)), 'plafonds modifiés depuis la liste');
   ok(await go('#fleet/balance', () => $('#bal-affinity').checked), 'parc : affinité de session active par défaut');
+  ok($('#bal-issues').textContent.includes('Reprise automatique (24 h) : 3 requête(s) sauvée(s) par un autre serveur, 1 perdue(s) faute de serveur disponible.') && $$('#bal-servers th').map((x) => x.textContent).includes('Échecs (24 h)') && $$('#bal-servers tbody tr')[1].textContent.includes('2'), 'parc : requêtes sauvées par la reprise automatique et échecs par serveur');
   $('#bal-affinity').checked = false; $('#bal-affinity').dispatchEvent(new w.Event('change'));
   ok(await until(() => calls.some((c) => c[1] === '/api/fleet/balance/strategy' && c[2].affinity === false && c[2].strategy === undefined)), 'affinité désactivée');
 
   // --- journal des requêtes : la colonne Demande indique pourquoi elle est vide
-  ok(await go('#dashboard', () => $('#dash-requests').textContent.includes('DocManagement')) && $('#dash-requests td.prompt').textContent === 'non enregistré' && !$('#dash-req-note').classList.contains('hidden'), 'tableau de bord : « non enregistré » (et non « - ») quand l\'extrait est désactivé');
+  ok(await go('#dashboard', () => $('#dash-requests').textContent.includes('DocManagement')) && $('#dash-requests td.prompt').textContent === 'non enregistré' && $('#dash-requests .pill.warn').textContent === 'repris' && !$('#dash-req-note').classList.contains('hidden'), 'tableau de bord : « non enregistré » (et non « - ») quand l\'extrait est désactivé');
   state.excerpt = true; w.dispatchEvent(new w.Event('hashchange')); w.location.hash = '#logs/requests'; w.location.hash = '#dashboard';
   ok(await until(() => $('#dash-requests td.prompt') && $('#dash-requests td.prompt').textContent === 'Résume ce contrat'), 'extrait activé : la demande s\'affiche');
   state.excerpt = false;

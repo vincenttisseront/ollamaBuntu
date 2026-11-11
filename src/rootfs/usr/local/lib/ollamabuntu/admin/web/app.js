@@ -1604,16 +1604,19 @@ async function loadBalance() {
   for (const s of d.servers) for (const code of s.issues) items.push(el('li', {}, el('strong', { text: s.name }), ' ', el('span', { text: BAL_ISSUE[code] })));
   const usable = d.servers.filter((s) => !s.issues.length).length;
   if (d.servers.length && !items.length) items.push(el('li', { class: 'okmsg', text: 'La répartition est active : ' + usable + ' serveur(s) peuvent recevoir des requêtes.' }));
+  const rs = d.rescued || { count: 0, lost: 0 };
+  if (rs.count || rs.lost) items.push(el('li', { class: rs.lost ? '' : 'okmsg', text: 'Reprise automatique (24 h) : ' + rs.count + ' requête(s) sauvée(s) par un autre serveur' + (rs.lost ? ', ' + rs.lost + ' perdue(s) faute de serveur disponible' : '') + '.' }));
   $('#bal-issues').replaceChildren(...items);
-  const rows = [{ name: 'Ce serveur', models: d.local.models, served: d.local.served, last: d.local.last }].concat(d.servers);
+  const rows = [{ name: 'Ce serveur', models: d.local.models, served: d.local.served, last: d.local.last, failures: d.local.failures }].concat(d.servers);
   $('#bal-servers').replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
-    el('thead', {}, el('tr', {}, ...['Serveur', 'État', 'Répartition', 'Modèles en commun', 'Requêtes servies (24 h)', 'Dernière requête'].map((c, i) => el('th', { class: i >= 3 ? 'num' : '', text: c })))),
+    el('thead', {}, el('tr', {}, ...['Serveur', 'État', 'Répartition', 'Modèles en commun', 'Requêtes servies (24 h)', 'Échecs (24 h)', 'Dernière requête'].map((c, i) => el('th', { class: i >= 3 ? 'num' : '', text: c })))),
     el('tbody', {}, ...rows.map((r, i) => el('tr', {},
       el('td', { class: 'name', text: r.name }),
       el('td', {}, i ? pill(r.state, FLEET_KIND[r.state] || 'warn') : pill('en ligne', 'ok')),
       el('td', {}, i ? (r.route ? pill('activée', 'ok') : pill('désactivée', 'warn')) : '-'),
       el('td', { class: 'num', text: i ? r.common + ' / ' + r.models : String(r.models) }),
       el('td', { class: 'num', text: String(r.served) }),
+      el('td', { class: 'num', text: r.failures ? String(r.failures) : '-' }),
       el('td', { class: 'num', text: r.last ? fmtDate(r.last) : '-' })))))));
   const multi = d.models.filter((m) => m.on.length > 1);
   balState.multi = multi.map((m) => m.name);
@@ -2040,7 +2043,8 @@ for (const b of $$('#perf-range button')) b.addEventListener('click', () => {
 
 /* ------------------------------------------------ requêtes vers les modèles */
 const fmtMs = (v) => (v == null ? '-' : v >= 10000 ? DEC((v / 1000).toFixed(1)) + ' s' : v + ' ms');
-const reqWhere = (r) => ((r.instance || '').startsWith('serveur:') ? r.instance.slice(8) : 'Ce serveur');
+const reqWhere = (r) => ((r.instance || '').startsWith('serveur:') ? r.instance.slice(8) : r.instance === '-' ? '-' : 'Ce serveur');
+const whereCell = (r) => el('td', {}, reqWhere(r), ...((r.retried || []).length ? [' ', el('span', { class: 'pill warn', title: r.retried.join('\n'), text: 'repris' })] : []));
 function reqTable(list, compact) {
   if (!list.length) return el('p', { class: 'muted small', text: 'Aucune requête enregistrée pour le moment.' });
   const cols = compact ? ['Heure', 'Modèle', 'Client', 'Serveur', 'Demande', 'Durée', 't/s'] : ['Heure', 'Client', 'Modèle', 'Demande', 'Serveur', 'Point d\'API', 'Statut', 'Durée', '1er jeton', 'Jetons (entrée / sortie)', 't/s'];
@@ -2049,8 +2053,8 @@ function reqTable(list, compact) {
   return el('div', { class: 'table-wrap' }, el('table', { class: 'dense' }, el('thead', {}, el('tr', {}, ...cols.map((c, i) => el('th', { class: i >= numFrom ? 'num' : '', text: c })))),
     el('tbody', {}, ...list.map((r) => el('tr', {},
       el('td', { class: 'nowrap', text: fmtTime(r.ts, true) }),
-      ...(compact ? [el('td', { class: 'name', text: r.model || '-' }), el('td', { text: r.client }), el('td', { text: reqWhere(r) }), prompt(r)] :
-        [el('td', { text: r.client }), el('td', { class: 'name', text: r.model || '-' }), prompt(r), el('td', { text: reqWhere(r) }),
+      ...(compact ? [el('td', { class: 'name', text: r.model || '-' }), el('td', { text: r.client }), whereCell(r), prompt(r)] :
+        [el('td', { text: r.client }), el('td', { class: 'name', text: r.model || '-' }), prompt(r), whereCell(r),
           el('td', { class: 'small', text: r.path }), el('td', {}, r.aborted ? pill('interrompue', 'warn') : pill(String(r.status), r.status === 200 ? 'ok' : 'err'))]),
       el('td', { class: 'num', text: fmtMs(r.ms) }),
       ...(compact ? [] : [el('td', { class: 'num', text: fmtMs(r.ttft_ms) }), el('td', { class: 'num', text: (r.in_tok == null ? '-' : r.in_tok) + ' / ' + (r.out_tok == null ? '-' : r.out_tok) })]),
