@@ -1896,11 +1896,15 @@ def fleet_view():
         st = _fleet_state.get(s["id"]) or {"state": "en attente"}
         out.append(dict({k: v for k, v in s.items() if k not in ("token", "route_token")}, route=bool(s.get("route_token")), **st))
     try:
-        local = sorted({short_name(m.get("name", "")) for m in ollama_json("GET", "/api/tags", timeout=3)[1].get("models", [])
-                        if not re.search(r"-gpu\d+$", m.get("name", ""))})
+        tags = [m for m in ollama_json("GET", "/api/tags", timeout=3)[1].get("models", []) if not re.search(r"-gpu\d+$", m.get("name", ""))]
     except (OSError, ValueError):
-        local = []
-    return {"servers": out, "actions": FLEET_ACTIONS, "sync_kinds": SYNC_KINDS, "local_models": local}
+        tags = []
+    local = sorted({short_name(m.get("name", "")) for m in tags})
+    details = {}
+    for m in tags:   # taille de chaque modèle de cette console : sert à proposer un remplacement de taille comparable
+        details[short_name(m.get("name", ""))] = int(m.get("size") or 0)
+    return {"servers": out, "actions": FLEET_ACTIONS, "sync_kinds": SYNC_KINDS, "local_models": local,
+            "local_details": [{"name": n, "size": details.get(n, 0)} for n in local]}
 
 
 FLEET_ROUTES = os.path.join(ETC, "fleet-routes.json")

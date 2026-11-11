@@ -40,6 +40,7 @@ test-ui:
 	node tests/unit/ops_ui_test.js
 	node tests/unit/batch2_ui_test.js
 	node tests/unit/batch3_ui_test.js
+	node tests/unit/modelmap_ui_test.js
 
 # Archive de mise à jour en ligne (OB_VERSION=AAAA.MM.JJ-HHMM, OB_SIGNING_KEY=clé privée pour signer)
 bundle:

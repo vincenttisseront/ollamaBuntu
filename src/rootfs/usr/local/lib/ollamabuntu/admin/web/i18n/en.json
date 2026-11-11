@@ -83,6 +83,7 @@
 "Ajouter un horaire": "Add a time",
 "Ajouter un modèle": "Add a model",
 "Ajouter un serveur": "Add a server",
+"Ajouter une association": "Add a pairing",
 "Alerte": "Alert",
 "Alertes": "Alerts",
 "Alertes actives": "Active alerts",
@@ -141,6 +142,8 @@
 "Aucun dépôt GitHub configuré.": "No GitHub repository set.",
 "Aucun groupe : tous les modèles se partagent tous les GPU (placement automatique d'Ollama).": "No group: all models share all GPUs (Ollama's automatic placement).",
 "Aucun jeton enregistré": "No token saved",
+"Aucun modèle de ce serveur ne convient automatiquement : choisissez-le vous-même.": "No model on this server fits automatically: choose one yourself.",
+"Aucun modèle détecté sur ce serveur : installez-en d'abord (Synchroniser > Modèles).": "No model detected on this server: install some first (Synchronise > Models).",
 "Aucun modèle en commun avec ce serveur : installez les mêmes modèles (Parc > Synchroniser > Modèles).": "No model in common with this server: install the same models (Fleet > Synchronise > Models).",
 "Aucun modèle en mémoire": "No model in memory",
 "Aucun modèle installé.": "No models installed.",
@@ -711,6 +714,8 @@
 "Modèle (motif, * = tous)": "Model (pattern, * = all)",
 "Modèle cloud": "Cloud model",
 "Modèle de base": "Base model",
+"Modèle de remplacement": "Replacement model",
+"Modèle demandé": "Requested model",
 "Modèle ouvert d'OpenAI : raisonnement et agents, contexte long sobre en mémoire.": "OpenAI open model: reasoning and agents, memory-efficient long context.",
 "Modèle partiellement sur le processeur": "Model partly on the processor",
 "Modèle partiellement sur le processeur (débit très réduit)": "Model partly on the processor (very low throughput)",
@@ -1060,7 +1065,7 @@
 "Session": "Session",
 "Session expirée : reconnectez-vous.": "Session expired: please sign in again.",
 "Seulement ceux qui tiennent sur ce serveur": "Only those that fit on this server",
-"Si ce serveur ne peut pas faire tourner un modèle (GPU différents), indiquez le modèle qu'il utilisera à la place : une ligne « modèle demandé = modèle de remplacement ». Écrivez « * = modèle » pour remplacer tous les modèles absents. Les réponses viendront alors d'un autre modèle, donc leur qualité et leur style peuvent différer.": "If this server cannot run a model (different GPUs), enter the model it will use instead: one line “requested model = replacement model”. Write “* = model” to replace every missing model. Answers will then come from a different model, so quality and style may differ.",
+"Si ce serveur ne peut pas faire tourner un modèle (GPU différents), choisissez le modèle qu'il utilisera à la place. « Tous les modèles absents du serveur » remplace en une fois tous ceux qu'il n'a pas. Les réponses viendront alors d'un autre modèle, donc leur qualité et leur style peuvent différer.": "If this server cannot run a model (different GPUs), choose the model it will use instead. “All models missing on the server” replaces every model it does not have in one go. Answers will then come from a different model, so quality and style may differ.",
 "SmolLM3 3B : très compact, multilingue, raisonnement en option (Hugging Face).": "SmolLM3 3B: very compact, multilingual, optional reasoning (Hugging Face).",
 "Somme SHA-256 de l'archive incorrecte : mise à jour refusée.": "Incorrect archive SHA-256 checksum: update refused.",
 "Source": "Source",
@@ -1121,6 +1126,8 @@
 "Tous": "All",
 "Tous les autres ports sont fermés depuis le réseau, dont Ollama, les groupes de GPU et Open WebUI en HTTP (3000).": "All other ports are closed from the network, including Ollama, GPU groups and Open WebUI over HTTP (3000).",
 "Tous les clients": "All clients",
+"Tous les modèles absents du serveur": "All models missing on the server",
+"Tous les modèles de cette console sont présents sur ce serveur : aucun remplacement nécessaire.": "All models of this console are present on this server: no replacement needed.",
 "Tous les ports en écoute deviendront joignables depuis le réseau, dont Open WebUI en HTTP (3000).": "All listening ports will become reachable from the network, including Open WebUI over HTTP (3000).",
 "Tout mettre à jour": "Update everything",
 "Toutes": "All",
@@ -2166,6 +2173,18 @@
 [
 "Ligne invalide : (.+)",
 "Invalid line: {1}"
+],
+[
+"Proposition automatique pour (\\d+) modèle\\(s\\) absent\\(s\\) de ce serveur : choisissez, modifiez ou retirez avant d'enregistrer\\.",
+"Automatic proposal for {1} model(s) missing on this server: choose, edit or remove before saving."
+],
+[
+"Un modèle ne peut pas se remplacer lui-même : (.+)",
+"A model cannot replace itself: {1}"
+],
+[
+"(.+) \\(introuvable\\)",
+"{1} (not found)"
 ],
 [
 "(\\d+) modèle\\(s\\), les plus téléchargés d'abord\\.",

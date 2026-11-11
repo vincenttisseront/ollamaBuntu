@@ -992,7 +992,7 @@ async function loadFleet() {
     const acts = s.state === 'en ligne' ? Object.entries(v.actions).map(([id, label]) => el('button', { class: 'btn sm', type: 'button', text: label, onclick: () => fleetAction(s, id, label) })) : [];
     if (s.state === 'en ligne') {
       acts.push(el('button', { class: 'btn sm', type: 'button', text: s.route ? 'Désactiver la répartition' : 'Activer la répartition de charge', onclick: () => fleetRoute(s) }));
-      if (s.route) acts.push(el('button', { class: 'btn sm', type: 'button', text: 'Modèles de remplacement...', onclick: () => fleetModelMap(s) }));
+      if (s.route) acts.push(el('button', { class: 'btn sm', type: 'button', text: 'Modèles de remplacement...', onclick: () => fleetModelMap(s, v) }));
       acts.push(el('button', { class: 'btn sm', type: 'button', text: 'Synchroniser...', onclick: () => fleetSync(s.id, s.name, v.sync_kinds) }));
     }
     if (s.state === 'certificat changé') acts.push(el('button', { class: 'btn sm danger', type: 'button', text: 'Examiner le nouveau certificat', onclick: () => fleetRepin(s) }));
@@ -1032,19 +1032,59 @@ function syncReport(results) {
     return name + ' : ' + (parts.join(', ') || 'rien à faire');
   }).join('\n');
 }
-async function fleetModelMap(s) {
-  const ta = el('textarea', { rows: 6, class: 'mono', style: 'width:100%', placeholder: 'gemma4:12b = granite4.2:8b' });
-  ta.value = Object.entries(s.model_map || {}).map(([k, v]) => k + ' = ' + v).join('\n');
+/* Remplacement de modèles : on choisit dans des listes (modèles de cette console, modèles détectés sur le serveur) ; une proposition automatique est préremplie. */
+const EMBED_RE = /embed|bge-|nomic|minilm|e5-/i;
+const modelFamily = (n) => String(n).replace(/^hf\.co\//, '').split(':')[0].replace(/[-_.]?\d+(\.\d+)?b?$/i, '').toLowerCase();
+function fleetSuggest(missing, mine, theirs) {
+  /* missing : noms absents du serveur ; mine : [{name, size}] de cette console ; theirs : [{name, size}] du serveur.
+     Règle : même nature (embeddings / conversation), même famille si possible, puis le plus gros modèle du serveur qui n'excède pas la taille demandée (sinon le plus petit). */
+  const size = (n) => ((mine || []).find((m) => m.name === n) || {}).size || 0, out = {};
+  for (const m of missing || []) {
+    const pool = (theirs || []).filter((t) => EMBED_RE.test(t.name) === EMBED_RE.test(m));
+    if (!pool.length) continue;
+    const fam = pool.filter((t) => modelFamily(t.name) === modelFamily(m)), cand = fam.length ? fam : pool;
+    const below = cand.filter((t) => (t.size || 0) <= size(m));
+    out[m] = (below.length ? below.reduce((a, b) => ((b.size || 0) > (a.size || 0) ? b : a)) : cand.reduce((a, b) => ((b.size || 0) < (a.size || 0) ? b : a))).name;
+  }
+  return out;
+}
+async function fleetModelMap(s, v) {
+  v = v || {};
+  const mine = (v.local_details && v.local_details.length) ? v.local_details : (v.local_models || []).map((name) => ({ name, size: 0 }));
+  const theirs = ((s.data && s.data.model_tags) || []).map((m) => ({ name: String(m.name), size: Number(m.size) || 0 }));
+  const label = (m) => m.name + (m.size ? ' (' + fmtBytes(m.size) + ')' : '');
+  const current = Object.assign({}, s.model_map || {});
+  const missing = fleetMissing(mine.map((m) => m.name), theirs.map((t) => t.name)).filter((m) => !current[m] && !current['*']);
+  const proposed = fleetSuggest(missing, mine, theirs);
+  const rows = el('div', { class: 'map-rows' });
+  const select = (options, value, aria) => {
+    const sel = el('select', { 'aria-label': aria }, ...options.map(([val, text]) => el('option', { value: val, text })));
+    if (value && !options.some(([val]) => val === value)) sel.append(el('option', { value, text: value + ' (introuvable)' }));
+    sel.value = value || options[0][0];
+    return sel;
+  };
+  const addRow = (req, rep) => {
+    const row = el('div', { class: 'map-row row' },
+      select([['*', 'Tous les modèles absents du serveur'], ...mine.map((m) => [m.name, label(m)])], req || '*', 'Modèle demandé'),
+      el('span', { class: 'muted', text: '→' }),
+      select(theirs.map((t) => [t.name, label(t)]), rep, 'Modèle de remplacement'),
+      el('button', { class: 'btn sm', type: 'button', text: '\u2715', title: 'Retirer', 'aria-label': 'Retirer', onclick: () => row.remove() }));
+    rows.append(row);
+  };
+  Object.entries(current).forEach(([k, val]) => addRow(k, val));
+  Object.entries(proposed).forEach(([k, val]) => addRow(k, val));
+  const hint = !theirs.length ? el('p', { class: 'error small', text: 'Aucun modèle détecté sur ce serveur : installez-en d\'abord (Synchroniser > Modèles).' })
+    : el('p', { class: 'muted small', text: Object.keys(proposed).length ? 'Proposition automatique pour ' + Object.keys(proposed).length + ' modèle(s) absent(s) de ce serveur : choisissez, modifiez ou retirez avant d\'enregistrer.' : (missing.length ? 'Aucun modèle de ce serveur ne convient automatiquement : choisissez-le vous-même.' : 'Tous les modèles de cette console sont présents sur ce serveur : aucun remplacement nécessaire.') });
+  const add = el('button', { class: 'btn sm', type: 'button', text: 'Ajouter une association', disabled: theirs.length ? null : true, onclick: () => addRow(missing[0] || '*', theirs[0] && theirs[0].name) });
   const go = await modal({ title: 'Modèles de remplacement de « ' + s.name + ' »',
-    message: 'Si ce serveur ne peut pas faire tourner un modèle (GPU différents), indiquez le modèle qu\'il utilisera à la place : une ligne « modèle demandé = modèle de remplacement ». Écrivez « * = modèle » pour remplacer tous les modèles absents. Les réponses viendront alors d\'un autre modèle, donc leur qualité et leur style peuvent différer.', body: ta, ok: 'Enregistrer' });
+    message: 'Si ce serveur ne peut pas faire tourner un modèle (GPU différents), choisissez le modèle qu\'il utilisera à la place. « Tous les modèles absents du serveur » remplace en une fois tous ceux qu\'il n\'a pas. Les réponses viendront alors d\'un autre modèle, donc leur qualité et leur style peuvent différer.',
+    body: el('div', {}, hint, rows, add), ok: 'Enregistrer' });
   if (!go) return;
   const map = {};
-  for (const line of ta.value.split('\n')) {
-    const t = line.trim();
-    if (!t) continue;
-    const i = t.indexOf('=');
-    if (i < 1) { fail('Ligne invalide : ' + t); return; }
-    map[t.slice(0, i).trim()] = t.slice(i + 1).trim();
+  for (const row of rows.querySelectorAll('.map-row')) {
+    const [a, b] = row.querySelectorAll('select');
+    if (a.value === b.value) { fail('Un modèle ne peut pas se remplacer lui-même : ' + a.value); return; }
+    map[a.value] = b.value;
   }
   try { await api('/api/fleet/servers/modelmap', { json: { id: s.id, map } }); loadFleet(); } catch (e) { fail(e.message); }
 }
@@ -1146,7 +1186,7 @@ function modal({ title, message, ok = 'OK', cancel = 'Annuler', danger = false, 
     };
     const key = (ev) => {
       if (ev.key === 'Escape') { ev.preventDefault(); done(false); }
-      else if (ev.key === 'Enter' && ev.target.tagName !== 'TEXTAREA') { ev.preventDefault(); done(true); }
+      else if (ev.key === 'Enter' && !['TEXTAREA', 'SELECT'].includes(ev.target.tagName)) { ev.preventDefault(); done(true); }
       else if (ev.key === 'Tab') {   // le focus reste dans la fenêtre
         const f = [...box.querySelectorAll('button:not(.hidden), input, textarea, select, a[href]')];
         const i = f.indexOf(document.activeElement);
@@ -2363,7 +2403,7 @@ function warmRow(t) {
   const row = el('div', { class: 'warm-row' },
     el('input', { type: 'time', value: t.at || '07:30', required: true, 'aria-label': 'Heure' }),
     el('div', { class: 'checks days' }, ...DAYS_SHORT.map((d, i) => el('label', { class: 'check' }, el('input', { type: 'checkbox', value: String(i), checked: days.includes(i) || null }), ' ' + d))),
-    modelChecks(t.models), el('button', { class: 'btn sm', type: 'button', text: 'Retirer', onclick: () => row.remove() }));
+    modelChecks(t.models), el('button', { class: 'btn sm', type: 'button', text: '\u2715', title: 'Retirer', 'aria-label': 'Retirer', onclick: () => row.remove() }));
   return row;
 }
 function renderWarmup(d) {
