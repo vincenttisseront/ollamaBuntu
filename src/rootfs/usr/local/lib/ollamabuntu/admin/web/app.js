@@ -285,6 +285,7 @@ async function loadDashboard() {
   try { s = await api('/api/status'); } catch (e) { $('#dash-grid').replaceChildren(card('Erreur', el('p', { class: 'error', text: e.message }))); return; }
   state.status = s;
   setBanner(s.reboot_required);
+  renderDashAlerts(s);
   $('#dash-host').textContent = s.hostname;
   $('#dash-version').textContent = 'OllamaBuntu v' + s.version;
   const memUsed = s.memory.total - s.memory.available;
@@ -334,7 +335,7 @@ async function loadModels() {
   let d;
   try { d = await api('/api/models'); } catch (e) { $('#models-table').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
   renderInstalled((d.models || []).sort((a, b) => a.name.localeCompare(b.name)));
-  if (isAdmin()) loadInsights(false);
+  if (isAdmin()) { loadInsights(false); loadTuning(); }
 }
 async function loadInsights(refresh) {
   $('#capacity').replaceChildren(el('h2', { text: 'Ce serveur' }), el('p', { class: 'muted', text: 'Interrogation du registre Ollama...' }));
@@ -433,12 +434,14 @@ async function hfQuants(repo) {
       r.uncensored ? el('p', { class: 'small error', text: 'Version sans censure : les garde-fous du modèle d\'origine sont retirés. Son usage reste soumis à la politique d\'usage de l\'IA de votre organisation.' }) : null,
       r.quants.length ? el('div', { class: 'small muted', text: 'Plus la quantification est basse (Q2, Q3), plus le fichier est petit et la qualité réduite ; Q4_K_M est un bon compromis.' })
         : el('div', { class: 'small error', text: 'Aucune quantification GGUF exploitable dans ce dépôt.' }),
-      el('div', { class: 'actions' }, ...r.quants.map((q) => el('button', { class: 'btn sm', type: 'button', text: q.quant + ' (' + fmtBytes(q.size) + ')', onclick: () => hfPull(repo, q.quant, r.uncensored) }))));
+      el('div', { class: 'small muted', text: r.vram ? 'Mémoire vidéo de ce serveur : ' + fmtBytes(r.vram) : 'Ce serveur n\'a pas de GPU : le modèle tournera sur le processeur.' }),
+      el('div', { class: 'actions' }, ...r.quants.map((q) => el('button', { class: 'btn sm', type: 'button', onclick: () => hfPull(repo, q.quant, r.uncensored, q.fit) }, q.quant + ' (' + fmtBytes(q.size) + ') ', pill(HF_FIT[q.fit][0], HF_FIT[q.fit][1])))));
     box.scrollIntoView({ block: 'nearest' });
   } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
 }
-async function hfPull(repo, quant, uncensored) {
-  const text = 'Télécharger « hf.co/' + repo + ':' + quant + ' » depuis Hugging Face ?' + (uncensored ? ' Ce modèle est une version sans censure.' : '');
+const HF_FIT = { gpu: ['tient en VRAM', 'ok'], partial: ['déborde sur le processeur', 'warn'], no: ['trop gros', 'err'] };
+async function hfPull(repo, quant, uncensored, fit) {
+  const text = 'Télécharger « hf.co/' + repo + ':' + quant + ' » depuis Hugging Face ?' + (fit === 'no' ? ' Ce fichier est trop gros pour la mémoire de ce serveur.' : fit === 'partial' ? ' Il ne tiendra pas entièrement en mémoire vidéo : débit nettement réduit.' : '') + (uncensored ? ' Ce modèle est une version sans censure.' : '');
   if (!(await ask(text))) return;
   pullModel('hf.co/' + repo + ':' + quant);
 }
@@ -737,6 +740,7 @@ async function loadPublication() {
   try { p = await api('/api/publication'); pubState.models = ((await api('/api/models')).models || []).map((m) => m.name); }
   catch (e) { $('#pub-urls').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
   pubState.data = p;
+  try { pubState.limits = Object.fromEntries(((await api('/api/limits')).keys || []).map((k) => [k.id, k])); } catch (e) { pubState.limits = {}; }
   const f = $('#pub-form');
   f.elements.enabled.checked = p.enabled; f.elements.tls.value = p.tls ? '1' : '0'; f.elements.port.value = p.port;
   f.elements.auth.checked = p.auth; f.elements.allow.value = (p.allow || []).join('\n');
@@ -752,9 +756,10 @@ async function loadPublication() {
     p.tls ? el('div', { class: 'muted', text: 'Certificat autosigné de la console : importez-le dans vos clients, ou désactivez la vérification (-k) pour un essai.' }) : null] :
     [el('div', { class: 'muted', text: 'Accès réseau désactivé : l\'API n\'est utilisable que depuis le serveur.' })]));
   $('#pub-keys').replaceChildren(...(p.keys.length ? [el('div', { class: 'table-wrap' }, el('table', {},
-    el('thead', {}, el('tr', {}, ...['Nom', 'Clé', 'Droits', 'Modèles', 'Dernière utilisation', 'État', ''].map((t) => el('th', { text: t })))),
+    el('thead', {}, el('tr', {}, ...['Nom', 'Clé', 'Droits', 'Modèles', 'Limites et consommation', 'Dernière utilisation', 'État', ''].map((t) => el('th', { text: t })))),
     el('tbody', {}, ...p.keys.map((k) => el('tr', {}, el('td', { class: 'name', text: k.name }), el('td', { class: 'small', text: k.prefix + '…' }),
       el('td', { class: 'small', text: k.perms.map((x) => PERM_SHORT[x]).concat((k.deny || []).map((x) => DENY_SHORT[x])).join(', ') }), el('td', { class: 'small', text: k.models.length ? k.models.join(', ') : 'tous' }),
+      el('td', { class: 'small' }, ...keyLimits(k, (pubState.limits || {})[k.id]).map((x) => el('div', { text: x }))),
       el('td', { class: 'small', text: k.usage && k.usage.last ? fmtDate(k.usage.last) + ' (' + k.usage.count + ' requêtes)' : 'jamais' }),
       el('td', {}, k.enabled ? pill('active', 'ok') : pill('désactivée', 'warn')),
       el('td', { class: 'nowrap' }, el('button', { class: 'btn sm', type: 'button', text: k.enabled ? 'Désactiver' : 'Activer', onclick: () => keyToggle(k) }), ' ',
@@ -785,7 +790,8 @@ $('#key-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target;
   try {
-    const r = await api('/api/publication/keys/create', { json: { name: f.elements.name.value.trim(), perms: checkedValues(f, 'perm'), models: checkedValues(f, 'model'), deny: checkedValues(f, 'deny') } });
+    const r = await api('/api/publication/keys/create', { json: { name: f.elements.name.value.trim(), perms: checkedValues(f, 'perm'), models: checkedValues(f, 'model'), deny: checkedValues(f, 'deny'),
+      max_concurrent: Number(f.elements.max_concurrent.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0 } });
     f.elements.name.value = ''; $('#key-msg').textContent = '';
     await loadPublication();
     const code = el('code', { class: 'token', text: r.token });
@@ -941,6 +947,7 @@ const fleetMissing = (mine, theirs) => (mine || []).filter((m) => !(theirs || []
 async function loadFleet() {
   let v;
   try { v = await api('/api/fleet/servers'); } catch (e) { $('#fleet-summary').textContent = e.message; return; }
+  loadRules(v);
   const on = v.servers.filter((s) => s.state === 'en ligne');
   const gpus = on.flatMap((s) => (s.data && s.data.gpu_live) || []);
   fleetState.kinds = v.sync_kinds;
@@ -1177,6 +1184,8 @@ async function loadSystem() {
     setBanner(s.reboot_required);
     $('#sys-ollama').textContent = 'Ollama ' + (s.ollama.version || '?') + ' - service : ' + s.ollama.service;
     loadPublication();
+    loadAlerts();
+    loadRollback();
     loadMember();
     const b = a.build || {};
     $('#about').replaceChildren(...kv([
@@ -1244,7 +1253,7 @@ async function applianceUpdate(opt = {}) {
   if (!(await ask(opt.confirm || 'Mettre à jour l\'appliance depuis le CD/ISO ou la clé USB connectés ?\nLes services IA redémarrent ; comptes, réglages et modèles sont conservés.'))) return;
   const before = (await ping()) || {};
   let jid;
-  try { jid = (await api('/api/action', { json: { action: opt.action || 'appliance-update', tag: opt.tag } })).job; } catch (e) { fail(e.message); return; }
+  try { jid = (await api('/api/action', { json: { action: opt.action || 'appliance-update', tag: opt.tag, file: opt.file } })).job; } catch (e) { fail(e.message); return; }
   overlay('Mise à jour de l\'appliance...', opt.intro || 'Recherche du CD/ISO ou de la clé USB, puis application de la mise à jour.');
   clearInterval(state.timer);
   const t0 = Date.now();
@@ -1631,7 +1640,7 @@ $('#ctx-default-save').addEventListener('click', async () => {
 /* Les éléments marqués data-panel sont regroupés en onglets ; l'adresse #écran/onglet
    permet un lien direct, et l'onglet choisi est mémorisé. */
 const TABS = {};
-const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central'], models: ['installed', 'context', 'add', 'catalog', 'custom'], logs: ['requests', 'system'], fleet: ['fleet', 'balance', 'add'] };
+const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'catalog', 'custom'], logs: ['requests', 'system'], fleet: ['fleet', 'balance', 'rules', 'add'] };
 function setupTabs() {
   for (const sec of $$('section.view')) {
     const items = [...sec.querySelectorAll('[data-panel]')];
@@ -1827,3 +1836,180 @@ setupTabs();
   await loadI18n();
   try { const d = await api('/api/session'); showApp(d); } catch (e) { showLogin(); }
 })();
+
+
+/* ------------------------------------------------ alertes du tableau de bord */
+function renderDashAlerts(s) {
+  const items = (s.alerts || []).map((x) => ({ sev: x.severity, text: x.text }));
+  for (const m of s.offload || []) if (!items.some((x) => x.text.startsWith(m.name + ' tourne'))) items.push({ sev: 'warning', text: m.name + ' tourne à ' + m.cpu_pct + ' % sur le processeur : débit fortement réduit' });
+  $('#dash-alerts').replaceChildren(...(items.length ? [el('div', { class: 'notice' }, el('strong', { text: items.length === 1 ? 'Alerte' : items.length + ' alertes' }),
+    el('ul', { class: 'alerts' }, ...items.map((x) => el('li', { text: x.text }))),
+    (s.offload || []).length && isAdmin() ? el('div', { class: 'small' }, el('a', { href: '#models', text: 'Voir le réglage recommandé du contexte et du parallélisme' })) : null)] : []));
+}
+
+/* ------------------------------------------------ réglage automatique (modèles) */
+async function loadTuning() {
+  const box = $('#tuning-body');
+  let t;
+  try { t = await api('/api/tuning'); } catch (e) { box.replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  if (!t.vram) { box.replaceChildren(el('p', { class: 'muted', text: 'Aucune mémoire vidéo détectée : ce réglage ne s\'applique qu\'aux serveurs avec GPU.' })); return; }
+  const cur = t.current;
+  const rows = t.models.map((m) => {
+    const rec = !m.known ? pill('inconnu', '') : !m.fits ? pill('ne tient pas en VRAM', 'err') : m.tight ? pill('serré', 'warn') : pill('tient', 'ok');
+    const curTokens = (cur.ctx || 4096) * cur.parallel;
+    const over = m.known && m.fits && curTokens > m.tokens;
+    return el('tr', {}, el('td', {}, el('strong', { text: m.name })), el('td', { class: 'nowrap', text: fmtBytes(m.weights) }), el('td', { text: m.max ? DEC(m.max) : '-' }),
+      el('td', {}, m.known && m.fits ? m.parallel + ' en parallèle, contexte ' + DEC(m.ctx) : '-', ' ', rec, over ? el('div', { class: 'small error', text: 'Le réglage actuel dépasse la mémoire disponible pour ce modèle.' }) : null),
+      el('td', {}, m.known && m.fits && m.ctx ? el('button', { class: 'btn sm primary', type: 'button', text: 'Appliquer', onclick: () => tuningApply(m) }) : null));
+  });
+  box.replaceChildren(el('div', { class: 'small muted', text: 'Mémoire vidéo : ' + fmtBytes(t.vram) + ' (' + t.gpus.join(', ') + ') - réglage actuel : contexte ' + (cur.ctx ? DEC(cur.ctx) : 'par défaut') + ', ' + cur.parallel + ' en parallèle, cache ' + cur.kv_type }),
+    t.models.length ? el('div', { class: 'table-wrap' }, el('table', {}, el('thead', {}, el('tr', {}, ...['Modèle', 'Poids', 'Contexte maximal', 'Recommandation', ''].map((x) => el('th', { text: x })))), el('tbody', {}, ...rows))) : el('p', { class: 'muted', text: 'Aucun modèle installé.' }));
+}
+async function tuningApply(m) {
+  if (!(await ask('Appliquer à tous les modèles : ' + m.parallel + ' en parallèle, contexte ' + m.ctx + ' jetons ? Ollama redémarre et les modèles chargés sont déchargés.', { ok: 'Appliquer' }))) return;
+  try { await api('/api/tuning/apply', { json: { parallel: m.parallel, ctx: m.ctx } }); setTimeout(loadTuning, 4000); await notify('Réglage appliqué : Ollama redémarre.', { title: 'Réglage automatique' }); } catch (e) { fail(e.message); }
+}
+$('#tuning-refresh').addEventListener('click', loadTuning);
+
+/* ------------------------------------------------ limites des clés */
+function keyLimits(k, u) {
+  const n = (x) => (x >= 1e6 ? DEC((x / 1e6).toFixed(1)) + ' M' : x >= 1e3 ? DEC((x / 1e3).toFixed(0)) + ' k' : String(x));
+  const parts = [];
+  if (k.max_concurrent) {
+    parts.push('au plus ' + k.max_concurrent + ' simultanée(s)');
+    if (u && (u.running || u.waiting)) parts.push(u.running + ' en cours, ' + u.waiting + ' en attente');
+  }
+  if (k.quota_day) parts.push('jour : ' + n((u && u.day) || 0) + ' / ' + n(k.quota_day) + ' jetons');
+  if (k.quota_month) parts.push('mois : ' + n((u && u.month) || 0) + ' / ' + n(k.quota_month) + ' jetons');
+  if (!parts.length && u && u.total) parts.push(n(u.total) + ' jetons au total');
+  return parts.length ? parts : ['sans limite'];
+}
+
+/* ------------------------------------------------ alertes (configuration) */
+async function loadAlerts() {
+  if (!isAdmin()) return;
+  let v;
+  try { v = await api('/api/alerts'); } catch (e) { $('#al-msg').className = 'small error'; $('#al-msg').textContent = e.message; return; }
+  const f = $('#al-form'), c = v.config;
+  f.elements.enabled.checked = c.enabled; f.elements.webhook.value = c.webhook.url || '';
+  f.elements.smtp_host.value = c.smtp.host || ''; f.elements.smtp_port.value = c.smtp.port || 587; f.elements.smtp_starttls.checked = c.smtp.starttls !== false;
+  f.elements.smtp_user.value = c.smtp.user || ''; f.elements.smtp_password.value = ''; f.elements.smtp_password.placeholder = c.smtp.has_password ? 'Mot de passe enregistré (laisser vide pour le conserver)' : 'Aucun mot de passe enregistré';
+  f.elements.smtp_from.value = c.smtp.from || ''; f.elements.smtp_to.value = (c.smtp.to || []).join('\n');
+  f.elements.disk_pct.value = c.disk_pct; f.elements.gpu_temp.value = c.gpu_temp; f.elements.tps_min.value = c.tps_min;
+  checkList('#al-events', 'event', Object.keys(v.events), c.events, v.events);
+  $('#al-active').replaceChildren(...(v.active.length ? [el('ul', { class: 'alerts' }, ...v.active.map((x) => el('li', { text: x.text })))] : [el('p', { class: 'muted small', text: 'Aucune alerte active.' })]),
+    ...(v.last_error ? [el('p', { class: 'small error', text: 'Dernier échec d\'envoi : ' + v.last_error })] : []));
+}
+function alertsBody(f) {
+  return { enabled: f.elements.enabled.checked, webhook: { url: f.elements.webhook.value.trim() },
+    smtp: { host: f.elements.smtp_host.value.trim(), port: Number(f.elements.smtp_port.value) || 587, starttls: f.elements.smtp_starttls.checked, user: f.elements.smtp_user.value.trim(),
+      password: f.elements.smtp_password.value, from: f.elements.smtp_from.value.trim(), to: f.elements.smtp_to.value.split('\n').map((x) => x.trim()).filter(Boolean) },
+    events: checkedValues(f, 'event'), disk_pct: Number(f.elements.disk_pct.value), gpu_temp: Number(f.elements.gpu_temp.value), tps_min: Number(f.elements.tps_min.value) || 0 };
+}
+$('#al-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const msg = $('#al-msg');
+  try { await api('/api/alerts/config', { json: alertsBody(ev.target) }); msg.className = 'small okmsg'; msg.textContent = 'Enregistré.'; loadAlerts(); }
+  catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
+});
+$('#al-test').addEventListener('click', async () => {
+  const msg = $('#al-msg');
+  try {
+    await api('/api/alerts/config', { json: alertsBody($('#al-form')) });
+    const r = await api('/api/alerts/test', { json: {} });
+    msg.className = 'small'; msg.textContent = '';
+    await notify(Object.entries(r.results).map(([k, v]) => k + ' : ' + (v === 'ok' ? 'envoyé' : 'échec - ' + v)).join('\n'), { title: 'Message de test' });
+    loadAlerts();
+  } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
+});
+
+/* ------------------------------------------------ sauvegarde de la configuration */
+$('#bk-export').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const msg = $('#bk-msg'), f = ev.target;
+  try {
+    const r = await api('/api/backup/export', { json: { passphrase: f.elements.passphrase.value }, raw: true });
+    const url = URL.createObjectURL(await r.blob());
+    const a = el('a', { href: url, download: 'ollamabuntu-config-' + new Date().toISOString().slice(0, 10) + '.obbk' });
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+    f.elements.passphrase.value = ''; msg.className = 'small okmsg'; msg.textContent = 'Fichier exporté : conservez-le avec la phrase secrète, séparément.';
+  } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
+});
+$('#bk-import').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const msg = $('#bk-import-msg'), f = ev.target, file = f.elements.file.files[0];
+  if (!file) return;
+  msg.className = 'small'; msg.textContent = 'Lecture...';
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    const body = { data: btoa(bin), passphrase: f.elements.passphrase.value };
+    const r = await api('/api/backup/import', { json: body });
+    msg.textContent = '';
+    if (!(await ask('Restaurer la configuration de la version ' + r.summary.version + ' (' + r.summary.created + ') ?\nFichiers : ' + r.summary.files.join(', ') + '.\nLa configuration actuelle de ces fichiers sera remplacée, puis Ollama, le routeur et la console redémarrent.', { ok: 'Restaurer', danger: true }))) return;
+    await api('/api/backup/import', { json: Object.assign(body, { apply: true }) });
+    f.elements.passphrase.value = '';
+    await notify('Configuration restaurée : la console redémarre, reconnectez-vous.', { title: 'Restauration' });
+    setTimeout(() => location.reload(), 4000);
+  } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
+});
+
+/* ------------------------------------------------ retour à une version précédente */
+async function loadRollback() {
+  if (!isAdmin()) return;
+  let d;
+  try { d = await api('/api/update/backups'); } catch (e) { $('#rb-list').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  const stampDate = (s) => s.slice(6, 8) + '/' + s.slice(4, 6) + '/' + s.slice(0, 4) + ' ' + s.slice(9, 11) + ':' + s.slice(11, 13);
+  $('#rb-list').replaceChildren(...(d.backups.length ? [el('div', { class: 'table-wrap' }, el('table', {}, el('thead', {}, el('tr', {}, ...['Version', 'Sauvegardée le', ''].map((x) => el('th', { text: x })))),
+    el('tbody', {}, ...d.backups.map((b) => el('tr', {}, el('td', {}, el('strong', { text: 'v' + b.version }), b.version === d.installed ? ' ' : '', b.version === d.installed ? pill('installée', 'info') : null),
+      el('td', { text: stampDate(b.stamp) }),
+      el('td', {}, b.version === d.installed ? null : el('button', { class: 'btn sm', type: 'button', text: 'Revenir à cette version', onclick: () => rollbackTo(b, d.installed) })))))))]
+    : [el('p', { class: 'muted small', text: 'Aucune sauvegarde : la première mise à jour en créera une.' })]));
+}
+function rollbackTo(b, installed) {
+  return applianceUpdate({ action: 'appliance-rollback', file: b.file,
+    confirm: 'Revenir de v' + installed + ' à v' + b.version + ' ?\nLes fichiers de l\'appliance de cette version sont restaurés ; comptes, réglages d\'Ollama et modèles sont conservés. Les services IA redémarrent.',
+    intro: 'Restauration des fichiers de la version précédente.' });
+}
+
+/* ------------------------------------------------ règles de routage et vérification du parc */
+async function loadRules(v) {
+  if (!isAdmin()) return;
+  let r, p;
+  try { r = (await api('/api/fleet/rules')).rules; p = await api('/api/publication'); } catch (e) { return; }
+  const keyName = Object.fromEntries(p.keys.map((k) => [k.id, k.name]));
+  const srv = Object.fromEntries(v.servers.filter((s) => s.route).map((s) => [s.id, s.name]));
+  rulesState.rules = r;
+  const f = $('#rules-form');
+  f.elements.key.replaceChildren(el('option', { value: '*', text: 'Tous les clients' }), ...p.keys.map((k) => el('option', { value: k.id, text: k.name })));
+  f.elements.server.replaceChildren(el('option', { value: 'local', text: 'Ce serveur' }), ...Object.entries(srv).map(([id, n]) => el('option', { value: id, text: n })));
+  $('#rules-list').replaceChildren(...(r.length ? [el('div', { class: 'table-wrap' }, el('table', {}, el('thead', {}, el('tr', {}, ...['Client', 'Modèle', 'Règle', 'Serveur', ''].map((x) => el('th', { text: x })))),
+    el('tbody', {}, ...r.map((x, i) => el('tr', {}, el('td', { text: x.key === '*' ? 'Tous les clients' : (keyName[x.key] || '(clé supprimée)') }), el('td', { text: x.model }),
+      el('td', { text: x.mode === 'only' ? 'Uniquement sur' : 'Jamais sur' }), el('td', { text: x.server === 'local' ? 'Ce serveur' : (srv[x.server] || '(serveur retiré)') }),
+      el('td', {}, el('button', { class: 'btn sm danger', type: 'button', text: 'Retirer', onclick: () => rulesSave(r.filter((_, j) => j !== i)) })))))))]
+    : [el('p', { class: 'muted small', text: 'Aucune règle : le routeur choisit selon la charge.' })]));
+}
+const rulesState = { rules: [] };
+async function rulesSave(rules) {
+  const msg = $('#rules-msg');
+  try { await api('/api/fleet/rules', { json: { rules } }); msg.className = 'small okmsg'; msg.textContent = 'Enregistré.'; loadFleet(); }
+  catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
+}
+$('#rules-form').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const f = ev.target;
+  rulesSave(rulesState.rules.concat([{ key: f.elements.key.value, model: f.elements.model.value.trim(), server: f.elements.server.value, mode: f.elements.mode.value }]));
+});
+$('#bal-check').addEventListener('click', async () => {
+  const msg = $('#bal-msg');
+  msg.className = 'small'; msg.textContent = 'Vérification en cours (chaque serveur génère quelques mots)...'; $('#bal-check').disabled = true;
+  try {
+    const r = await api('/api/fleet/check', { json: {} });
+    msg.textContent = '';
+    await modal({ title: 'Vérification du parc', message: 'Modèle de référence : ' + r.model,
+      body: el('div', { class: 'table-wrap' }, el('table', {}, el('thead', {}, el('tr', {}, ...['Serveur', 'Résultat', 'Détail', 'Durée', 'Débit'].map((x) => el('th', { text: x })))),
+        el('tbody', {}, ...r.results.map((x) => el('tr', {}, el('td', {}, el('strong', { text: x.server })), el('td', {}, x.ok ? pill('répond', 'ok') : pill('échec', 'err')),
+          el('td', { class: 'small', text: x.ok ? x.note : x.error }), el('td', { class: 'nowrap', text: x.ms ? DEC((x.ms / 1000).toFixed(1)) + ' s' : '-' }), el('td', { class: 'nowrap', text: x.tps ? DEC(x.tps) + ' t/s' : '-' })))))), ok: 'Fermer', cancel: null });
+  } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
+  $('#bal-check').disabled = false;
+});

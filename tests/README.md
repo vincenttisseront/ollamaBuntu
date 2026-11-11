@@ -10,6 +10,12 @@
 ```sh
 make test          # ou, séparément :
 python3 tests/unit/router_balance_test.py
+python3 tests/unit/limits_test.py          # plafonds, quotas, règles de routage
+python3 tests/unit/monitor_test.py         # débordement CPU/GPU, recommandations, alertes
+python3 tests/unit/admin_features_test.py  # console : limites, règles, test du parc, alertes
+python3 tests/unit/backup_test.py          # sauvegarde chiffrée, quantifications et VRAM
+bash tests/unit/rollback_test.sh           # retour arrière (racine factice)
+node tests/unit/ops_ui_test.js             # console : nouveaux écrans (jsdom)
 python3 tests/unit/hf_test.py            # recherche Hugging Face (faux serveur local)
 python3 tests/unit/gpu_auto_test.py
 bash    tests/unit/crypt_engine_test.sh      # nécessite : cryptsetup, swtpm, tpm2-tools, clevis

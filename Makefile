@@ -2,7 +2,7 @@
 
 lint:
 	# SC2319 exclu : les tests écrivent « [ condition ]; ok $$? » à dessein (le code de retour de la condition)
-	shellcheck -S warning -e SC2034,SC2154,SC2319 build.sh lib/*.sh src/installer/*.sh src/rootfs/usr/local/sbin/ollamabuntu-update tests/unit/*.sh
+	shellcheck -S warning -e SC2034,SC2154,SC2319 build.sh lib/*.sh src/installer/*.sh src/rootfs/usr/local/sbin/ollamabuntu-update src/rootfs/usr/local/lib/ollamabuntu/rollback.sh tests/unit/*.sh
 
 I18N = python3 tools/i18n/build_catalog.py
 
@@ -21,10 +21,13 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/limits_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/monitor_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/admin_features_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/backup_test.py
+	bash tests/unit/rollback_test.sh
 
 # Console web (jsdom requis : npm install --no-save jsdom@24)
 test-ui:
 	node tests/unit/online_update_ui_test.js
+	node tests/unit/ops_ui_test.js
 
 # Archive de mise à jour en ligne (OB_VERSION=AAAA.MM.JJ-HHMM, OB_SIGNING_KEY=clé privée pour signer)
 bundle:

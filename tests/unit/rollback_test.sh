@@ -1,7 +1,7 @@
 #!/bin/bash
 # Retour arrière : restauration d'une sauvegarde de mise à jour dans une racine factice.
 set -u
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../.." || exit 1
 RB=$PWD/src/rootfs/usr/local/lib/ollamabuntu/rollback.sh
 n=0
 ok() { n=$((n+1)); if eval "$1"; then printf '[%02d] OK   - %s\n' "$n" "$2"; else printf '[%02d] ÉCHEC - %s\n' "$n" "$2"; exit 1; fi; }
