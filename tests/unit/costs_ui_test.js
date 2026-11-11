@@ -62,7 +62,7 @@ async function scenario(lang) {
   ok(await until(() => !$('#app').classList.contains('hidden')), L('console affichée', 'EN: shown'));
   w.location.hash = '#logs/costs';
   ok(await until(() => $$('#costs-clients tbody tr').length === 2), L('onglet « Coûts » chargé', 'EN: costs tab loaded'));
-  ok([...$$('#view-logs > .subtabs a')].map((a) => a.dataset.key).join() === 'requests,stats,costs,system', L('onglet placé après « Statistiques »', 'EN: tab order'));
+  ok([...$$('#view-logs > .subtabs a')].map((a) => a.dataset.key).join() === 'requests,stats,costs,privacy,system', L('onglet placé après « Statistiques »', 'EN: tab order'));
   ok([...$('#costs-month').options].map((o) => o.value).join() === '2026-11,2026-10' && $('#costs-month').value === '2026-11', L('sélecteur de mois : mois en cours sélectionné', 'EN: month selector'));
   const k = $$('#costs-total .card').map((c) => c.textContent);
   ok(k.length === 5 && k[1].includes('100') && k[2].includes('12') && k[3].includes('3') && k[4].includes('13') && k[4].includes('€'), L('indicateurs : requêtes, jetons, temps de calcul, énergie, coût', 'EN: KPIs'));

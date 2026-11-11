@@ -30,11 +30,14 @@ node tests/unit/batch2_ui_test.js          # console : thème, cloche, statistiq
 node tests/unit/batch3_ui_test.js          # console : Performance, disponibilité GPU, matériel, audit, rapport, espace disque, plafonds, catalogue multi-registres (jsdom, FR et EN)
 python3 tests/unit/router_failover_test.py      # routeur : reprise automatique sur un autre serveur (vrais échanges HTTPS simulés), disjoncteur, requêtes sauvées
 python3 tests/unit/queue_test.py                 # file d'attente : priorités, vieillissement, plafond global, file pleine, délai dépassé, routeur en vrais échanges HTTP
+python3 tests/unit/privacy_test.py               # confidentialité : motifs (IBAN, carte, sécu, téléphone, e-mail, IP, secrets), anonymisation avant le modèle, termes interdits globaux et par clé, routeur de bout en bout
+python3 tests/unit/privacy_admin_test.py         # confidentialité côté console : réglages, statistiques, essai, termes par clé, routes, audit
 python3 tests/unit/sso_test.py                   # connexion unique : jetons OIDC (RS256, nonce, aud, exp), PKCE, LDAP/AD simulé (LDAPS, StartTLS, injection de filtre), rôles par groupe, comptes SSO, routes HTTP
 python3 tests/unit/costs_test.py                 # coûts : temps de calcul, énergie, registre mensuel alimenté par le journal, équipes, export CSV, rapport hebdomadaire
 python3 tests/unit/modelupdate_test.py          # mise à jour des modèles : fenêtre de maintenance, copie de sécurité, retour arrière automatique ou manuel (Ollama simulé)
 python3 tests/unit/evals_test.py                  # laboratoire : critères, comparaison, jeux de tests, rejeu automatique (Ollama simulé)
 node tests/unit/queue_ui_test.js             # console : Serveurs > File d'attente, protection de la carte graphique, priorité d'une clé, FR et EN
+node tests/unit/privacy_ui_test.js           # console : Journaux > Confidentialité (statistiques, réglages, essai), termes interdits d'une clé, FR et EN
 node tests/unit/sso_ui_test.js               # console : bouton de la page de connexion, codes d'erreur, Utilisateurs > Connexion unique (SSO), comptes SSO, FR et EN
 node tests/unit/costs_ui_test.js             # console : Journaux > Coûts (mois, équipes, clés, paramètres, export), équipe d'une clé, FR et EN
 node tests/unit/modelupdate_ui_test.js      # console : Modèles > Mises à jour (réglages, vérification, retour arrière, historique) en jsdom, FR et EN

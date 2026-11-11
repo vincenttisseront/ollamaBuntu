@@ -26,6 +26,7 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import limits  # noqa: E402
+import privacy  # noqa: E402
 
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
 POOLS_FILE = os.path.join(ETC, "pools.json")
@@ -121,14 +122,17 @@ def reqlog_conf():
     return {"prompt_excerpt": d.get("prompt_excerpt") is True, "chars": chars}
 
 
-# Extrait de la demande (seulement si l'administrateur l'a activé) : début de la dernière question, secrets masqués
-MASKS = (
-    (re.compile(r"(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{12,}"), "[jeton]"),
-    (re.compile(r"\b(?:sk|pk|obf|obr|ghp|gho|xox[abp])[-_][A-Za-z0-9_-]{16,}"), "[clé]"),
-    (re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?\b"), "[IBAN]"),
-    (re.compile(r"\b(?:\d[ -]?){12,19}\b"), "[numéro]"),
-    (re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"), "[e-mail]"),
-)
+PRIVACY_CONF = os.path.join(ETC, "privacy.json")   # écrit par la console : catégories masquées, anonymisation, termes interdits
+_pvc = {"mtime": None, "data": {}}
+
+
+def privacy_conf():
+    """Réglages de confidentialité, relus à chaud (valeurs invalides : réglages par défaut)."""
+    d = hot_json(PRIVACY_CONF, _pvc)
+    try:
+        return privacy.config_clean(d)
+    except ValueError:
+        return privacy.default_config()
 
 
 def last_user_text(path, d):
@@ -156,17 +160,15 @@ def last_user_text(path, d):
     return ""
 
 
-def prompt_excerpt(path, body, chars):
+def prompt_excerpt(path, body, chars, cats=None):
+    """Extrait de la demande (seulement si l'administrateur l'a activé) : début de la dernière question, données sensibles masquées."""
     try:
         d = json.loads(body)
     except ValueError:
         return ""
     if not isinstance(d, dict):
         return ""
-    text = " ".join(last_user_text(path, d)[: chars * 4].split())   # masquage avant la coupe : un secret coupé en deux échapperait aux motifs
-    for rx, label in MASKS:
-        text = rx.sub(label, text)
-    return text if len(text) <= chars else text[: chars - 1].rstrip() + "…"
+    return privacy.excerpt_text(last_user_text(path, d), cats if cats is not None else privacy.DEFAULT_ON, chars)
 # Taille du contexte choisie par modèle dans la console (relue à chaud)
 CTX_FILE = os.path.join(ETC, "model-context.json")
 CTX_PATHS = ("/api/generate", "/api/chat", "/api/embed", "/api/embeddings")
@@ -809,7 +811,7 @@ class Router(http.server.BaseHTTPRequestHandler):
                              "model": self.model_of(path, body) if body else None}
             conf = reqlog_conf()
             if conf["prompt_excerpt"] and body:   # désactivé par défaut : réglage de la console (Journaux > Requêtes)
-                excerpt = prompt_excerpt(path, body, conf["chars"])
+                excerpt = prompt_excerpt(path, body, conf["chars"], privacy.active_cats(privacy_conf()))
                 if excerpt:
                     self.req_meta["prompt"] = excerpt
         if r is not None:
@@ -834,6 +836,23 @@ class Router(http.server.BaseHTTPRequestHandler):
                 why = _tokens.exceeded(kid, key.get("quota_day"), key.get("quota_month"))
                 if why:
                     return self.deny(429, "%s pour « %s »" % (why, who))
+        if path in INFERENCE and body:   # confidentialité : détection, anonymisation, termes interdits (globaux + ceux de la clé)
+            pc = privacy_conf()
+            kwords = list((self._key or {}).get("words") or []) if r is not None else []
+            words = list(pc.get("words") or []) + kwords
+            if pc.get("detect", True) or pc.get("anonymize") or words:
+                body, pres = privacy.process(body, pc, words)
+                if self.req_meta is not None:
+                    if pres.cats:
+                        self.req_meta["pii"] = sorted(pres.cats)
+                    if pres.changed:
+                        self.req_meta["masked"] = True
+                if pres.hits and pc.get("words_action", "block") == "block":
+                    who = "local" if r is None else r[0]
+                    if self.req_meta is not None:
+                        log_request(dict(self.req_meta, ts=round(self.t0, 3), instance="-", status=403, aborted=False, ms=round((time.time() - self.t0) * 1000),
+                                         ttft_ms=None, blocked=True, retried=[]))
+                    return self.deny(403, "demande refusée pour « %s » : elle contient un terme interdit par la politique de confidentialité (« %s »)" % (who, pres.hits[0]))
         if path in INFERENCE:   # file d'attente : priorité de la clé, plafond de la clé, plafond global (mémoire de la carte graphique)
             if r is not None:
                 gk, gwho, gkey = r[3] or "anonyme", r[0], self._key or {}

@@ -1,0 +1,43 @@
+# Confidentialité des demandes : données sensibles masquées, anonymisation, termes interdits
+E = {
+"Confidentialité": "Privacy", "Confidentialité des demandes": "Request privacy", "Actualiser": "Refresh",
+"Détecte les données sensibles dans les demandes envoyées aux modèles, les masque dans les extraits enregistrés, peut les retirer avant qu'elles n'atteignent le modèle (« anonymiser »), et refuse ou masque les termes interdits. Seules les catégories détectées sont journalisées, jamais le contenu. La détection repose sur des motifs usuels : elle n'attrape pas les noms propres ni les adresses postales.":
+    "Detects sensitive data in the requests sent to the models, masks it in the saved excerpts, can remove it before it reaches the model (\"anonymize\"), and refuses or masks forbidden terms. Only the detected categories are logged, never the content. Detection relies on common patterns: it does not catch proper names or postal addresses.",
+"Réglages": "Settings", "Données sensibles": "Sensitive data",
+"Détecter et signaler dans le journal (catégories seulement)": "Detect and flag in the log (categories only)",
+"Anonymiser : remplacer les données détectées avant d'envoyer la demande au modèle": "Anonymize: replace detected data before the request is sent to the model",
+"Le modèle (et, en parc, un autre serveur) ne voit alors que « [e-mail] », « [IBAN] »... ; ses réponses peuvent en être moins précises. Les images, les outils et les paramètres de la demande ne sont pas modifiés.":
+    "The model (and, in a fleet, another server) then only sees \"[e-mail]\", \"[IBAN]\"...; its answers may be less precise. Images, tools and request parameters are not modified.",
+"Termes interdits": "Forbidden terms",
+"Termes interdits pour tous les clients (un par ligne ; casse et accents ignorés ; mots entiers)": "Forbidden terms for all clients (one per line; case and accents ignored; whole words)",
+"ex. projet orion": "e.g. project orion",
+"Quand une demande contient un terme interdit": "When a request contains a forbidden term",
+"La refuser (erreur 403, rien n'est envoyé au modèle)": "Refuse it (error 403, nothing is sent to the model)",
+"Masquer le terme et continuer": "Mask the term and continue",
+"Chaque clé d'API peut aussi avoir ses propres termes (Système > Publication de l'API). Les termes d'un client s'ajoutent à cette liste.": "Each API key can also have its own terms (System > API publication). A client's terms are added to this list.",
+"Essayer sur un texte": "Try on a text",
+"Applique les réglages enregistrés. Le texte saisi n'est ni enregistré ni consigné.": "Applies the saved settings. The text you type is neither saved nor logged.",
+"Texte d'essai": "Test text", "Essayer": "Try",
+"ex. Écrivez à marie@exemple.fr, IBAN FR76 3000 6000 0112 3456 7890 189": "e.g. Write to marie@example.com, IBAN FR76 3000 6000 0112 3456 7890 189",
+"Secrets (jetons, clés d'API, mots de passe annoncés) : toujours masqués": "Secrets (tokens, API keys, announced passwords): always masked", "Numéro de sécurité sociale": "Social security number",
+"Numéros longs (cartes bancaires...)": "Long numbers (bank cards...)", "Téléphones": "Phone numbers", "Adresses e-mail": "E-mail addresses", "Adresses IP": "IP addresses",
+"Secrets": "Secrets", "Sécurité sociale": "Social security", "Numéros longs": "Long numbers", "E-mails": "E-mails",
+"Dernières 24 h": "Last 24 h", "7 derniers jours": "Last 7 days",
+"Avec données sensibles": "With sensitive data", "Masquées avant le modèle": "Masked before the model", "Refusées (terme interdit)": "Refused (forbidden term)",
+"Aucune donnée sensible détectée.": "No sensitive data detected.", "Par client (24 h)": "By client (24 h)", "Masquées": "Masked", "Refusées": "Refused",
+"Texte reçu par le modèle : ": "Text received by the model: ", "Texte tel qu'il serait enregistré dans un extrait : ": "Text as it would be saved in an excerpt: ",
+"Termes interdits pour cette clé (facultatif, séparés par des virgules)": "Forbidden terms for this key (optional, comma-separated)", "ex. salaire, projet orion": "e.g. salary, project orion",
+"Termes interdits (séparés par des virgules)": "Forbidden terms (comma-separated)",
+"action sur un terme interdit : refuser ou masquer": "action on a forbidden term: refuse or mask",
+"termes interdits : une liste est attendue": "forbidden terms: a list is expected",
+"Confidentialité des demandes (réglages)": "Request privacy (settings)",
+}
+P = [
+(r"(\d+) terme\(s\) interdit\(s\)", "{1} forbidden term(s)"),
+(r"au plus (\d+) termes interdits", "at most {1} forbidden terms"),
+(r"terme interdit « (.*) » : (\d+) à (\d+) caractères, sans < > \"", "forbidden term \"{1}\": {2} to {3} characters, without < > \""),
+(r"Catégories détectées : (.+)\.", "Detected categories: {1}."),
+(r"Demande refusée : terme interdit « (.+) »\.", "Request refused: forbidden term \"{1}\"."),
+(r"Terme interdit masqué : « (.+) »\.", "Forbidden term masked: \"{1}\"."),
+(r"demande refusée pour « (.+) » : elle contient un terme interdit par la politique de confidentialité \(« (.+) »\)", "request refused for \"{1}\": it contains a term forbidden by the privacy policy (\"{2}\")"),
+]

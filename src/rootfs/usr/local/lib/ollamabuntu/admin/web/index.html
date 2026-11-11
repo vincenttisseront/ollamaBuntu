@@ -358,6 +358,7 @@
             <div class="row"><label>Contexte maximal (jetons, 0 = sans plafond) <input name="max_ctx" type="number" min="0" max="2000000" value="0"></label>
               <label>Réponse maximale (jetons, 0 = sans plafond) <input name="max_output" type="number" min="0" max="1000000" value="0"></label>
               <label>Équipe (facultatif, pour répartir les coûts) <input name="team" maxlength="40" list="team-list" placeholder="ex. Ressources humaines"></label><datalist id="team-list"></datalist>
+              <label>Termes interdits pour cette clé (facultatif, séparés par des virgules) <input name="words" maxlength="600" placeholder="ex. salaire, projet orion"></label>
               <label>Priorité dans la file d'attente <select name="priority"><option value="1">Haute (passe en premier)</option><option value="2" selected>Normale</option><option value="3">Basse (traitements de fond)</option></select></label></div>
             <p class="muted small">Au-delà du plafond, les requêtes d'un client attendent leur tour (jusqu'à 10 minutes). Au-delà d'un quota, elles sont refusées (erreur 429) jusqu'à la période suivante.</p>
             <div class="row"><button class="btn primary" type="submit">Créer la clé</button><span id="key-msg" class="small"></span></div>
@@ -756,6 +757,38 @@
           <label>Devise <input name="currency" maxlength="4" size="4" required></label>
           <button class="btn primary" type="submit">Enregistrer</button><span id="costs-cfg-msg" class="small" aria-live="polite"></span>
         </form>
+      </div>
+      <div class="card wide" data-admin data-panel="privacy" data-label="Confidentialité">
+        <div class="card-head"><h2>Confidentialité des demandes</h2><button id="privacy-refresh" class="btn" type="button">Actualiser</button></div>
+        <p class="muted small">Détecte les données sensibles dans les demandes envoyées aux modèles, les masque dans les extraits enregistrés, peut les retirer avant qu'elles n'atteignent le modèle (« anonymiser »), et refuse ou masque les termes interdits. Seules les catégories détectées sont journalisées, jamais le contenu. La détection repose sur des motifs usuels : elle n'attrape pas les noms propres ni les adresses postales.</p>
+        <div id="privacy-msg" class="small" aria-live="polite"></div>
+        <div id="privacy-stats"></div>
+      </div>
+      <div class="card" data-admin data-panel="privacy" data-label="Confidentialité">
+        <h2>Réglages</h2>
+        <form id="privacy-form" class="sso-form" autocomplete="off">
+          <fieldset>
+            <legend>Données sensibles</legend>
+            <label class="check"><input type="checkbox" name="detect"> Détecter et signaler dans le journal (catégories seulement)</label>
+            <label class="check"><input type="checkbox" name="anonymize"> Anonymiser : remplacer les données détectées avant d'envoyer la demande au modèle</label>
+            <p class="muted small">Le modèle (et, en parc, un autre serveur) ne voit alors que « [e-mail] », « [IBAN] »... ; ses réponses peuvent en être moins précises. Les images, les outils et les paramètres de la demande ne sont pas modifiés.</p>
+            <div id="privacy-cats" class="privacy-cats"></div>
+          </fieldset>
+          <fieldset>
+            <legend>Termes interdits</legend>
+            <label>Termes interdits pour tous les clients (un par ligne ; casse et accents ignorés ; mots entiers)<textarea name="words" rows="4" spellcheck="false" placeholder="ex. projet orion"></textarea></label>
+            <label>Quand une demande contient un terme interdit <select name="words_action"><option value="block">La refuser (erreur 403, rien n'est envoyé au modèle)</option><option value="mask">Masquer le terme et continuer</option></select></label>
+            <p class="muted small">Chaque clé d'API peut aussi avoir ses propres termes (Système > Publication de l'API). Les termes d'un client s'ajoutent à cette liste.</p>
+          </fieldset>
+          <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="privacy-cfg-msg" class="small" aria-live="polite"></span></div>
+        </form>
+        <h3>Essayer sur un texte</h3>
+        <p class="muted small">Applique les réglages enregistrés. Le texte saisi n'est ni enregistré ni consigné.</p>
+        <form id="privacy-test-form" autocomplete="off">
+          <label>Texte d'essai<textarea name="text" rows="3" maxlength="5000" spellcheck="false" placeholder="ex. Écrivez à marie@exemple.fr, IBAN FR76 3000 6000 0112 3456 7890 189"></textarea></label>
+          <div class="row"><button id="privacy-test" class="btn" type="submit">Essayer</button></div>
+        </form>
+        <div id="privacy-test-out" class="small" aria-live="polite"></div>
       </div>
       <div class="card" data-panel="stats" data-label="Statistiques">
         <div class="card-head"><h2>Utilisation des modèles</h2>

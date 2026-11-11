@@ -275,3 +275,4 @@ label.block{display:block;margin:8px 0}
 .sso-form textarea{width:100%;font-family:ui-monospace,monospace;font-size:12px}
 .sso-role input{flex:1 1 280px}
 .sso-tag{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:var(--brand);color:#fff;font-size:11px;vertical-align:middle}
+.privacy-cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:2px 16px;margin-top:6px}

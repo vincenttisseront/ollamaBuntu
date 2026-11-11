@@ -248,7 +248,7 @@ function route() {
   if (v === 'system') { loadSystem(); loadProm(); const tab = currentTab('system'); if (tab === 'hardware') loadHardware(); if (tab === 'audit') loadAudit(); if (tab === 'report') loadReport(); }
   if (v === 'webui') loadWebui();
   if (v === 'users') { loadUsers(); loadSso(); }
-  if (v === 'logs') { loadRequests(); loadReqSettings(); loadLogs(); if (currentTab('logs') === 'stats') loadStats(); if (isAdmin()) loadCosts(); state.timer = setInterval(() => { if ($('#req-live').checked && currentTab('logs') === 'requests') loadRequests(); }, 4000); }
+  if (v === 'logs') { loadRequests(); loadReqSettings(); loadLogs(); if (currentTab('logs') === 'stats') loadStats(); if (isAdmin()) { loadCosts(); loadPrivacy(); } state.timer = setInterval(() => { if ($('#req-live').checked && currentTab('logs') === 'requests') loadRequests(); }, 4000); }
   if (v === 'account') loadAccount();
   if (v === 'about') loadCredits();
   if (v === 'fleet') { loadFleet(); loadBalance(); loadQueue(); state.timer = setInterval(() => { loadFleet(); loadBalance(); loadQueue(); }, 10000); }
@@ -849,7 +849,7 @@ $('#key-form').addEventListener('submit', async (ev) => {
   const f = ev.target;
   try {
     const r = await api('/api/publication/keys/create', { json: { name: f.elements.name.value.trim(), perms: checkedValues(f, 'perm'), models: checkedValues(f, 'model'), deny: checkedValues(f, 'deny'),
-      max_concurrent: Number(f.elements.max_concurrent.value) || 0, priority: Number(f.elements.priority.value) || 2, team: f.elements.team.value.trim(), max_ctx: Number(f.elements.max_ctx.value) || 0, max_output: Number(f.elements.max_output.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
+      max_concurrent: Number(f.elements.max_concurrent.value) || 0, priority: Number(f.elements.priority.value) || 2, team: f.elements.team.value.trim(), words: f.elements.words.value, max_ctx: Number(f.elements.max_ctx.value) || 0, max_output: Number(f.elements.max_output.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
     f.elements.name.value = ''; f.elements.expires.value = ''; $('#key-msg').textContent = '';
     await loadPublication();
     const code = el('code', { class: 'token', text: r.token });
@@ -1718,6 +1718,53 @@ $('#costs-form').addEventListener('submit', async (ev) => {
   catch (e) { $('#costs-cfg-msg').className = 'small error'; $('#costs-cfg-msg').textContent = e.message; }
 });
 
+/* ------------------------------------------------ confidentialité */
+const CAT_NAME = { secret: 'Secrets (jetons, clés d\'API, mots de passe annoncés) : toujours masqués', iban: 'IBAN', nir: 'Numéro de sécurité sociale', number: 'Numéros longs (cartes bancaires...)', phone: 'Téléphones', email: 'Adresses e-mail', ip: 'Adresses IP' };
+const CAT_SHORT = { secret: 'Secrets', iban: 'IBAN', nir: 'Sécurité sociale', number: 'Numéros longs', phone: 'Téléphones', email: 'E-mails', ip: 'Adresses IP' };
+async function loadPrivacy() {
+  if (!isAdmin()) return;
+  let d;
+  try { d = await api('/api/privacy'); } catch (e) { $('#privacy-msg').className = 'small error'; $('#privacy-msg').textContent = e.message; return; }
+  $('#privacy-msg').textContent = '';
+  const f = $('#privacy-form'), c = d.config;
+  f.elements.detect.checked = c.detect !== false; f.elements.anonymize.checked = !!c.anonymize;
+  if (w_active() !== f.elements.words) f.elements.words.value = (c.words || []).join('\n');
+  f.elements.words_action.value = c.words_action;
+  $('#privacy-cats').replaceChildren(...d.categories.map((k) => el('label', { class: 'check' },
+    el('input', { type: 'checkbox', 'data-cat': k, checked: k === 'secret' || !!c.categories[k], disabled: k === 'secret' }), ' ' + CAT_NAME[k])));
+  const nn = (x) => Number(x).toLocaleString(LOCALE());
+  const kpi = (label, value) => el('div', { class: 'card' }, el('h2', { text: label }), el('div', { class: 'big', text: value }));
+  const part = (title, s) => el('div', {}, el('h3', { text: title }),
+    el('div', { class: 'grid kpis' }, kpi('Demandes', nn(s.n)), kpi('Avec données sensibles', nn(s.with_pii)), kpi('Masquées avant le modèle', nn(s.masked)), kpi('Refusées (terme interdit)', nn(s.blocked))),
+    Object.keys(s.by_cat).length ? el('p', { class: 'small' }, ...Object.entries(s.by_cat).sort((x, y) => y[1] - x[1]).map(([k, v]) => el('span', { class: 'sso-tag' }, CAT_SHORT[k] + ' ', el('b', { text: nn(v) })))) : el('p', { class: 'muted small', text: 'Aucune donnée sensible détectée.' }));
+  const cl = d.day.clients.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Client', 'Demandes', 'Avec données sensibles', 'Masquées', 'Refusées'].map((h, i) => el('th', { class: i ? 'num' : '', text: h })))),
+    el('tbody', {}, ...d.day.clients.map((r) => el('tr', {}, el('td', { class: 'name', text: r.client }), el('td', { class: 'num', text: nn(r.n) }), el('td', { class: 'num', text: nn(r.pii) }), el('td', { class: 'num', text: nn(r.masked) }), el('td', { class: 'num', text: nn(r.blocked) })))))) : null;
+  $('#privacy-stats').replaceChildren(part('Dernières 24 h', d.day), part('7 derniers jours', d.week), ...(cl ? [el('h3', { text: 'Par client (24 h)' }), cl] : []));
+}
+$('#privacy-refresh').addEventListener('click', loadPrivacy);
+$('#privacy-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, out = $('#privacy-cfg-msg'), categories = {};
+  for (const b of $$('#privacy-cats input[data-cat]')) categories[b.dataset.cat] = b.checked;
+  try {
+    await api('/api/privacy/config', { json: { detect: f.elements.detect.checked, anonymize: f.elements.anonymize.checked, categories, words: f.elements.words.value, words_action: f.elements.words_action.value } });
+    out.className = 'small okmsg'; out.textContent = 'Enregistré.'; loadPrivacy();
+  } catch (e) { out.className = 'small error'; out.textContent = e.message; }
+});
+$('#privacy-test-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const out = $('#privacy-test-out');
+  out.className = 'small'; out.textContent = 'Essai en cours...';
+  try {
+    const d = await api('/api/privacy/test', { json: { text: ev.target.elements.text.value } });
+    const lines = [el('div', {}, el('strong', { text: d.anonymize ? 'Texte reçu par le modèle : ' : 'Texte tel qu\'il serait enregistré dans un extrait : ' }), el('code', { text: d.masked }))];
+    lines.push(el('div', { text: d.categories.length ? 'Catégories détectées : ' + d.categories.map((k) => CAT_SHORT[k]).join(', ') + '.' : 'Aucune donnée sensible détectée.' }));
+    if (d.hits.length) lines.push(el('div', { class: 'error', text: (d.action === 'block' ? 'Demande refusée : terme interdit « ' : 'Terme interdit masqué : « ') + d.hits.join(' », « ') + ' ».' }));
+    out.className = 'small'; out.replaceChildren(...lines);
+  } catch (e) { out.className = 'small error'; out.textContent = e.message; }
+});
+
 /* ------------------------------------------------ file d'attente */
 const fmtWait = (s) => (s >= 90 ? Math.round(s / 60) + ' min' : s < 10 ? DEC(Number(s).toFixed(1)) + ' s' : DEC(Math.round(s)) + ' s');
 async function loadQueue() {
@@ -2082,7 +2129,7 @@ function renderMuHistory(d) {
     el('tbody', {}, ...d.history.map((h) => { const s = MU_STATUS[h.status] || [h.status, '']; return el('tr', {}, el('td', { class: 'small', text: fmtDate(h.t) }), el('td', { class: 'name', text: h.model }), el('td', {}, pill(s[0], s[1])),
       el('td', { class: 'small', text: h.detail + (h.tps_before && h.tps_after ? ' (débit ' + DEC(h.tps_before) + ' → ' + DEC(h.tps_after) + ' jetons/s)' : '') }), el('td', { class: 'small', text: h.who + ' (' + h.reason + ')' })); })))) : el('p', { class: 'muted small', text: 'Aucune mise à jour enregistrée.' }));
 }
-const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'costs', 'system'], fleet: ['fleet', 'balance', 'queue', 'rules', 'add'] };
+const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'costs', 'privacy', 'system'], fleet: ['fleet', 'balance', 'queue', 'rules', 'add'] };
 function setupTabs() {
   for (const sec of $$('section.view')) {
     const items = [...sec.querySelectorAll('[data-panel]')];
@@ -2355,6 +2402,7 @@ function keyLimits(k, u) {
   if (k.quota_day) parts.push('jour : ' + n((u && u.day) || 0) + ' / ' + n(k.quota_day) + ' jetons');
   if (k.quota_month) parts.push('mois : ' + n((u && u.month) || 0) + ' / ' + n(k.quota_month) + ' jetons');
   if (k.team) parts.push('équipe : ' + k.team);
+  if (k.words && k.words.length) parts.push(k.words.length + ' terme(s) interdit(s)');
   if (k.priority && k.priority !== 2) parts.push('priorité ' + PRIO_NAME[k.priority]);
   if (k.max_ctx) parts.push('contexte ≤ ' + n(k.max_ctx) + ' jetons');
   if (k.max_output) parts.push('réponse ≤ ' + n(k.max_output) + ' jetons');
@@ -2970,10 +3018,11 @@ async function keyCaps(k) {
   const prio = el('select', { 'aria-label': 'Priorité dans la file d\'attente' }, ...[1, 2, 3].map((p) => el('option', { value: String(p), text: PRIO_NAME[p].charAt(0).toUpperCase() + PRIO_NAME[p].slice(1) })));
   prio.value = String(k.priority || 2);
   const team = el('input', { type: 'text', maxlength: '40', list: 'team-list', value: k.team || '', 'aria-label': 'Équipe' });
+  const words = el('input', { type: 'text', maxlength: '600', value: (k.words || []).join(', '), placeholder: 'ex. salaire, projet orion', 'aria-label': 'Termes interdits' });
   const ok = await modal({ title: 'Plafonds de la clé « ' + k.name + ' »', message: 'Ramène les demandes qui dépassent ces valeurs au plafond (en-tête de réponse X-OllamaBuntu-Clamped). 0 = sans plafond. Le contexte n\'est plafonné que s\'il est demandé explicitement. La priorité décide de l\'ordre de passage quand le serveur est saturé.',
-    body: el('div', { class: 'row' }, el('label', {}, 'Contexte maximal (jetons) ', ctx), el('label', {}, 'Réponse maximale (jetons) ', out), el('label', {}, 'Priorité dans la file d\'attente ', prio), el('label', {}, 'Équipe (pour répartir les coûts) ', team)), ok: 'Enregistrer' });
+    body: el('div', { class: 'row' }, el('label', {}, 'Contexte maximal (jetons) ', ctx), el('label', {}, 'Réponse maximale (jetons) ', out), el('label', {}, 'Priorité dans la file d\'attente ', prio), el('label', {}, 'Équipe (pour répartir les coûts) ', team), el('label', {}, 'Termes interdits (séparés par des virgules) ', words)), ok: 'Enregistrer' });
   if (!ok) return;
-  try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0, priority: Number(prio.value), team: team.value.trim() } }); await loadPublication(); } catch (e) { fail(e.message); }
+  try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0, priority: Number(prio.value), team: team.value.trim(), words: words.value } }); await loadPublication(); } catch (e) { fail(e.message); }
 }
 $('#bal-affinity').addEventListener('change', async () => {
   try { await api('/api/fleet/balance/strategy', { json: { affinity: $('#bal-affinity').checked } }); $('#bal-msg').className = 'small okmsg'; $('#bal-msg').textContent = 'Enregistré.'; } catch (e) { $('#bal-msg').className = 'small error'; $('#bal-msg').textContent = e.message; }

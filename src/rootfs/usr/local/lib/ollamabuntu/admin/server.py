@@ -37,6 +37,8 @@ import time
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # modules partagés avec le routeur
+import privacy  # noqa: E402  détection et masquage des données sensibles, termes interdits
 import updater  # noqa: E402  mise à jour depuis Internet (GitHub)
 import monitor  # noqa: E402  débordement CPU/GPU, alertes, réglages recommandés
 import backup  # noqa: E402  sauvegarde chiffrée de la configuration
@@ -405,6 +407,45 @@ def set_admin_cli(user, password):
         rec.update({"role": "admin", "linux": True, "updated": int(time.time()), "rev": secrets.token_hex(8)})
         users[user] = rec
         save_users(users)
+
+
+# ------------------------------------------------ confidentialité : données sensibles et termes interdits ---
+PRIVACY_FILE = os.path.join(ETC, "privacy.json")   # lu à chaud par le routeur (aucun secret)
+
+
+def privacy_config():
+    try:
+        return privacy.config_clean(load_json_file(PRIVACY_FILE, {}))
+    except ValueError:
+        return privacy.default_config()
+
+
+def privacy_save(data):
+    cfg = privacy.config_clean(data, privacy_config())
+    atomic_write(PRIVACY_FILE, json.dumps(cfg, ensure_ascii=False), 0o644)
+    return cfg
+
+
+def privacy_view():
+    reqs, now = read_requests(20000), time.time()
+    keys = [{"id": k["id"], "name": k["name"], "words": k.get("words") or []} for k in load_publication().get("keys", [])]
+    return {"config": privacy_config(), "day": privacy.stats(reqs, now, 86400, short_name), "week": privacy.stats(reqs, now, 7 * 86400, short_name), "keys": keys,
+            "limits": {"words": privacy.MAX_WORDS, "key_words": privacy.MAX_KEY_WORDS}, "categories": list(privacy.CATEGORIES)}
+
+
+def privacy_test(data):
+    """Essai sur un texte saisi dans la console : rien n'est enregistré ni consigné ; les réglages enregistrés sont appliqués."""
+    text = str(data.get("text") or "")[:5000]
+    cfg = privacy_config()
+    masked, found = privacy.mask_text(text, privacy.active_cats(cfg))
+    wrx = privacy.words_regex(cfg["words"] + privacy.words_clean(data.get("words") or [], privacy.MAX_KEY_WORDS))
+    hits = []
+    if wrx is not None:
+        for m in wrx.finditer(privacy.fold(text)):
+            w = text[m.start():m.end()]
+            if w not in hits:
+                hits.append(w)
+    return {"masked": masked, "categories": sorted(found), "hits": hits, "action": cfg["words_action"], "anonymize": cfg["anonymize"]}
 
 
 # ------------------------------------------------ connexion unique (SSO) : OpenID Connect, LDAP / Active Directory ---
@@ -1188,6 +1229,8 @@ def key_create(data):
         key.update(validate_limits(data))
         if data.get("team"):
             key["team"] = costs.team_clean(data["team"])
+        if data.get("words"):
+            key["words"] = privacy.words_clean(data["words"], privacy.MAX_KEY_WORDS)
         key["expires"] = validate_expiry(data.get("expires"))
         pub["keys"].append(key)
         save_publication(pub)   # le routeur relit le fichier : aucune interruption
@@ -1267,6 +1310,12 @@ def key_update(data):
             key.update(validate_limits(data, key))
         if "expires" in data:
             key["expires"] = validate_expiry(data.get("expires"))
+        if "words" in data:
+            words = privacy.words_clean(data["words"], privacy.MAX_KEY_WORDS)
+            if words:
+                key["words"] = words
+            else:
+                key.pop("words", None)
         if "team" in data:
             team = costs.team_clean(data["team"])
             if team:
@@ -1921,6 +1970,11 @@ def member_sync(caller, payload):
                                  "perms": validate_perms(k.get("perms")), "models": validate_models(k.get("models")),
                                  "deny": [x for x in KEY_RESTRICTIONS if x in (k.get("deny") or [])], "enabled": bool(k.get("enabled", True)),
                                  "created": k.get("created"), "synced_from": caller["id"]})
+                try:
+                    if k.get("words"):
+                        incoming[-1]["words"] = privacy.words_clean(k["words"], privacy.MAX_KEY_WORDS)
+                except ValueError:
+                    pass
             names = {k["name"].lower() for k in incoming}
             pub["keys"] = [k for k in local if k["name"].lower() not in names] + incoming
             save_publication(pub)
@@ -2144,7 +2198,7 @@ def fleet_sync(sid, kinds):
     if "policy" in kinds:
         payload["policy"] = {k: v for k, v in load_policy().items() if k in ("cloud", "ollama_internet", "webui_locked", "webui")}
     if "keys" in kinds:   # empreintes seulement : les clés elles-mêmes ne sont jamais conservées
-        payload["keys"] = [{k: v for k, v in key.items() if k in ("id", "name", "hash", "prefix", "perms", "models", "deny", "enabled", "created")}
+        payload["keys"] = [{k: v for k, v in key.items() if k in ("id", "name", "hash", "prefix", "perms", "models", "deny", "enabled", "created", "words")}
                            for key in load_publication()["keys"] if not key.get("synced_from")]
     custom = load_custom()
     if "custom" in kinds:
@@ -5260,7 +5314,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/costs", "/api/costs/export", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/costs", "/api/costs/export", "/api/privacy", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -5485,6 +5539,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self.send_json(400, {"error": str(e)})
                 print("coûts du mois %s exportés par %s" % (month, user), flush=True)
                 return self.send_head(200, "text/csv; charset=utf-8", len(body), {"Content-Disposition": 'attachment; filename="couts-%s.csv"' % month}) or self.wfile.write(body)
+            if path == "/api/privacy":
+                return self.send_json(200, privacy_view())
             if path == "/api/update/backups":
                 return self.send_json(200, {"backups": backups_list(), "installed": VERSION})
             if path == "/api/fleet/rules":
@@ -5819,6 +5875,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, sso_test(data))
             if path == "/api/costs/config":
                 return self.send_json(200, {"ok": True, "config": costs_save(data)})
+            if path == "/api/privacy/config":
+                return self.send_json(200, {"ok": True, "config": privacy_save(data)})
+            if path == "/api/privacy/test":
+                return self.send_json(200, privacy_test(data))
             if path == "/api/queue/config":
                 return self.send_json(200, {"ok": True, "settings": queue_save(data)})
             if path == "/api/models/context":
