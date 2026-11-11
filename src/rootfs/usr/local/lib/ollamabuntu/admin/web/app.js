@@ -224,7 +224,7 @@ function route() {
   if (v === 'system') { loadSystem(); loadProm(); const tab = currentTab('system'); if (tab === 'hardware') loadHardware(); if (tab === 'audit') loadAudit(); if (tab === 'report') loadReport(); }
   if (v === 'webui') loadWebui();
   if (v === 'users') loadUsers();
-  if (v === 'logs') { loadRequests(); loadReqSettings(); loadLogs(); if (currentTab('logs') === 'stats') loadStats(); state.timer = setInterval(() => { if ($('#req-live').checked && currentTab('logs') === 'requests') loadRequests(); }, 4000); }
+  if (v === 'logs') { loadRequests(); loadReqSettings(); loadLogs(); if (currentTab('logs') === 'stats') loadStats(); if (isAdmin()) loadCosts(); state.timer = setInterval(() => { if ($('#req-live').checked && currentTab('logs') === 'requests') loadRequests(); }, 4000); }
   if (v === 'account') loadAccount();
   if (v === 'about') loadCredits();
   if (v === 'fleet') { loadFleet(); loadBalance(); loadQueue(); state.timer = setInterval(() => { loadFleet(); loadBalance(); loadQueue(); }, 10000); }
@@ -798,6 +798,7 @@ async function loadPublication() {
         el('button', { class: 'btn sm', type: 'button', text: 'Échéance', onclick: () => keyExpiry(k) }), ' ', el('button', { class: 'btn sm', type: 'button', text: 'Plafonds', onclick: () => keyCaps(k) }), ' ',
         el('button', { class: 'btn sm danger', type: 'button', text: 'Supprimer', onclick: () => keyDelete(k) })))))))] :
     [el('p', { class: 'muted small', text: 'Aucune clé. Créez une clé par application : vous pourrez la désactiver sans toucher aux autres.' })]));
+  $('#team-list').replaceChildren(...[...new Set(p.keys.map((k) => k.team).filter(Boolean))].sort().map((t) => el('option', { value: t })));
   const kf = $('#key-form');
   if (!kf.dataset.ready) {
     checkList('#key-perms', 'perm', Object.keys(PERM_LABEL), ['inference', 'read'], PERM_LABEL);
@@ -824,7 +825,7 @@ $('#key-form').addEventListener('submit', async (ev) => {
   const f = ev.target;
   try {
     const r = await api('/api/publication/keys/create', { json: { name: f.elements.name.value.trim(), perms: checkedValues(f, 'perm'), models: checkedValues(f, 'model'), deny: checkedValues(f, 'deny'),
-      max_concurrent: Number(f.elements.max_concurrent.value) || 0, priority: Number(f.elements.priority.value) || 2, max_ctx: Number(f.elements.max_ctx.value) || 0, max_output: Number(f.elements.max_output.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
+      max_concurrent: Number(f.elements.max_concurrent.value) || 0, priority: Number(f.elements.priority.value) || 2, team: f.elements.team.value.trim(), max_ctx: Number(f.elements.max_ctx.value) || 0, max_output: Number(f.elements.max_output.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
     f.elements.name.value = ''; f.elements.expires.value = ''; $('#key-msg').textContent = '';
     await loadPublication();
     const code = el('code', { class: 'token', text: r.token });
@@ -1592,6 +1593,46 @@ const BAL_HELP = {
   warm: 'Chaque requête va de préférence au serveur qui a déjà le modèle en mémoire, tant qu\'il n\'est pas occupé par plusieurs requêtes. Les autres serveurs ne servent qu\'en cas de forte demande ou de panne : avec un seul utilisateur, tout reste sur le même serveur.',
 };
 const balState = { multi: [] };
+/* ------------------------------------------------ coûts par équipe et par clé */
+const costState = { month: '' };
+async function loadCosts() {
+  if (!isAdmin()) return;
+  let d;
+  try { d = await api('/api/costs' + (costState.month ? '?month=' + encodeURIComponent(costState.month) : '')); } catch (e) { $('#costs-msg').className = 'small error'; $('#costs-msg').textContent = e.message; return; }
+  $('#costs-msg').textContent = '';
+  costState.month = d.month;
+  const sel = $('#costs-month');
+  sel.replaceChildren(...d.months.map((m) => el('option', { value: m, text: m })));
+  sel.value = d.month;
+  const f = $('#costs-form'), c = d.summary.config;
+  for (const k of ['watts', 'kwh_price', 'gpu_hour', 'currency']) if (w_active() !== f.elements[k]) f.elements[k].value = c[k];
+  const nn = (x, dg = 0) => Number(x).toLocaleString(LOCALE(), { minimumFractionDigits: dg, maximumFractionDigits: dg });
+  const money = (x) => nn(x, 2) + ' ' + c.currency;
+  const t = d.summary.total;
+  const kpi = (label, value) => el('div', { class: 'card' }, el('h2', { text: label }), el('div', { class: 'big', text: value }));
+  $('#costs-total').replaceChildren(el('div', { class: 'grid kpis' }, kpi('Requêtes', nn(t.n)), kpi('Jetons produits', nn(t.o)), kpi('Temps de calcul', nn(t.gpu_h, 2) + ' h'), kpi('Énergie estimée', nn(t.kwh, 2) + ' kWh'), kpi('Coût estimé', money(t.cost))));
+  const table = (rows, withTeam) => (rows.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...[withTeam ? ['Clé', 'Équipe'] : [withTeam === false ? 'Équipe' : 'Modèle'], ['Requêtes', 'Erreurs', 'Jetons en entrée', 'Jetons produits', 'Temps de calcul (h)', 'Énergie (kWh)', 'Coût', 'Part']].flat()
+      .map((h, i) => el('th', { class: i >= (withTeam ? 2 : 1) ? 'num' : '', text: h })))),
+    el('tbody', {}, ...rows.map((r) => el('tr', {}, el('td', { class: 'name', text: r.name }), ...(withTeam ? [el('td', { text: r.team })] : []),
+      el('td', { class: 'num', text: nn(r.n) }), el('td', { class: 'num', text: r.e ? nn(r.e) : '-' }), el('td', { class: 'num', text: nn(r.i) }), el('td', { class: 'num', text: nn(r.o) }),
+      el('td', { class: 'num', text: nn(r.gpu_h, 2) }), el('td', { class: 'num', text: nn(r.kwh, 3) }), el('td', { class: 'num', text: money(r.cost) }), el('td', { class: 'num', text: r.share + ' %' })))))) :
+    el('p', { class: 'muted', text: 'Aucune requête ce mois-ci.' }));
+  $('#costs-teams').replaceChildren(table(d.summary.teams, false));
+  $('#costs-clients').replaceChildren(table(d.summary.clients, true));
+  $('#costs-models').replaceChildren(table(d.summary.models, null));
+  $('#costs-lag').textContent = 'Les requêtes des ' + d.lag_min + ' dernières minutes sont comptées en direct ; elles entrent ensuite dans le registre mensuel.' + (d.first_day ? ' Registre depuis le ' + d.first_day + '.' : '');
+}
+$('#costs-month').addEventListener('change', (e) => { costState.month = e.target.value; loadCosts(); });
+$('#costs-refresh').addEventListener('click', loadCosts);
+$('#costs-export').addEventListener('click', () => downloadBlob('/api/costs/export?month=' + encodeURIComponent(costState.month || ''), 'couts-' + (costState.month || 'mois') + '.csv').catch((e) => fail(e.message)));
+$('#costs-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target;
+  try { await api('/api/costs/config', { json: { watts: f.elements.watts.value, kwh_price: f.elements.kwh_price.value, gpu_hour: f.elements.gpu_hour.value, currency: f.elements.currency.value } }); $('#costs-cfg-msg').className = 'small okmsg'; $('#costs-cfg-msg').textContent = 'Enregistré.'; loadCosts(); }
+  catch (e) { $('#costs-cfg-msg').className = 'small error'; $('#costs-cfg-msg').textContent = e.message; }
+});
+
 /* ------------------------------------------------ file d'attente */
 const fmtWait = (s) => (s >= 90 ? Math.round(s / 60) + ' min' : s < 10 ? DEC(Number(s).toFixed(1)) + ' s' : DEC(Math.round(s)) + ' s');
 async function loadQueue() {
@@ -1956,7 +1997,7 @@ function renderMuHistory(d) {
     el('tbody', {}, ...d.history.map((h) => { const s = MU_STATUS[h.status] || [h.status, '']; return el('tr', {}, el('td', { class: 'small', text: fmtDate(h.t) }), el('td', { class: 'name', text: h.model }), el('td', {}, pill(s[0], s[1])),
       el('td', { class: 'small', text: h.detail + (h.tps_before && h.tps_after ? ' (débit ' + DEC(h.tps_before) + ' → ' + DEC(h.tps_after) + ' jetons/s)' : '') }), el('td', { class: 'small', text: h.who + ' (' + h.reason + ')' })); })))) : el('p', { class: 'muted small', text: 'Aucune mise à jour enregistrée.' }));
 }
-const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'system'], fleet: ['fleet', 'balance', 'queue', 'rules', 'add'] };
+const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'costs', 'system'], fleet: ['fleet', 'balance', 'queue', 'rules', 'add'] };
 function setupTabs() {
   for (const sec of $$('section.view')) {
     const items = [...sec.querySelectorAll('[data-panel]')];
@@ -2228,6 +2269,7 @@ function keyLimits(k, u) {
   }
   if (k.quota_day) parts.push('jour : ' + n((u && u.day) || 0) + ' / ' + n(k.quota_day) + ' jetons');
   if (k.quota_month) parts.push('mois : ' + n((u && u.month) || 0) + ' / ' + n(k.quota_month) + ' jetons');
+  if (k.team) parts.push('équipe : ' + k.team);
   if (k.priority && k.priority !== 2) parts.push('priorité ' + PRIO_NAME[k.priority]);
   if (k.max_ctx) parts.push('contexte ≤ ' + n(k.max_ctx) + ' jetons');
   if (k.max_output) parts.push('réponse ≤ ' + n(k.max_output) + ' jetons');
@@ -2842,10 +2884,11 @@ async function keyCaps(k) {
   const out = el('input', { type: 'number', min: '0', max: '1000000', value: String(k.max_output || 0), 'aria-label': 'Réponse maximale' });
   const prio = el('select', { 'aria-label': 'Priorité dans la file d\'attente' }, ...[1, 2, 3].map((p) => el('option', { value: String(p), text: PRIO_NAME[p].charAt(0).toUpperCase() + PRIO_NAME[p].slice(1) })));
   prio.value = String(k.priority || 2);
+  const team = el('input', { type: 'text', maxlength: '40', list: 'team-list', value: k.team || '', 'aria-label': 'Équipe' });
   const ok = await modal({ title: 'Plafonds de la clé « ' + k.name + ' »', message: 'Ramène les demandes qui dépassent ces valeurs au plafond (en-tête de réponse X-OllamaBuntu-Clamped). 0 = sans plafond. Le contexte n\'est plafonné que s\'il est demandé explicitement. La priorité décide de l\'ordre de passage quand le serveur est saturé.',
-    body: el('div', { class: 'row' }, el('label', {}, 'Contexte maximal (jetons) ', ctx), el('label', {}, 'Réponse maximale (jetons) ', out), el('label', {}, 'Priorité dans la file d\'attente ', prio)), ok: 'Enregistrer' });
+    body: el('div', { class: 'row' }, el('label', {}, 'Contexte maximal (jetons) ', ctx), el('label', {}, 'Réponse maximale (jetons) ', out), el('label', {}, 'Priorité dans la file d\'attente ', prio), el('label', {}, 'Équipe (pour répartir les coûts) ', team)), ok: 'Enregistrer' });
   if (!ok) return;
-  try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0, priority: Number(prio.value) } }); await loadPublication(); } catch (e) { fail(e.message); }
+  try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0, priority: Number(prio.value), team: team.value.trim() } }); await loadPublication(); } catch (e) { fail(e.message); }
 }
 $('#bal-affinity').addEventListener('change', async () => {
   try { await api('/api/fleet/balance/strategy', { json: { affinity: $('#bal-affinity').checked } }); $('#bal-msg').className = 'small okmsg'; $('#bal-msg').textContent = 'Enregistré.'; } catch (e) { $('#bal-msg').className = 'small error'; $('#bal-msg').textContent = e.message; }

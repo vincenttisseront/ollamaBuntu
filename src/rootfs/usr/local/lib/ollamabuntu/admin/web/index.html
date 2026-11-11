@@ -356,6 +356,7 @@
               <label>Expire le (vide = jamais) <input name="expires" type="date"></label></div>
             <div class="row"><label>Contexte maximal (jetons, 0 = sans plafond) <input name="max_ctx" type="number" min="0" max="2000000" value="0"></label>
               <label>Réponse maximale (jetons, 0 = sans plafond) <input name="max_output" type="number" min="0" max="1000000" value="0"></label>
+              <label>Équipe (facultatif, pour répartir les coûts) <input name="team" maxlength="40" list="team-list" placeholder="ex. Ressources humaines"></label><datalist id="team-list"></datalist>
               <label>Priorité dans la file d'attente <select name="priority"><option value="1">Haute (passe en premier)</option><option value="2" selected>Normale</option><option value="3">Basse (traitements de fond)</option></select></label></div>
             <p class="muted small">Au-delà du plafond, les requêtes d'un client attendent leur tour (jusqu'à 10 minutes). Au-delà d'un quota, elles sont refusées (erreur 429) jusqu'à la période suivante.</p>
             <div class="row"><button class="btn primary" type="submit">Créer la clé</button><span id="key-msg" class="small"></span></div>
@@ -672,6 +673,31 @@
           <span id="rf-count" class="small muted" aria-live="polite"></span>
         </div>
         <div id="req-list"></div>
+      </div>
+      <div class="card wide" data-admin data-panel="costs" data-label="Coûts">
+        <div class="card-head"><h2>Coûts par équipe et par clé</h2>
+          <div class="row"><label>Mois <select id="costs-month"></select></label><button id="costs-export" class="btn" type="button">Exporter le mois (CSV)</button><button id="costs-refresh" class="btn" type="button">Actualiser</button></div></div>
+        <p class="muted small">Jetons, temps de calcul, énergie et coût de chaque clé d'API et de chaque équipe (une équipe regroupe plusieurs clés : renseignez-la à la création de la clé ou dans Plafonds). Le temps de calcul, l'énergie et le coût sont des estimations d'après le débit mesuré et les paramètres ci-dessous : aucun wattmètre n'est lu. Les totaux sont conservés 400 jours, même quand le journal des requêtes est purgé.</p>
+        <div id="costs-msg" class="small" aria-live="polite"></div>
+        <div id="costs-total"></div>
+        <h3>Par équipe</h3>
+        <div id="costs-teams"></div>
+        <h3>Par clé</h3>
+        <div id="costs-clients"></div>
+        <h3>Par modèle</h3>
+        <div id="costs-models"></div>
+        <p class="muted small" id="costs-lag"></p>
+      </div>
+      <div class="card" data-admin data-panel="costs" data-label="Coûts">
+        <h2>Paramètres du calcul</h2>
+        <p class="muted small">Énergie = temps de calcul × puissance moyenne en charge. Coût = énergie × prix du kWh + heures de calcul × coût horaire du matériel (amortissement de la machine et de la carte, par exemple). Ces paramètres s'appliquent à tous les mois affichés.</p>
+        <form id="costs-form" class="pool-form row">
+          <label>Puissance moyenne en charge (watts) <input name="watts" type="number" min="1" max="5000" step="1" required></label>
+          <label>Prix du kWh <input name="kwh_price" type="number" min="0" max="100" step="0.001" required></label>
+          <label>Coût horaire du matériel <input name="gpu_hour" type="number" min="0" max="10000" step="0.01" required></label>
+          <label>Devise <input name="currency" maxlength="4" size="4" required></label>
+          <button class="btn primary" type="submit">Enregistrer</button><span id="costs-cfg-msg" class="small" aria-live="polite"></span>
+        </form>
       </div>
       <div class="card" data-panel="stats" data-label="Statistiques">
         <div class="card-head"><h2>Utilisation des modèles</h2>

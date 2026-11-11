@@ -25,7 +25,7 @@ def due(cfg, lt, last_sent):
 
 def build(d):
     """d : host, version, since, until (secondes), usage (usage.aggregate sur 7 jours), tps_avg, uptime_days, disk {used,total}, alerts [str],
-    guard_events [{result,codes}], perf_events [str], hw [str], keys_expiring [str], update (version|None), models_unused [{name,size}].
+    costs [str] (facultatif), guard_events [{result,codes}], perf_events [str], hw [str], keys_expiring [str], update (version|None), models_unused [{name,size}].
     Retourne (objet, texte, html)."""
     u = d.get("usage") or {}
     t = u.get("total") or {}
@@ -39,6 +39,8 @@ def build(d):
         ("Modèles les plus utilisés", ["%s : %s requêtes" % (m["name"], _n(m["count"])) for m in (u.get("models") or [])[:5]] or ["Aucune requête cette semaine."]),
         ("Clients les plus actifs", ["%s : %s requêtes, %s jetons" % (c["name"], _n(c["count"]), _n(c["in_tok"] + c["out_tok"])) for c in (u.get("clients") or [])[:5]] or ["Aucun client."]),
     ]
+    if d.get("costs"):
+        sections.append(("Coûts estimés de la semaine", list(d["costs"])))
     inc = list(d.get("alerts") or [])
     inc += ["Réparation GPU (%s) : %s" % (", ".join(e.get("codes") or []) or "?", e.get("result", "?")) for e in d.get("guard_events") or []]
     inc += list(d.get("perf_events") or [])

@@ -48,6 +48,7 @@ import audit  # noqa: E402  journal d'audit des actions d'administration
 import report  # noqa: E402  rapport hebdomadaire
 import modelupdate  # noqa: E402  mise à jour des modèles avec retour arrière
 import evals  # noqa: E402  laboratoire : comparateur de modèles, tests de non-régression
+import costs  # noqa: E402  imputation des coûts par clé et par équipe
 
 VERSION = "@@OB_VERSION@@"
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
@@ -983,6 +984,8 @@ def key_create(data):
                "deny": [x for x in KEY_RESTRICTIONS if x in (data.get("deny") or [])],
                "enabled": True, "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
         key.update(validate_limits(data))
+        if data.get("team"):
+            key["team"] = costs.team_clean(data["team"])
         key["expires"] = validate_expiry(data.get("expires"))
         pub["keys"].append(key)
         save_publication(pub)   # le routeur relit le fichier : aucune interruption
@@ -1062,6 +1065,12 @@ def key_update(data):
             key.update(validate_limits(data, key))
         if "expires" in data:
             key["expires"] = validate_expiry(data.get("expires"))
+        if "team" in data:
+            team = costs.team_clean(data["team"])
+            if team:
+                key["team"] = team
+            else:
+                key.pop("team", None)
         save_publication(pub)
 
 
@@ -2961,7 +2970,7 @@ def report_data():
             "uptime_days": int(st["uptime"] // 86400), "disk": st["disk"], "alerts": [a["text"] for a in _alerts["active"].values() if a.get("severity") != "info"],
             "guard_events": [e for e in cfg_g["events"] if e.get("t", 0) >= wk], "perf_events": ["%s (%s)" % (e["text"], e.get("who", "")) for e in cfg_p["events"] if e.get("t", 0) >= wk],
             "hw": [i["text"] for i in hw_view(600)["issues"]], "keys_expiring": keys, "update": st["update_available"],
-            "models_unused": [m for m in models_disk()["models"] if m["unused"]]}
+            "models_unused": [m for m in models_disk()["models"] if m["unused"]], "costs": costs_week_lines(now)}
 
 
 def report_send(test=False):
@@ -2989,6 +2998,105 @@ def report_worker():
                 atomic_write(REPORT_FILE, json.dumps(c), 0o644)
         except Exception as e:   # noqa: BLE001
             sys.stderr.write("rapport : %s\n" % e)
+        time.sleep(300)
+
+
+# ------------------------------------------------ imputation des coûts (par clé d'API et par équipe) ---
+COSTS_CONF = os.path.join(ETC, "costs.json")
+COSTS_LEDGER = os.path.join(os.environ.get("OB_STATE", "/var/lib/ollamabuntu"), "costs-ledger.json")
+COSTS_DELAY = 1800   # une requête n'entre au registre que 30 min après son début : le journal la contient alors, même si elle a duré longtemps
+_costs_lock = threading.Lock()
+
+
+def costs_config():
+    try:
+        return costs.config_clean(load_json_file(COSTS_CONF, {}))
+    except ValueError:
+        return dict(costs.DEFAULTS)
+
+
+def costs_save(data):
+    cfg = costs.config_clean(data, costs_config())
+    atomic_write(COSTS_CONF, json.dumps(cfg, ensure_ascii=False), 0o644)
+    return cfg
+
+
+def costs_ledger():
+    d = load_json_file(COSTS_LEDGER, {})
+    days = d.get("days") if isinstance(d.get("days"), dict) else {}
+    try:
+        wm = float(d.get("wm") or 0)
+    except (TypeError, ValueError):
+        wm = 0.0
+    return {"wm": wm, "days": days}
+
+
+def costs_ingest(now=None):
+    """Verse au registre les requêtes terminées depuis la dernière fois (le journal des requêtes est purgé, le registre reste 400 jours)."""
+    with _costs_lock:
+        led = costs_ledger()
+        now = now or time.time()
+        limit = now - COSTS_DELAY
+        if limit <= led["wm"]:
+            return 0
+        reqs = [r for r in read_request_log(led["wm"]) if led["wm"] < (r.get("ts") or 0) <= limit]
+        n = costs.add_requests(led["days"], reqs, short_name)
+        led["wm"] = limit
+        costs.prune(led["days"], now)
+        atomic_write(COSTS_LEDGER, json.dumps(led, separators=(",", ":")), 0o600)
+        return n
+
+
+def costs_teams():
+    return {k["name"]: k["team"] for k in load_publication().get("keys", []) if k.get("team")}
+
+
+def costs_rows(month=None, week=False, now=None):
+    """Lignes client × modèle d'un mois (« AAAA-MM ») ou des 7 derniers jours : registre + requêtes récentes pas encore versées."""
+    now = now or time.time()
+    led = costs_ledger()
+    if week:
+        dates = costs.last_dates(now, 7)
+        keep = lambda d: d in dates
+    else:
+        dates = costs.month_dates(led["days"], month)
+        keep = lambda d: d[:7] == month
+    sel = costs.select(led["days"], dates)
+    costs.add_requests(sel, [r for r in read_request_log(led["wm"]) if (r.get("ts") or 0) > led["wm"] and keep(costs.day_of(r["ts"]))], short_name)
+    return costs.flat(sel), led
+
+
+def costs_view(month=None, now=None):
+    now = now or time.time()
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", str(month or "")):
+        month = costs.day_of(now)[:7]
+    rows, led = costs_rows(month, now=now)
+    cfg, teams = costs_config(), costs_teams()
+    days = sorted(led["days"])
+    return {"month": month, "months": costs.months(led["days"], now), "summary": costs.summarize(rows, cfg, teams), "first_day": days[0] if days else None,
+            "teams": sorted(set(teams.values())), "keys": [{"name": k["name"], "team": k.get("team", "")} for k in load_publication().get("keys", [])],
+            "lag_min": COSTS_DELAY // 60}
+
+
+def costs_week_lines(now=None):
+    rows, _ = costs_rows(week=True, now=now)
+    return costs.weekly_lines(costs.summarize(rows, costs_config(), costs_teams()))
+
+
+def costs_export(month):
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", str(month or "")):
+        raise ValueError("mois invalide (AAAA-MM)")
+    rows, _ = costs_rows(month)
+    return costs.csv_month(month, rows, costs_config(), costs_teams())
+
+
+def costs_worker():
+    time.sleep(90)
+    while True:
+        try:
+            costs_ingest()
+        except Exception as e:   # noqa: BLE001
+            sys.stderr.write("coûts : %s\n" % e)
         time.sleep(300)
 
 
@@ -4950,7 +5058,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/costs", "/api/costs/export", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -5112,6 +5220,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, limits_view())
             if path == "/api/queue":
                 return self.send_json(200, queue_view())
+            if path == "/api/costs":
+                return self.send_json(200, costs_view((query.get("month") or [""])[0]))
+            if path == "/api/costs/export":
+                month = (query.get("month") or [""])[0] or costs.day_of(time.time())[:7]
+                try:
+                    body = ("\ufeff" + costs_export(month)).encode("utf-8")
+                except ValueError as e:
+                    return self.send_json(400, {"error": str(e)})
+                print("coûts du mois %s exportés par %s" % (month, user), flush=True)
+                return self.send_head(200, "text/csv; charset=utf-8", len(body), {"Content-Disposition": 'attachment; filename="couts-%s.csv"' % month}) or self.wfile.write(body)
             if path == "/api/update/backups":
                 return self.send_json(200, {"backups": backups_list(), "installed": VERSION})
             if path == "/api/fleet/rules":
@@ -5439,6 +5557,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, {"ok": True})
             if path == "/api/fleet/balance/test":
                 return self.send_json(200, balance_test(data.get("model")))
+            if path == "/api/costs/config":
+                return self.send_json(200, {"ok": True, "config": costs_save(data)})
             if path == "/api/queue/config":
                 return self.send_json(200, {"ok": True, "settings": queue_save(data)})
             if path == "/api/models/context":
@@ -5897,6 +6017,7 @@ def main():
     threading.Thread(target=warmup_worker, daemon=True).start()
     threading.Thread(target=report_worker, daemon=True).start()
     threading.Thread(target=lab_worker, daemon=True).start()
+    threading.Thread(target=costs_worker, daemon=True).start()
     threading.Thread(target=mu_worker, daemon=True).start()
     print("OllamaBuntu %s : console d'administration sur le port %d" % (VERSION, HTTPS_PORT), flush=True)
     httpd.serve_forever()
