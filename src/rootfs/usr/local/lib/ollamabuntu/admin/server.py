@@ -46,6 +46,7 @@ import hw  # noqa: E402  disponibilité des GPU pour Ollama, santé du matériel
 import perf  # noqa: E402  mesure de débit, profils, préchauffage, garde-fou de débit
 import audit  # noqa: E402  journal d'audit des actions d'administration
 import report  # noqa: E402  rapport hebdomadaire
+import modelupdate  # noqa: E402  mise à jour des modèles avec retour arrière
 import evals  # noqa: E402  laboratoire : comparateur de modèles, tests de non-régression
 
 VERSION = "@@OB_VERSION@@"
@@ -495,6 +496,11 @@ def ollama_conn(timeout, addr=None):
     """Instance principale par défaut (gestion des modèles) ; addr=OLLAMA_ADDR pour passer par le routeur."""
     host, port = (addr or main_addr()).rsplit(":", 1)
     return http.client.HTTPConnection(host, int(port), timeout=timeout)
+
+
+def hidden_model(name):
+    """Variantes techniques non listées : copies « -gpuN » (épinglage) et copies de sécurité des mises à jour (ob-prev/...)."""
+    return bool(re.search(r"-gpu\d+$", str(name))) or modelupdate.is_prev(name)
 
 
 def ollama_json(method, path, body=None, timeout=15, addr=None):
@@ -1897,7 +1903,7 @@ def fleet_view():
         st = _fleet_state.get(s["id"]) or {"state": "en attente"}
         out.append(dict({k: v for k, v in s.items() if k not in ("token", "route_token")}, route=bool(s.get("route_token")), **st))
     try:
-        tags = [m for m in ollama_json("GET", "/api/tags", timeout=3)[1].get("models", []) if not re.search(r"-gpu\d+$", m.get("name", ""))]
+        tags = [m for m in ollama_json("GET", "/api/tags", timeout=3)[1].get("models", []) if not hidden_model(m.get("name", ""))]
     except (OSError, ValueError):
         tags = []
     local = sorted({short_name(m.get("name", "")) for m in tags})
@@ -1930,7 +1936,7 @@ def fleet_sync(sid, kinds):
         except (OSError, ValueError):
             tags = []
         names = [short_name(m.get("name", "")) for m in tags]
-        payload["models"] = [n for n in names if n not in custom and not re.search(r"-gpu\d+$", n)]
+        payload["models"] = [n for n in names if n not in custom and not hidden_model(n)]
         if "custom" in kinds:   # modèles de base des modèles personnalisés
             payload["models"] = sorted(set(payload["models"]) | {short_name(c.get("base", "")) for c in custom.values()})
     targets = [x for x in load_fleet() if sid in ("all", x["id"]) and (sid != "all" or (_fleet_state.get(x["id"]) or {}).get("state") == "en ligne")]
@@ -2077,34 +2083,44 @@ def lab_suite_delete(sid):
         lab_save(d)
 
 
-def lab_eval_run(sid, model, who, reason):
-    """Rejoue un jeu de tests : un résultat par cas, comparé à la dernière exécution du même jeu et du même modèle."""
-    e = _lab["eval"]
-    try:
+def lab_eval_core(sid, model, who, reason, step=None, notify=True):
+    """Rejoue un jeu de tests : un résultat par cas, comparé à la dernière exécution du même jeu et du même modèle. Retourne l'exécution enregistrée."""
+    d = lab_load()
+    suite = lab_suite_find(d, sid)
+    if not suite:
+        raise ValueError("jeu de tests inconnu")
+    addr, results = bench_addr(model), []
+    for case in suite["cases"]:
+        if step:
+            step()
+        try:
+            gen, _ps = lab_generate(model, case["prompt"], 400, addr)
+            results.append(evals.case_result(case, gen))
+        except (OSError, ValueError) as err:
+            results.append({"name": case["name"], "ok": False, "why": [], "error": str(err)[:200], "response": "", "tps": None, "ttft_ms": None, "tokens": 0})
+    run = {"id": secrets.token_hex(4), "suite": sid, "suite_name": suite["name"], "model": model, "t": int(time.time()), "who": who, "reason": reason, "version": VERSION,
+           "env": perf.detect_profile(read_env()), "results": results, "summary": evals.run_summary(results)}
+    with _lab_lock:
         d = lab_load()
-        suite = lab_suite_find(d, sid)
-        addr, results = bench_addr(model), []
-        for case in suite["cases"]:
-            e["step"] += 1
-            try:
-                gen, _ps = lab_generate(model, case["prompt"], 400, addr)
-                results.append(evals.case_result(case, gen))
-            except (OSError, ValueError) as err:
-                results.append({"name": case["name"], "ok": False, "why": [], "error": str(err)[:200], "response": "", "tps": None, "ttft_ms": None, "tokens": 0})
-        run = {"id": secrets.token_hex(4), "suite": sid, "suite_name": suite["name"], "model": model, "t": int(time.time()), "who": who, "reason": reason, "version": VERSION,
-               "env": perf.detect_profile(read_env()), "results": results, "summary": evals.run_summary(results)}
-        with _lab_lock:
-            d = lab_load()
-            prev = next((r for r in reversed(d["runs"]) if r.get("suite") == sid and r.get("model") == model), None)
-            run["diff"] = evals.compare_runs(prev, run)
-            d["runs"].append(run)
-            lab_save(d)
+        prev = next((r for r in reversed(d["runs"]) if r.get("suite") == sid and r.get("model") == model), None)
+        run["diff"] = evals.compare_runs(prev, run)
+        d["runs"].append(run)
+        lab_save(d)
+    if notify and run["diff"] and run["diff"]["degraded"]:
+        cfg = load_alerts()
+        if cfg.get("enabled"):
+            txt = "Tests « %s » (%s) : dégradation après %s — %s" % (suite["name"], model, reason, ("%d cas échoue(nt) maintenant" % len(run["diff"]["regressions"])) if run["diff"]["regressions"] else ("débit %+.0f %%" % run["diff"]["tps_pct"]))
+            alerts_send(cfg, [{"state": "alert", "text": txt}])
+    return run
+
+
+def lab_eval_run(sid, model, who, reason):
+    e = _lab["eval"]
+    def step():
+        e["step"] += 1
+    try:
+        lab_eval_core(sid, model, who, reason, step)
         e["error"] = ""
-        if run["diff"] and run["diff"]["degraded"]:
-            cfg = load_alerts()
-            if cfg.get("enabled"):
-                txt = "Tests « %s » (%s) : dégradation après %s — %s" % (suite["name"], model, reason, ("%d cas échoue(nt) maintenant" % len(run["diff"]["regressions"])) if run["diff"]["regressions"] else ("débit %+.0f %%" % run["diff"]["tps_pct"]))
-                alerts_send(cfg, [{"state": "alert", "text": txt}])
     except Exception as err:
         e["error"] = str(err)[:200]
     finally:
@@ -2163,12 +2179,267 @@ def lab_view():
     d = lab_load()
     models = []
     try:
-        models = sorted(m.get("name") for m in ollama_json("GET", "/api/tags", timeout=4)[1].get("models", []) if m.get("name") and not m["name"].endswith("-cloud") and not re.search(r"-gpu\d+$", m["name"]))
+        models = sorted(m.get("name") for m in ollama_json("GET", "/api/tags", timeout=4)[1].get("models", []) if m.get("name") and not m["name"].endswith("-cloud") and not hidden_model(m["name"]))
     except (OSError, ValueError):
         pass
     runs = list(reversed(d["runs"]))[:40]
     return {"models": models, "suites": d["suites"], "runs": [dict(r, results=[dict(x, response=x.get("response", "")[:600]) for x in r.get("results", [])]) for r in runs],
             "compare": d["compare"], "cmp_state": dict(_lab["cmp"]), "eval_state": dict(_lab["eval"]), "default_prompts": evals.COMPARE_PROMPTS}
+
+
+# ------------------------------------------- mise à jour des modèles avec retour arrière ---
+MU_FILE = os.path.join(os.environ.get("OB_STATE", "/var/lib/ollamabuntu"), "model-updates.json")
+_mu_lock = threading.Lock()
+_mu = {"running": False, "model": "", "step": "", "done": 0, "total": 0, "error": ""}
+MU_SMOKE_PROMPT = "Réponds uniquement par le mot : OK"
+
+
+def mu_load():
+    d = load_json_file(MU_FILE, {})
+    try:
+        cfg = modelupdate.config_clean(d.get("config") or {})
+    except ValueError:
+        cfg = modelupdate.config_clean({})
+    prev = {k: v for k, v in (d.get("prev") or {}).items() if isinstance(v, dict) and v.get("prev")}
+    return {"config": cfg, "history": [h for h in d.get("history", []) if isinstance(h, dict)][-100:], "prev": prev, "last_key": str(d.get("last_key") or "")}
+
+
+def mu_save(d):
+    atomic_write(MU_FILE, json.dumps({"config": d["config"], "history": d["history"][-100:], "prev": d["prev"], "last_key": d.get("last_key", "")}, ensure_ascii=False), 0o600)
+
+
+def mu_config_set(data):
+    cfg = modelupdate.config_clean(data)
+    if cfg["suite"] and not lab_suite_find(lab_load(), cfg["suite"]):
+        raise ValueError("jeu de tests inconnu")
+    if cfg["scope"] != "all" and any(not MODEL_RE.match(m) for m in cfg["scope"]):
+        raise ValueError("nom de modèle invalide")
+    with _mu_lock:
+        d = mu_load()
+        d["config"] = cfg
+        mu_save(d)
+
+
+def mu_installed():
+    try:
+        return [m for m in ollama_json("GET", "/api/tags", timeout=10)[1].get("models", []) if m.get("name") and not hidden_model(m["name"]) and not m["name"].endswith("-cloud")]
+    except (OSError, ValueError):
+        return []
+
+
+def mu_check():
+    """Modèles installés avec leur état de mise à jour (interroge les registres : quelques secondes)."""
+    from concurrent.futures import ThreadPoolExecutor
+    installed = mu_installed()
+    def one(m):
+        try:
+            return m, registry_manifest(m["name"]), False
+        except (OSError, ValueError):
+            return m, None, True
+    out = []
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for m, r, err in ex.map(one, installed):
+            out.append({"name": m["name"], "size": m.get("size", 0), "update": model_update_state(m, r, err), "digest": m.get("digest", "")})
+    return out
+
+
+def mu_smoke(model, addr):
+    """Test rapide : deux réponses courtes (la 1re charge le modèle). Retourne (ok, raison, débit de la 2e)."""
+    tps = None
+    try:
+        for _ in range(2):
+            gen, _ps = lab_generate(model, MU_SMOKE_PROMPT, 32, addr)
+            if not str(gen.get("response") or "").strip():
+                return False, "réponse vide", None
+            tps = evals.compare_row(model, 0, gen)["tps"]
+        return True, "", tps
+    except (OSError, ValueError) as e:
+        return False, str(e)[:160], None
+
+
+def mu_unload(model, addr):
+    try:
+        ollama_json("POST", "/api/generate", {"model": model, "keep_alive": 0}, timeout=60, addr=addr)
+    except (OSError, ValueError):
+        pass
+
+
+def mu_copy(src, dst):
+    code, res = ollama_json("POST", "/api/copy", {"source": src, "destination": dst}, timeout=300)
+    if code != 200:
+        raise ValueError(str(res.get("error") or "erreur Ollama %s" % code)[:200])
+
+
+def mu_delete(name):
+    try:
+        ollama_json("DELETE", "/api/delete", {"model": name, "name": name}, timeout=60)
+    except (OSError, ValueError):
+        pass
+
+
+def mu_digest(name):
+    return next((m.get("digest", "") for m in mu_installed() if m["name"] == name), "")
+
+
+def mu_update_one(name, who, reason, cfg):
+    """Met à jour un modèle : copie de sécurité, téléchargement, test, puis conservation ou retour arrière. Retourne la ligne d'historique."""
+    prev, old = modelupdate.prev_name(name), mu_digest(name)
+    addr = bench_addr(name)
+    suite = lab_suite_find(lab_load(), cfg["suite"]) if cfg.get("suite") else None
+    try:
+        _mu["step"] = "mesure avant la mise à jour"
+        _ok, _why, before_tps = mu_smoke(name, addr)
+        before_run = lab_eval_core(suite["id"], name, who, "avant la mise à jour de %s" % name, notify=False) if suite else None
+        _mu["step"] = "copie de sécurité"
+        mu_copy(name, prev)
+    except (OSError, ValueError) as e:
+        return modelupdate.entry(time.time(), name, "failed", who, reason, "avant la mise à jour : %s" % e)
+    try:
+        _mu["step"] = "téléchargement"
+        with egress_window():
+            code, res = ollama_json("POST", "/api/pull", {"model": name, "stream": False}, timeout=7200)
+        if code != 200 or res.get("error"):
+            raise ValueError(str(res.get("error") or "erreur Ollama %s" % code)[:200])
+    except (OSError, ValueError) as e:
+        mu_delete(prev)   # rien n'a changé : la copie est inutile
+        return modelupdate.entry(time.time(), name, "failed", who, reason, "téléchargement : %s" % e)
+    new = mu_digest(name)
+    if new == old:
+        mu_delete(prev)
+        return modelupdate.entry(time.time(), name, "unchanged", who, reason, "déjà à jour", old=old[:12], new=new[:12])
+    _mu["step"] = "test après la mise à jour"
+    mu_unload(name, addr)
+    ok, why, after_tps = mu_smoke(name, addr)
+    diff = None
+    if suite and ok:
+        try:
+            diff = evals.compare_runs(before_run, lab_eval_core(suite["id"], name, who, "après la mise à jour de %s" % name, notify=False))
+        except (OSError, ValueError) as e:
+            ok, why = False, "jeu de tests : %s" % e
+    verdict = modelupdate.decide(ok, why, diff, before_tps, after_tps, cfg["drop_pct"])
+    extra = dict(old=old[:12], new=new[:12], tps_before=before_tps, tps_after=after_tps)
+    if verdict["keep"]:
+        with _mu_lock:
+            d = mu_load()
+            d["prev"][name] = {"prev": prev, "t": int(time.time()), "from": old, "to": new}
+            mu_save(d)
+        return modelupdate.entry(time.time(), name, "updated", who, reason, "nouvelle version conservée ; l'ancienne reste disponible %d jour(s)" % cfg["keep_days"], **extra)
+    _mu["step"] = "retour à l'ancienne version"
+    try:
+        mu_copy(prev, name)
+        mu_delete(prev)
+        mu_unload(name, addr)
+        return modelupdate.entry(time.time(), name, "rolled_back", who, reason, "; ".join(verdict["reasons"]), **extra)
+    except (OSError, ValueError) as e:
+        return modelupdate.entry(time.time(), name, "failed", who, reason, "retour arrière impossible (%s) ; la copie reste sous le nom %s" % (e, prev), **extra)
+
+
+
+def mu_run(models, who, reason, deadline=None):
+    entries = []
+    try:
+        cfg = mu_load()["config"]
+        _mu.update(total=len(models), done=0)
+        for name in models:
+            if deadline and time.time() > deadline:
+                break
+            _mu.update(model=name, step="")
+            e = mu_update_one(name, who, reason, cfg)
+            entries.append(e)
+            with _mu_lock:
+                d = mu_load()
+                d["history"].append(e)
+                mu_save(d)
+            _mu["done"] += 1
+        text = modelupdate.alert_text(entries)
+        acfg = load_alerts()
+        if text and acfg.get("enabled"):
+            alerts_send(acfg, [{"state": "alert", "text": text}])
+        _mu["error"] = ""
+    except Exception as e:
+        _mu["error"] = str(e)[:200]
+    finally:
+        _mu.update(running=False, model="", step="")
+    return entries
+
+
+def mu_start(models, who):
+    if _mu["running"]:
+        raise ValueError("une mise à jour est déjà en cours")
+    if not isinstance(models, list) or not 1 <= len(models) <= 50 or any(not isinstance(m, str) or not MODEL_RE.match(m) for m in models):
+        raise ValueError("choisissez les modèles à mettre à jour")
+    names = {m["name"] for m in mu_installed()}
+    if any(m not in names for m in models):
+        raise ValueError("modèle non installé")
+    _mu.update(running=True, model="", step="", done=0, total=len(models), error="")
+    threading.Thread(target=mu_run, args=(models, who, "manuelle"), daemon=True).start()
+
+
+def mu_rollback(name, who):
+    """Revient à la version d'avant la dernière mise à jour (tant que la copie de sécurité existe)."""
+    if _mu["running"]:
+        raise ValueError("une mise à jour est en cours")
+    with _mu_lock:
+        d = mu_load()
+        p = d["prev"].get(name)
+    if not p:
+        raise ValueError("aucune ancienne version conservée pour ce modèle")
+    mu_copy(p["prev"], name)
+    mu_delete(p["prev"])
+    mu_unload(name, bench_addr(name))
+    with _mu_lock:
+        d = mu_load()
+        d["prev"].pop(name, None)
+        d["history"].append(modelupdate.entry(time.time(), name, "manual_rollback", who, "manuelle", "ancienne version rétablie"))
+        mu_save(d)
+
+
+def mu_cleanup():
+    with _mu_lock:
+        d = mu_load()
+        gone = modelupdate.expired(d["prev"], time.time(), d["config"]["keep_days"])
+        for m in gone:
+            mu_delete(d["prev"][m]["prev"])
+            d["prev"].pop(m, None)
+        if gone:
+            mu_save(d)
+    return gone
+
+
+def mu_worker():
+    time.sleep(90)
+    last_clean = 0
+    while True:
+        try:
+            if time.time() - last_clean > 3600:
+                last_clean = time.time()
+                mu_cleanup()
+            d = mu_load()
+            key = modelupdate.due(d["config"], time.localtime(), d["last_key"])
+            if key and not _mu["running"]:
+                with _mu_lock:
+                    d = mu_load()
+                    d["last_key"] = key
+                    mu_save(d)
+                cfg = d["config"]
+                names = [m["name"] for m in mu_check() if m["update"]["state"] == "maj"]
+                if cfg["scope"] != "all":
+                    names = [n for n in names if n in cfg["scope"]]
+                if names:
+                    _mu.update(running=True, done=0, total=len(names), error="")
+                    end = time.mktime(time.strptime(key + " " + cfg["start"], "%Y-%m-%d %H:%M")) + cfg["window"] * 60
+                    mu_run(names, "automatique", "planifiée", end)
+        except Exception as e:
+            sys.stderr.write("mises à jour des modèles : %s\n" % e)
+            _mu["running"] = False
+        time.sleep(60)
+
+
+def mu_view():
+    d = mu_load()
+    suites = [{"id": x["id"], "name": x["name"]} for x in lab_load()["suites"]]
+    return {"config": d["config"], "history": list(reversed(d["history"]))[:50], "prev": d["prev"], "state": dict(_mu), "suites": suites,
+            "models": sorted(m["name"] for m in mu_installed())}
 
 
 # ---------------------------------------------------------------- alertes ---
@@ -2843,7 +3114,7 @@ def tuning_view():
         tags = {}
     models = []
     for m in ctx["models"]:
-        if m["name"].endswith("-cloud") or re.search(r"-gpu\d+$", m["name"]):
+        if m["name"].endswith("-cloud") or hidden_model(m["name"]):
             continue
         weights = (tags.get(m["name"]) or {}).get("size") or 0
         models.append(dict(name=m["name"], weights=weights, max=m["max"], bytes_per_token=m["bytes_per_token"],
@@ -4418,13 +4689,34 @@ def load_catalog():
     return []
 
 
+def model_update_state(m, r, registry_error):
+    """État de mise à jour d'un modèle installé : m = ligne de /api/tags, r = manifeste du registre (ou None), registry_error = le registre n'a pas répondu."""
+    local, local_sha = local_manifest(m["name"])
+    if r is None and not registry_error:
+        return {"state": "local", "label": "Absent du registre (modèle local ou personnalisé)"}
+    if r is None:
+        return {"state": "inconnu", "label": "Registre injoignable"}
+    if r.get("cloud"):
+        return {"state": "cloud", "label": "Modèle cloud"}
+    if r["digest"] in (m.get("digest"), local_sha):
+        return {"state": "a_jour", "label": "À jour"}
+    have = set()
+    if local:
+        have = {l.get("digest") for l in local.get("layers", [])} | {(local.get("config") or {}).get("digest")}
+    missing = [d for d in r["layers"] if d not in have]
+    if local and not missing:
+        return {"state": "a_jour", "label": "À jour"}
+    dl = sum(r["sizes"].get(d, 0) for d in missing)
+    return {"state": "maj", "label": "Mise à jour disponible (%.1f Go à télécharger)" % (dl / 1e9), "download": dl}
+
+
 def model_insights(refresh=False):
     if refresh:
         for k in [k for k in _cache if k.startswith("reg|")]:
             _cache.pop(k, None)
     cap, current = capacity(), ollama_version()
     try:
-        installed = ollama_json("GET", "/api/tags", timeout=10)[1].get("models", [])
+        installed = [m for m in ollama_json("GET", "/api/tags", timeout=10)[1].get("models", []) if not modelupdate.is_prev(m.get("name", ""))]
     except OSError:
         installed = []
     catalog = load_catalog()
@@ -4444,25 +4736,7 @@ def model_insights(refresh=False):
     inst_out = []
     for m in installed:
         r = remote.get(m["name"])
-        local, local_sha = local_manifest(m["name"])
-        if r is None and not any(m["name"] in e for e in errors):
-            upd = {"state": "local", "label": "Absent du registre (modèle local ou personnalisé)"}
-        elif r is None:
-            upd = {"state": "inconnu", "label": "Registre injoignable"}
-        elif r.get("cloud"):
-            upd = {"state": "cloud", "label": "Modèle cloud"}
-        elif r["digest"] in (m.get("digest"), local_sha):
-            upd = {"state": "a_jour", "label": "À jour"}
-        else:
-            have = set()
-            if local:
-                have = {l.get("digest") for l in local.get("layers", [])} | {(local.get("config") or {}).get("digest")}
-            missing = [d for d in r["layers"] if d not in have]
-            if local and not missing:
-                upd = {"state": "a_jour", "label": "À jour"}
-            else:
-                dl = sum(r["sizes"].get(d, 0) for d in missing)
-                upd = {"state": "maj", "label": "Mise à jour disponible (%.1f Go à télécharger)" % (dl / 1e9), "download": dl}
+        upd = model_update_state(m, r, any(m["name"] in e for e in errors))
         inst_out.append({"name": m["name"], "source": model_source(m["name"]), "size": m.get("size", 0), "details": m.get("details", {}),
                          "modified_at": m.get("modified_at"), "update": upd,
                          "fit": assess_fit(m.get("size", 0), cap, (r or {}).get("requires"), current)})
@@ -4607,7 +4881,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -4788,6 +5062,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, webui_status())
             if path == "/api/models":
                 code, data = ollama_json("GET", "/api/tags")
+                if code == 200 and isinstance(data.get("models"), list):
+                    data["models"] = [m for m in data["models"] if not modelupdate.is_prev(m.get("name", ""))]   # copies de sécurité des mises à jour : cachées
                 return self.send_json(code, data)
             if path == "/api/users":
                 return self.send_json(200, {"users": public_users()})
@@ -4812,6 +5088,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, perf_view())
             if path == "/api/lab":
                 return self.send_json(200, lab_view())
+            if path == "/api/mu":
+                return self.send_json(200, mu_view())
+            if path == "/api/mu/check":
+                return self.send_json(200, {"models": mu_check()})
             if path == "/api/audit":
                 return self.send_json(200, audit_view(query))
             if path == "/api/audit/export":
@@ -5021,6 +5301,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, {"ok": True})
             if path == "/api/bench/run":
                 bench_start(data.get("model"), data.get("runs"))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/mu/config":
+                mu_config_set(data.get("config"))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/mu/run":
+                mu_start(data.get("models"), user)
+                return self.send_json(200, {"ok": True})
+            if path == "/api/mu/rollback":
+                mu_rollback(str(data.get("model", "")), user)
                 return self.send_json(200, {"ok": True})
             if path == "/api/lab/compare":
                 lab_compare_start(data.get("models"), data.get("prompts"), data.get("num_predict"))
@@ -5535,6 +5824,7 @@ def main():
     threading.Thread(target=warmup_worker, daemon=True).start()
     threading.Thread(target=report_worker, daemon=True).start()
     threading.Thread(target=lab_worker, daemon=True).start()
+    threading.Thread(target=mu_worker, daemon=True).start()
     print("OllamaBuntu %s : console d'administration sur le port %d" % (VERSION, HTTPS_PORT), flush=True)
     httpd.serve_forever()
 

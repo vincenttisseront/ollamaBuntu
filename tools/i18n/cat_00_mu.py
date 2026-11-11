@@ -1,0 +1,42 @@
+# Mise à jour des modèles avec retour arrière
+Q = "“{1}”"
+E = {
+"Mises à jour des modèles": "Model updates",
+"Avant chaque mise à jour, l'ancienne version est copiée sous un autre nom (sans dupliquer les fichiers). Après le téléchargement, un test rapide vérifie que le modèle répond et que son débit n'a pas chuté ; si vous choisissez un jeu de tests, il est joué avant et après, et un cas devenu faux déclenche le retour. En cas de problème, l'ancienne version est rétablie automatiquement et les alertes sont prévenues. Si tout va bien, l'ancienne version reste disponible pendant la durée choisie, pour revenir en arrière d'un clic.":
+  "Before each update, the old version is copied under another name (without duplicating files). After the download, a quick test checks that the model answers and that its throughput has not dropped; if you choose a test suite, it is played before and after, and a case that now fails triggers the rollback. If anything goes wrong, the old version is restored automatically and the alerts are notified. If all goes well, the old version stays available for the chosen time, so you can go back with one click.",
+"Mettre à jour automatiquement pendant la fenêtre de maintenance": "Update automatically during the maintenance window",
+"Jours": "Days", "Début": "Start", "Durée de la fenêtre": "Window length", "1 heure": "1 hour", "2 heures": "2 hours", "3 heures": "3 hours", "6 heures": "6 hours", "12 heures": "12 hours",
+"Modèles concernés": "Models concerned", "Tous ceux qui ont une mise à jour": "All those with an update", "Seulement ceux que je coche": "Only those I tick",
+"Jeu de tests de validation": "Validation test suite", "Retour si le débit baisse de": "Roll back if throughput drops by", "Garder l'ancienne version": "Keep the old version", "jours": "days",
+"Mises à jour disponibles": "Available updates", "Vérifier maintenant": "Check now", "Mettre à jour la sélection": "Update the selection",
+"Test rapide seulement": "Quick test only", "Interrogation des registres...": "Querying the registries...",
+"Cliquez sur « Vérifier maintenant » pour interroger les registres.": "Click “Check now” to query the registries.",
+"Revenir à l'ancienne version": "Go back to the previous version", "Revenir en arrière": "Roll back", "Mettre à jour": "Update",
+"Aucune mise à jour enregistrée.": "No update recorded.", "Résultat": "Result", "Détail": "Detail",
+"mise à jour faite": "update done", "déjà à jour": "already up to date", "ancienne version rétablie": "previous version restored", "retour manuel": "manual rollback",
+"préparation": "preparing", "mesure avant la mise à jour": "measuring before the update", "copie de sécurité": "safety copy", "téléchargement": "download",
+"test après la mise à jour": "test after the update", "retour à l'ancienne version": "rolling back to the old version", "réponse vide": "empty answer",
+"une mise à jour est déjà en cours": "an update is already running", "une mise à jour est en cours": "an update is running", "choisissez les modèles à mettre à jour": "choose the models to update",
+"modèle non installé": "model not installed", "aucune ancienne version conservée pour ce modèle": "no old version kept for this model",
+"jours invalides": "invalid days", "heure de début invalide (HH:MM)": "invalid start time (HH:MM)", "nombre invalide": "invalid number", "durée de la fenêtre : 30 à 720 minutes": "window length: 30 to 720 minutes",
+"conservation de l'ancienne version : 1 à 60 jours": "old version kept: 1 to 60 days", "chute de débit tolérée : 10 à 90 %": "tolerated throughput drop: 10 to 90%", "modèles à mettre à jour invalides": "invalid models to update",
+}
+P = [
+(r"ancienne version gardée jusqu'au (.+)", "previous version kept until {1}"),
+(r"Revenir à la version de « (.+) » d'avant la dernière mise à jour \? La version actuelle sera remplacée\.", "Go back to the version of " + Q + " from before the last update? The current version will be replaced."),
+(r"Mettre à jour (\d+) modèle\(s\) maintenant \?\n([\s\S]*)\nLes modèles sont rechargés pendant le test : évitez de le faire quand des utilisateurs travaillent\.", "Update {1} model(s) now?\n{2}\nThe models are reloaded during the test: avoid doing it while users are working."),
+(r"Mise à jour en cours : (.+) \((.+)\), (\d+) sur (\d+)\.\.\.", "Update in progress: {1} ({2}), {3} of {4}..."),
+(r"Mise à jour en cours : (.+), (\d+) sur (\d+)\.\.\.", "Update in progress: {1}, {2} of {3}..."),
+(r"(.+) \(planifiée\)", "{1} (scheduled)"),
+(r"(.+) \(manuelle\)", "{1} (manual)"),
+(r"(.+) \(débit (.+) → (.+) jetons/s\)", "{1} (throughput {2} → {3} tokens/s)"),
+(r"nouvelle version conservée ; l'ancienne reste disponible (\d+) jour\(s\)", "new version kept; the old one stays available for {1} day(s)"),
+(r"téléchargement : (.+)", "download: {1}"),
+(r"avant la mise à jour : (.+)", "before the update: {1}"),
+(r"copie de sécurité impossible : (.+)", "safety copy impossible: {1}"),
+(r"débit en baisse de (\d+) %", "throughput down by {1}%"),
+(r"le modèle ne répond pas correctement : (.+)", "the model does not answer correctly: {1}"),
+(r"(\d+) cas de test devenu\(s\) faux : (.+)", "{1} test case(s) now failing: {2}"),
+(r"jeu de tests : (.+)", "test suite: {1}"),
+(r"retour arrière impossible \((.+)\) ; la copie reste sous le nom (.+)", "rollback impossible ({1}); the copy remains under the name {2}"),
+]

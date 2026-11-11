@@ -23,6 +23,7 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/admin_features_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/backup_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/evals_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/modelupdate_test.py
 	bash tests/unit/rollback_test.sh
 	bash tests/unit/host_docker_test.sh
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/router_limits_test.py
@@ -43,6 +44,7 @@ test-ui:
 	node tests/unit/batch3_ui_test.js
 	node tests/unit/modelmap_ui_test.js
 	node tests/unit/lab_ui_test.js
+	node tests/unit/modelupdate_ui_test.js
 
 # Archive de mise à jour en ligne (OB_VERSION=AAAA.MM.JJ-HHMM, OB_SIGNING_KEY=clé privée pour signer)
 bundle:

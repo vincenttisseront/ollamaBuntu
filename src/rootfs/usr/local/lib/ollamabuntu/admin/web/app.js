@@ -216,7 +216,7 @@ function route() {
   $('#job-card').classList.toggle('hidden', !(['gpu', 'system', 'webui'].includes(v) && jobs.current));
   clearInterval(state.timer); state.timer = null;
   if (v === 'dashboard') { loadDashboard(); loadPerf(); state.timer = setInterval(() => { loadDashboard(); loadPerf(); }, 10000); }
-  if (v === 'models') { loadModels(); if (isAdmin()) { loadCustom(); loadContext(); if (currentTab('models') === 'disk') loadModelsDisk(); } }
+  if (v === 'models') { loadModels(); if (isAdmin()) { loadCustom(); loadContext(); if (currentTab('models') === 'disk') loadModelsDisk(); if (currentTab('models') === 'updates') loadMu(); } }
   if (v === 'chat') loadChatModels();
   if (v === 'gpu') loadGpu();
   if (v === 'perf') loadPerformance();
@@ -1859,7 +1859,74 @@ function labDetails(r) {
     ...(x.error ? [el('p', { class: 'error small', text: x.error })] : x.why.map((w) => el('div', { class: 'small error', text: w }))),
     el('pre', { class: 'small', text: x.response || '' })))) });
 }
-const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'system'], fleet: ['fleet', 'balance', 'rules', 'add'] };
+/* ------------------------------------------------ mise à jour des modèles avec retour arrière */
+const mu = { data: null, check: null, timer: null };
+const MU_STATUS = { updated: ['mise à jour faite', 'ok'], unchanged: ['déjà à jour', ''], rolled_back: ['ancienne version rétablie', 'err'], failed: ['échec', 'err'], manual_rollback: ['retour manuel', 'info'] };
+async function loadMu() {
+  let d;
+  try { d = await api('/api/mu'); } catch (e) { $('#mu-state').className = 'small error'; $('#mu-state').textContent = e.message; return; }
+  mu.data = d;
+  renderMuForm(d); renderMuModels(); renderMuHistory(d);
+  const s = d.state;
+  $('#mu-state').className = 'small' + (s.error ? ' error' : '');
+  $('#mu-state').textContent = s.running ? 'Mise à jour en cours : ' + (s.model || 'préparation') + (s.step ? ' (' + s.step + ')' : '') + ', ' + s.done + ' sur ' + s.total + '...' : (s.error || '');
+  $('#mu-run').disabled = s.running || !$$('#mu-models input[type=checkbox]:checked').length;
+  clearInterval(mu.timer); mu.timer = null;
+  if (s.running) mu.timer = setInterval(() => { if (location.hash.split('/')[0] !== '#models') { clearInterval(mu.timer); mu.timer = null; return; } loadMu(); }, 3000);
+}
+function renderMuForm(d) {
+  const f = $('#mu-form'), c = d.config;
+  if (f.contains(w_active()) && mu.formReady) return;   // ne pas écraser une saisie en cours
+  mu.formReady = true;
+  f.elements.enabled.checked = c.enabled; f.elements.start.value = c.start; f.elements.window.value = String(c.window);
+  f.elements.drop_pct.value = c.drop_pct; f.elements.keep_days.value = c.keep_days;
+  $('#mu-days').replaceChildren(...DAYS_SHORT.map((x, i) => el('label', { class: 'check' }, el('input', { type: 'checkbox', value: String(i), checked: c.days.includes(i) || null }), ' ' + x)));
+  f.elements.suite.replaceChildren(el('option', { value: '', text: 'Test rapide seulement' }), ...d.suites.map((s) => el('option', { value: s.id, text: s.name })));
+  f.elements.suite.value = d.suites.some((s) => s.id === c.suite) ? c.suite : '';
+  f.elements.scope.value = c.scope === 'all' ? 'all' : 'some';
+  $('#mu-scope').replaceChildren(...d.models.map((m) => el('label', { class: 'check' }, el('input', { type: 'checkbox', value: m, checked: (c.scope !== 'all' && c.scope.includes(m)) || null }), ' ' + m)));
+  $('#mu-scope').classList.toggle('hidden', c.scope === 'all');
+}
+$('#mu-form').elements.scope.addEventListener('change', (ev) => $('#mu-scope').classList.toggle('hidden', ev.target.value === 'all'));
+$('#mu-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, msg = $('#mu-msg');
+  const config = { enabled: f.elements.enabled.checked, days: $$('#mu-days input:checked').map((i) => Number(i.value)), start: f.elements.start.value, window: Number(f.elements.window.value),
+    scope: f.elements.scope.value === 'all' ? 'all' : $$('#mu-scope input:checked').map((i) => i.value), suite: f.elements.suite.value, keep_days: Number(f.elements.keep_days.value), drop_pct: Number(f.elements.drop_pct.value) };
+  try { await api('/api/mu/config', { json: { config } }); msg.className = 'small okmsg'; msg.textContent = 'Enregistré.'; mu.formReady = false; } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
+});
+$('#mu-check').addEventListener('click', async () => {
+  $('#mu-check').disabled = true; $('#mu-models').replaceChildren(el('p', { class: 'muted small', text: 'Interrogation des registres...' }));
+  try { mu.check = (await api('/api/mu/check')).models; } catch (e) { mu.check = null; $('#mu-models').replaceChildren(el('p', { class: 'error', text: e.message })); }
+  $('#mu-check').disabled = false; renderMuModels();
+});
+function renderMuModels() {
+  const box = $('#mu-models'), d = mu.data;
+  if (!mu.check) { if (!box.textContent) box.replaceChildren(el('p', { class: 'muted small', text: 'Cliquez sur « Vérifier maintenant » pour interroger les registres.' })); return; }
+  const prev = (d && d.prev) || {};
+  box.replaceChildren(mu.check.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, el('th', {}), ...['Modèle', 'Taille', 'État', ''].map((c, i) => el('th', { class: i === 1 ? 'num' : '', text: c })))),
+    el('tbody', {}, ...mu.check.map((m) => el('tr', {}, el('td', {}, el('input', { type: 'checkbox', value: m.name, disabled: m.update.state === 'maj' ? null : true, 'aria-label': 'Sélectionner ' + m.name, onchange: () => { $('#mu-run').disabled = !$$('#mu-models input:checked').length || !!(mu.data && mu.data.state.running); } })),
+      el('td', { class: 'name', text: m.name }), el('td', { class: 'num', text: fmtBytes(m.size) }), el('td', {}, pill(m.update.label, m.update.state === 'maj' ? 'warn' : m.update.state === 'a_jour' ? 'ok' : ''),
+        ...(prev[m.name] ? [' ', pill('ancienne version gardée jusqu\'au ' + fmtDate(prev[m.name].t + d.config.keep_days * 86400).split(',')[0], 'info')] : [])),
+      el('td', {}, prev[m.name] ? el('button', { class: 'btn sm', type: 'button', text: 'Revenir à l\'ancienne version', onclick: () => muRollback(m.name) }) : null)))))) : el('p', { class: 'muted small', text: 'Aucun modèle installé.' }));
+}
+async function muRollback(name) {
+  if (!(await ask('Revenir à la version de « ' + name + ' » d\'avant la dernière mise à jour ? La version actuelle sera remplacée.', { ok: 'Revenir en arrière', danger: true }))) return;
+  try { await api('/api/mu/rollback', { json: { model: name } }); await loadMu(); $('#mu-check').click(); } catch (e) { fail(e.message); }
+}
+$('#mu-run').addEventListener('click', async () => {
+  const models = $$('#mu-models input:checked').map((i) => i.value);
+  if (!(await ask('Mettre à jour ' + models.length + ' modèle(s) maintenant ?\n' + models.map((m) => '• ' + m).join('\n') + '\nLes modèles sont rechargés pendant le test : évitez de le faire quand des utilisateurs travaillent.', { ok: 'Mettre à jour' }))) return;
+  try { await api('/api/mu/run', { json: { models } }); loadMu(); } catch (e) { fail(e.message); }
+});
+function renderMuHistory(d) {
+  $('#mu-history').replaceChildren(d.history.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Date', 'Modèle', 'Résultat', 'Détail', 'Déclencheur'].map((c) => el('th', { text: c })))),
+    el('tbody', {}, ...d.history.map((h) => { const s = MU_STATUS[h.status] || [h.status, '']; return el('tr', {}, el('td', { class: 'small', text: fmtDate(h.t) }), el('td', { class: 'name', text: h.model }), el('td', {}, pill(s[0], s[1])),
+      el('td', { class: 'small', text: h.detail + (h.tps_before && h.tps_after ? ' (débit ' + DEC(h.tps_before) + ' → ' + DEC(h.tps_after) + ' jetons/s)' : '') }), el('td', { class: 'small', text: h.who + ' (' + h.reason + ')' })); })))) : el('p', { class: 'muted small', text: 'Aucune mise à jour enregistrée.' }));
+}
+const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'system'], fleet: ['fleet', 'balance', 'rules', 'add'] };
 function setupTabs() {
   for (const sec of $$('section.view')) {
     const items = [...sec.querySelectorAll('[data-panel]')];

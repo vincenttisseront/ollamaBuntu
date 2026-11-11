@@ -19,7 +19,7 @@ LABELS = {
     "/api/prom/token": "Jeton Prometheus", "/api/gpu/guard/config": "Réparation automatique du GPU", "/api/gpu/guard/repair": "Réparation du GPU",
     "/api/perf/profile": "Profil de performance", "/api/perf/fix": "Réglage système de performance", "/api/perf/guard": "Garde-fou de débit",
     "/api/perf/apply-suggestion": "Réglage suggéré appliqué", "/api/perf/warmup": "Préchauffage des modèles", "/api/perf/warmup/run": "Préchauffage immédiat",
-    "/api/bench/run": "Mesure de débit", "/api/lab/compare": "Comparaison de modèles", "/api/lab/suite": "Jeu de tests enregistré", "/api/lab/suite/delete": "Jeu de tests supprimé", "/api/lab/run": "Exécution d'un jeu de tests", "/api/bench/clear": "Effacement de l'historique de mesures",
+    "/api/bench/run": "Mesure de débit", "/api/lab/compare": "Comparaison de modèles", "/api/mu/config": "Mises à jour planifiées des modèles", "/api/mu/run": "Mise à jour de modèles", "/api/mu/rollback": "Retour à l'ancienne version d'un modèle", "/api/lab/suite": "Jeu de tests enregistré", "/api/lab/suite/delete": "Jeu de tests supprimé", "/api/lab/run": "Exécution d'un jeu de tests", "/api/bench/clear": "Effacement de l'historique de mesures",
     "/api/report/config": "Rapport hebdomadaire", "/api/report/send": "Envoi du rapport hebdomadaire", "/api/audit/clear": "Effacement du journal d'audit",
     "/api/requests/clear": "Effacement du journal des requêtes", "/api/backup/create": "Sauvegarde de la configuration", "/api/backup/restore": "Restauration de la configuration",
 }

@@ -150,6 +150,28 @@
         <div id="ctx-models"></div>
         <p class="muted small" id="ctx-note">La valeur d'un modèle s'applique à toutes les requêtes de l'API d'Ollama (console, Open WebUI, applications), sauf si la requête précise sa propre taille. La mémoire est estimée pour une requête à la fois.</p>
       </div>
+      <div class="card wide" data-admin data-panel="updates" data-label="Mises à jour">
+        <h2>Mises à jour des modèles</h2>
+        <p class="muted small">Avant chaque mise à jour, l'ancienne version est copiée sous un autre nom (sans dupliquer les fichiers). Après le téléchargement, un test rapide vérifie que le modèle répond et que son débit n'a pas chuté ; si vous choisissez un jeu de tests, il est joué avant et après, et un cas devenu faux déclenche le retour. En cas de problème, l'ancienne version est rétablie automatiquement et les alertes sont prévenues. Si tout va bien, l'ancienne version reste disponible pendant la durée choisie, pour revenir en arrière d'un clic.</p>
+        <div id="mu-state" class="small" aria-live="polite"></div>
+        <form id="mu-form" class="pool-form">
+          <label class="inline"><input type="checkbox" name="enabled"> Mettre à jour automatiquement pendant la fenêtre de maintenance</label>
+          <div><div class="small muted">Jours</div><div id="mu-days" class="checks days"></div></div>
+          <div class="row"><label>Début <input type="time" name="start" value="03:00" required></label>
+            <label>Durée de la fenêtre <select name="window"><option value="60">1 heure</option><option value="120">2 heures</option><option value="180">3 heures</option><option value="360">6 heures</option><option value="720">12 heures</option></select></label>
+            <label>Modèles concernés <select name="scope"><option value="all">Tous ceux qui ont une mise à jour</option><option value="some">Seulement ceux que je coche</option></select></label></div>
+          <div id="mu-scope" class="checks hidden"></div>
+          <div class="row"><label>Jeu de tests de validation <select name="suite"></select></label>
+            <label>Retour si le débit baisse de <input type="number" name="drop_pct" min="10" max="90" style="width:80px"> %</label>
+            <label>Garder l'ancienne version <input type="number" name="keep_days" min="1" max="60" style="width:80px"> jours</label></div>
+          <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="mu-msg" class="small" aria-live="polite"></span></div>
+        </form>
+        <h3>Mises à jour disponibles</h3>
+        <div class="row"><button id="mu-check" class="btn" type="button">Vérifier maintenant</button><button id="mu-run" class="btn primary" type="button" disabled>Mettre à jour la sélection</button></div>
+        <div id="mu-models"></div>
+        <h3>Historique</h3>
+        <div id="mu-history"></div>
+      </div>
       <div class="card wide" data-admin data-panel="disk" data-label="Espace disque">
         <div class="card-head"><h2>Espace disque des modèles</h2>
           <label>Inutilisé depuis <select id="md-days"><option value="30">30 jours</option><option value="60">60 jours</option><option value="90">90 jours</option></select></label></div>
