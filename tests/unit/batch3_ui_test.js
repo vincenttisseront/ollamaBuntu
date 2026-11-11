@@ -88,7 +88,7 @@ async function fakeFetch(p, o = {}) {
     { id: 'k1', name: 'RH', prefix: 'ob_a', perms: ['inference'], deny: [], models: [], enabled: true, usage: {}, expires: '', days_left: null, max_ctx: 8192, max_output: 1024 }] });
   if (p === '/api/publication/keys/update' || p === '/api/publication/keys/create') return json({ ok: true, token: 'ob_tok', key: {} });
   if (p.startsWith('/api/metrics')) return json({ span: 3600, interval: 10, gpus: {}, series: [] });
-  if (p.startsWith('/api/requests')) return json({ requests: [], summary: [], prompt_excerpt: false });
+  if (p.startsWith('/api/requests')) return json({ requests: [{ ts: now, client: 'DocManagement', model: 'gemma4:12b', path: '/api/chat', status: 200, ms: 900, ttft_ms: 100, in_tok: 5, out_tok: 9, tps: 70, instance: 'local', prompt: state.excerpt ? 'Résume ce contrat' : undefined }], summary: [], prompt_excerpt: !!state.excerpt });
   if (p === '/api/prom') return json({ enabled: false, created: null, path: '/metrics' });
   return json({});
 }
@@ -265,6 +265,12 @@ const $$e_tabs = (win, v) => [...win.document.querySelectorAll('#view-' + v + ' 
   ok(await go('#fleet/balance', () => $('#bal-affinity').checked), 'parc : affinité de session active par défaut');
   $('#bal-affinity').checked = false; $('#bal-affinity').dispatchEvent(new w.Event('change'));
   ok(await until(() => calls.some((c) => c[1] === '/api/fleet/balance/strategy' && c[2].affinity === false && c[2].strategy === undefined)), 'affinité désactivée');
+
+  // --- journal des requêtes : la colonne Demande indique pourquoi elle est vide
+  ok(await go('#dashboard', () => $('#dash-requests').textContent.includes('DocManagement')) && $('#dash-requests td.prompt').textContent === 'non enregistré' && !$('#dash-req-note').classList.contains('hidden'), 'tableau de bord : « non enregistré » (et non « - ») quand l\'extrait est désactivé');
+  state.excerpt = true; w.dispatchEvent(new w.Event('hashchange')); w.location.hash = '#logs/requests'; w.location.hash = '#dashboard';
+  ok(await until(() => $('#dash-requests td.prompt') && $('#dash-requests td.prompt').textContent === 'Résume ce contrat'), 'extrait activé : la demande s\'affiche');
+  state.excerpt = false;
 
   // --- palette
   w.location.hash = '#dashboard';

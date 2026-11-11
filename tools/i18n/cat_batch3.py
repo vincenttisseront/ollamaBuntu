@@ -169,6 +169,7 @@ E = {
 "lundi": "Monday", "mardi": "Tuesday", "mercredi": "Wednesday", "jeudi": "Thursday", "vendredi": "Friday", "samedi": "Saturday", "dimanche": "Sunday",
 "Aller à...": "Go to...", "aucune adresse": "no address",
 "Plus": "More",
+"non enregistré": "not recorded", "Extrait désactivé : Journaux > Requêtes": "Excerpt disabled: Logs > Requests",
 # --- alertes
 "Carte graphique indisponible ou inutilisée par Ollama.": "Graphics card unavailable or not used by Ollama.",
 "aucun modèle": "no model", "expirée": "expired", "aujourd'hui": "today",

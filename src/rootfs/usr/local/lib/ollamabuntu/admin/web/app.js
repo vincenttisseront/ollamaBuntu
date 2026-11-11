@@ -1792,7 +1792,7 @@ function reqTable(list, compact) {
   if (!list.length) return el('p', { class: 'muted small', text: 'Aucune requête enregistrée pour le moment.' });
   const cols = compact ? ['Heure', 'Modèle', 'Client', 'Serveur', 'Demande', 'Durée', 't/s'] : ['Heure', 'Client', 'Modèle', 'Demande', 'Serveur', 'Point d\'API', 'Statut', 'Durée', '1er jeton', 'Jetons (entrée / sortie)', 't/s'];
   const numFrom = compact ? 5 : 7;
-  const prompt = (r) => el('td', { class: 'prompt', title: r.prompt || '' }, r.prompt ? r.prompt : el('span', { class: 'muted', text: '-' }));
+  const prompt = (r) => el('td', { class: 'prompt', title: r.prompt || '' }, r.prompt ? r.prompt : el('span', { class: 'muted', title: rq.excerpt ? '' : 'Extrait désactivé : Journaux > Requêtes', text: rq.excerpt ? '-' : 'non enregistré' }));
   return el('div', { class: 'table-wrap' }, el('table', { class: 'dense' }, el('thead', {}, el('tr', {}, ...cols.map((c, i) => el('th', { class: i >= numFrom ? 'num' : '', text: c })))),
     el('tbody', {}, ...list.map((r) => el('tr', {},
       el('td', { class: 'nowrap', text: fmtTime(r.ts, true) }),
@@ -1803,7 +1803,7 @@ function reqTable(list, compact) {
       ...(compact ? [] : [el('td', { class: 'num', text: fmtMs(r.ttft_ms) }), el('td', { class: 'num', text: (r.in_tok == null ? '-' : r.in_tok) + ' / ' + (r.out_tok == null ? '-' : r.out_tok) })]),
       el('td', { class: 'num', text: r.tps ? DEC(r.tps) : '-' }))))));
 }
-const rq = { list: [] };
+const rq = { list: [], excerpt: false };
 function reqFiltered() {
   const q = $('#rf-q').value.trim().toLowerCase(), st = $('#rf-status').value;
   return rq.list.filter((r) => (!q || [r.model, r.client, r.prompt, r.path, reqWhere(r)].some((x) => String(x || '').toLowerCase().includes(q))) &&
@@ -1836,12 +1836,13 @@ async function loadRequests() {
     el('tbody', {}, ...d.summary.map((s) => el('tr', {}, el('td', { class: 'name', text: s.model }), el('td', { class: 'num', text: s.count }), el('td', { class: 'num', text: s.errors }),
       el('td', { class: 'num', text: s.tok }), el('td', { class: 'num', text: s.tps ? DEC(s.tps) : '-' }), el('td', { class: 'num', text: fmtMs(s.ttft_ms) }),
       el('td', { class: 'num', text: fmtMs(s.p50_ms) }), el('td', { class: 'num', text: fmtMs(s.p95_ms) })))))) : el('p', { class: 'muted small', text: 'Aucune requête dans la dernière heure.' }));
-  rq.list = d.requests;
+  rq.list = d.requests; rq.excerpt = !!d.prompt_excerpt;
   renderReqList();
 }
 async function loadDashRequests() {
   try {
     const d = await api('/api/requests?limit=6');
+    rq.excerpt = !!d.prompt_excerpt;
     $('#dash-requests').replaceChildren(reqTable(d.requests, true));
     const note = $('#dash-req-note');
     note.classList.toggle('hidden', !!d.prompt_excerpt);
