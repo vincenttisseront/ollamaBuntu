@@ -4,6 +4,7 @@
 0755 usr/local/bin/ollamabuntu-menu
 0755 usr/local/lib/ollamabuntu/admin/server.py
 0755 usr/local/lib/ollamabuntu/admin/updater.py
+0755 usr/local/lib/ollamabuntu/rollback.sh
 0755 usr/local/lib/ollamabuntu/gpu-auto.py
 0755 usr/local/lib/ollamabuntu/i18n.py
 0755 usr/local/lib/ollamabuntu/open-webui.sh

@@ -38,6 +38,7 @@ import urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import updater  # noqa: E402  mise à jour depuis Internet (GitHub)
 import monitor  # noqa: E402  débordement CPU/GPU, alertes, réglages recommandés
+import backup  # noqa: E402  sauvegarde chiffrée de la configuration
 
 VERSION = "@@OB_VERSION@@"
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
@@ -202,6 +203,8 @@ exit $rc
 """),
     "appliance-update": ("Mise à jour de l'appliance depuis un CD/ISO ou une clé USB", "exec /usr/local/sbin/ollamabuntu-update --yes\n"),
     "appliance-update-online": ("Mise à jour de l'appliance depuis Internet (GitHub)", "exec /usr/bin/python3 /usr/local/lib/ollamabuntu/admin/updater.py apply --yes\n"),
+    "config-reload": ("Rechargement après restauration de la configuration", "systemctl restart ollama.service ollamabuntu-router.service ollamabuntu-firewall.service || true\nexec systemctl restart ollamabuntu-admin.service\n"),
+    "appliance-rollback": ("Retour à la version précédente de l'appliance", "exit 1\n"),
     "webui-install": ("Déploiement d'Open WebUI", "exec /bin/bash /usr/local/lib/ollamabuntu/open-webui.sh install\n"),
     "webui-update": ("Mise à jour d'Open WebUI", "exec /bin/bash /usr/local/lib/ollamabuntu/open-webui.sh update\n"),
     "webui-remove": ("Suppression du conteneur Open WebUI", "exec /bin/bash /usr/local/lib/ollamabuntu/open-webui.sh remove\n"),
@@ -2056,6 +2059,28 @@ def tuning_apply(data):
 
 
 # ------------------------------------------- limites par clé, règles, test du parc ---
+APPLIANCE_BACKUPS = os.environ.get("OB_BACKUPS", "/var/backups/ollamabuntu")
+BACKUP_NAME_RE = re.compile(r"^appliance-(.+)-(\d{8}-\d{6})\.tar\.gz$")
+
+
+def backups_list():
+    """Sauvegardes des fichiers de l'appliance faites avant chaque mise à jour (la plus récente d'abord)."""
+    out = []
+    try:
+        names = os.listdir(APPLIANCE_BACKUPS)
+    except OSError:
+        return out
+    for n in names:
+        m = BACKUP_NAME_RE.match(n)
+        if m:
+            try:
+                st = os.stat(os.path.join(APPLIANCE_BACKUPS, n))
+            except OSError:
+                continue
+            out.append({"file": n, "version": m.group(1), "stamp": m.group(2), "size": st.st_size})
+    return sorted(out, key=lambda b: b["stamp"], reverse=True)[:20]
+
+
 def limits_view():
     lim = load_json_file(ROUTER_LIMITS, {})
     queue, tokens = lim.get("queue") or {}, lim.get("tokens") or {}
@@ -3280,6 +3305,23 @@ def hf_search(q, mode):
     return {"models": sorted(found.values(), key=lambda x: -x["downloads"])[:40], "mode": mode}
 
 
+def hf_fit(quants, vram, ram_total):
+    """Place d'une quantification sur ce serveur : gpu (tient en mémoire vidéo avec une marge pour le cache), partial (déborde sur la
+    mémoire du serveur : fonctionne, nettement plus lent), no (trop gros même ainsi). Sans GPU, tout se juge sur la mémoire du serveur."""
+    for q in quants:
+        need = q["size"] * 1.08 + GB_HALF
+        if vram and need <= vram * 0.92:
+            q["fit"] = "gpu"
+        elif need <= (vram * 0.92 if vram else 0) + ram_total * 0.7:
+            q["fit"] = "partial"
+        else:
+            q["fit"] = "no"
+    return quants
+
+
+GB_HALF = 512 * 1024 * 1024
+
+
 def hf_files(repo):
     """Quantifications GGUF d'un dépôt Hugging Face, avec leur taille (fichiers multiples additionnés)."""
     repo = str(repo or "").strip()
@@ -3722,7 +3764,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules", "/api/update/backups"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -3747,6 +3789,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
+
+    def send_blob(self, data, filename):
+        self.send_head(200, "application/octet-stream", len(data), {"Content-Disposition": 'attachment; filename="%s"' % filename})
+        self.wfile.write(data)
 
     def send_json(self, code, obj, extra=None):
         body = json.dumps(obj, ensure_ascii=False).encode()
@@ -3867,13 +3913,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, tuning_view())
             if path == "/api/limits":
                 return self.send_json(200, limits_view())
+            if path == "/api/update/backups":
+                return self.send_json(200, {"backups": backups_list(), "installed": VERSION})
             if path == "/api/fleet/rules":
                 return self.send_json(200, {"rules": load_rules()})
             if path in ("/api/hf/search", "/api/hf/files"):
                 try:
                     if path == "/api/hf/search":
                         return self.send_json(200, hf_search((query.get("q") or [""])[0], (query.get("mode") or ["standard"])[0]))
-                    return self.send_json(200, hf_files((query.get("repo") or [""])[0]))
+                    r = hf_files((query.get("repo") or [""])[0])
+                    r["vram"] = sum(g.get("mem_total") or 0 for g in gpu_metrics())
+                    r["ram"] = meminfo().get("MemTotal", 0)
+                    hf_fit(r["quants"], r["vram"], r["ram"])
+                    return self.send_json(200, r)
                 except ValueError as e:
                     return self.send_json(400, {"error": str(e)})
             if path == "/api/models/insights":
@@ -3997,6 +4049,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/api/fleet/servers/route":
                 fleet_set_route(str(data.get("id", "")), bool(data.get("enabled")))
                 return self.send_json(200, {"ok": True})
+            if path == "/api/backup/export":
+                blob = backup.export_bytes(ETC, str(data.get("passphrase") or ""), VERSION)
+                print("sauvegarde de la configuration exportée par %s" % user, flush=True)
+                return self.send_blob(blob, "ollamabuntu-config-%s.obbk" % time.strftime("%Y%m%d-%H%M"))
+            if path == "/api/backup/import":
+                try:
+                    raw = base64.b64decode(str(data.get("data") or ""), validate=True)
+                except ValueError:
+                    raise ValueError("fichier de sauvegarde illisible")
+                meta, files = backup.read_bytes(raw, str(data.get("passphrase") or ""))
+                summary = {"version": meta.get("version"), "created": meta.get("created"), "files": sorted(files)}
+                if not data.get("apply"):
+                    return self.send_json(200, {"ok": True, "applied": False, "summary": summary})
+                written = backup.restore(ETC, meta, files)
+                print("configuration restaurée par %s : %s" % (user, ", ".join(written)), flush=True)
+                return self.send_json(200, {"ok": True, "applied": True, "summary": summary, "job": start_job("config-reload")})
             if path == "/api/alerts/config":
                 alerts_save(data)
                 return self.send_json(200, {"ok": True})
@@ -4239,6 +4307,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if r.returncode != 0:
                 return self.send_json(500, {"error": (r.stderr or r.stdout).strip()[:300] or "échec"})
             return self.send_json(200, {"ok": True})
+        if act == "appliance-rollback":
+            name = str(data.get("file") or "")
+            if name not in {b["file"] for b in backups_list()}:
+                return self.send_json(400, {"error": "sauvegarde inconnue"})
+            print("retour arrière demandé par %s : %s" % (user, name), flush=True)
+            try:
+                return self.send_json(200, {"job": start_job(act, "exec /bin/bash /usr/local/lib/ollamabuntu/rollback.sh restore %s\n" % shlex.quote(os.path.join(APPLIANCE_BACKUPS, name)))})
+            except (OSError, subprocess.SubprocessError) as e:
+                return self.send_json(500, {"error": "impossible de lancer la tâche : %s" % e})
         if act == "appliance-update-online":   # la version affichée à l'administrateur est celle qui est installée
             tag = str(data.get("tag") or "")
             script = None
