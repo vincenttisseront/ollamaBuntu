@@ -62,7 +62,8 @@ function trNode(node) {
     const out = trString(node.data);
     if (out != null && out !== node.data) node.data = out;
   } else if (node.nodeType === 1) {
-    if (node.closest(NO_I18N)) return;
+    const skip = node.closest(NO_I18N);
+    if (skip && !(skip === node && node.tagName === 'TEXTAREA')) return;   // le texte saisi reste intact, mais l'indication (placeholder) d'une zone de texte se traduit
     for (const a of ['placeholder', 'title', 'aria-label']) {
       const v = node.getAttribute(a), out = v && trString(v);
       if (out && out !== v) node.setAttribute(a, out);
@@ -200,8 +201,8 @@ $('#logout').addEventListener('click', async () => {
 });
 
 /* ------------------------------------------------------------- navigation */
-const VIEWS = ['dashboard', 'models', 'chat', 'gpu', 'system', 'security', 'fleet', 'webui', 'users', 'logs', 'account', 'about'];
-const ADMIN_VIEWS = ['dashboard', 'gpu', 'system', 'webui', 'users', 'logs'];
+const VIEWS = ['dashboard', 'models', 'chat', 'gpu', 'perf', 'system', 'security', 'fleet', 'webui', 'users', 'logs', 'account', 'about'];
+const ADMIN_VIEWS = ['dashboard', 'gpu', 'perf', 'system', 'webui', 'users', 'logs'];
 function route() {
   let [v, sub] = location.hash.slice(1).split('/');
   if (!VIEWS.includes(v)) v = isAdmin() ? 'dashboard' : 'chat';
@@ -213,10 +214,11 @@ function route() {
   $('#job-card').classList.toggle('hidden', !(['gpu', 'system', 'webui'].includes(v) && jobs.current));
   clearInterval(state.timer); state.timer = null;
   if (v === 'dashboard') { loadDashboard(); loadPerf(); state.timer = setInterval(() => { loadDashboard(); loadPerf(); }, 10000); }
-  if (v === 'models') { loadModels(); if (isAdmin()) { loadCustom(); loadContext(); } }
+  if (v === 'models') { loadModels(); if (isAdmin()) { loadCustom(); loadContext(); if (currentTab('models') === 'disk') loadModelsDisk(); } }
   if (v === 'chat') loadChatModels();
   if (v === 'gpu') loadGpu();
-  if (v === 'system') { loadSystem(); loadProm(); }
+  if (v === 'perf') loadPerformance();
+  if (v === 'system') { loadSystem(); loadProm(); const tab = currentTab('system'); if (tab === 'hardware') loadHardware(); if (tab === 'audit') loadAudit(); if (tab === 'report') loadReport(); }
   if (v === 'webui') loadWebui();
   if (v === 'users') loadUsers();
   if (v === 'logs') { loadRequests(); loadReqSettings(); loadLogs(); if (currentTab('logs') === 'stats') loadStats(); state.timer = setInterval(() => { if ($('#req-live').checked && currentTab('logs') === 'requests') loadRequests(); }, 4000); }
@@ -314,6 +316,8 @@ async function loadDashboard() {
 /* ----------------------------------------------------------------- modèles */
 const FIT_KIND = { gpu: 'ok', cpu: 'info', mixte: 'warn', trop: 'err', incompatible: 'err' };
 const UPD_KIND = { a_jour: 'ok', maj: 'warn', local: 'info', cloud: 'info', inconnu: '' };
+/* Registre d'origine d'un modèle : hf.co/... = Hugging Face, un nom sans adresse = registre Ollama. */
+function srcOf(name) { const h = name.includes('/') ? name.split('/')[0] : ''; return !h || h === 'registry.ollama.ai' ? 'Ollama' : (h === 'hf.co' || h === 'huggingface.co') ? 'Hugging Face' : h; }
 function renderInstalled(models) {
   const box = $('#models-table');
   if (!models.length) { box.replaceChildren(el('p', { class: 'muted', text: 'Aucun modèle installé.' })); return; }
@@ -322,7 +326,7 @@ function renderInstalled(models) {
   for (const m of models) {
     const det = m.details || {};
     tbody.append(el('tr', {},
-      el('td', {}, el('strong', { text: m.name })),
+      el('td', {}, el('strong', { text: m.name }), ' ', el('span', { class: 'chip', text: m.source || srcOf(m.name) })),
       el('td', { text: (det.parameter_size || '-') + ' / ' + (det.quantization_level || '-') }),
       el('td', { class: 'nowrap', text: fmtBytes(m.size) }),
       rich ? el('td', {}, m.fit ? pill(m.fit.label, FIT_KIND[m.fit.level]) : null) : null,
@@ -348,22 +352,35 @@ async function loadInsights(refresh) {
   $('#capacity').replaceChildren(el('h2', { text: 'Ce serveur' }),
     el('div', { class: 'big', text: c.vram ? 'GPU : ' + fmtBytes(c.vram) + ' de mémoire vidéo' : 'Processeur uniquement' }),
     el('div', { class: 'muted small', text: (c.gpus.length ? c.gpus.join(' - ') + ' - ' : '') + 'mémoire système : ' + fmtBytes(c.ram_total) + ' (' + fmtBytes(c.ram_available) + ' disponibles) - Ollama ' + (d.ollama || '?') }),
-    d.registry.ok ? null : el('p', { class: 'error small', text: 'Registre Ollama injoignable : ' + d.registry.errors[0] + ' (accès Internet, proxy ?)' }));
+    d.registry.ok ? null : el('p', { class: 'error small', text: 'Un registre de modèles est injoignable : ' + d.registry.errors[0] + ' (accès Internet, proxy ?)' }));
   renderInstalled(d.installed.sort((a, b) => a.name.localeCompare(b.name)));
+  catalogData = d;
+  renderCatalog();
+}
+let catalogData = null;
+/* Vue agrégée : tous les registres dans une seule liste, triée du plus adapté au moins adapté à ce serveur ; filtrable par source, adéquation et texte. */
+function renderCatalog() {
+  const d = catalogData; if (!d) return;
+  const src = $('#cat-source').value, onlyFit = $('#cat-fit').checked, q = $('#cat-q').value.trim().toLowerCase();
+  const items = d.catalog.filter((m) => (!src || m.source === src) && (!onlyFit || (m.available && ['gpu', 'cpu', 'mixte'].includes(m.fit.level)))
+    && (!q || (m.name + ' ' + m.category + ' ' + (m.caps || []).join(' ') + ' ' + m.description).toLowerCase().includes(q)));
   const groups = {};
-  for (const m of d.catalog) (groups[m.category] = groups[m.category] || []).push(m);
-  const avail = d.catalog.filter((m) => m.available).length;
-  $('#catalog-note').textContent = avail + ' modèle(s) du catalogue disponible(s) sur le registre, triés du plus adapté au moins adapté à ce serveur. Catalogue modifiable : /etc/ollamabuntu/catalog.json';
-  $('#catalog').replaceChildren(...Object.entries(groups).map(([cat, items]) => el('div', { class: 'catalog-group' }, el('h3', { text: cat }),
-    el('div', { class: 'cat-grid' }, ...items.map((m) => el('div', { class: 'cat-item' },
+  for (const m of items) (groups[m.category] = groups[m.category] || []).push(m);
+  const parts = Object.entries(d.sources || {}).map(([s, c]) => s + ' ' + c.available + '/' + c.total);
+  $('#catalog-note').textContent = d.catalog.filter((m) => m.available).length + ' modèle(s) du catalogue disponible(s) (' + parts.join(', ') + '), tous registres confondus, triés du plus adapté au moins adapté à ce serveur. Catalogue modifiable : /etc/ollamabuntu/catalog.json';
+  if (!items.length) { $('#catalog').replaceChildren(el('p', { class: 'muted', text: 'Aucun modèle ne correspond à ces filtres.' })); return; }
+  $('#catalog').replaceChildren(...Object.entries(groups).map(([cat, list]) => el('div', { class: 'catalog-group' }, el('h3', { text: cat }),
+    el('div', { class: 'cat-grid' }, ...list.map((m) => el('div', { class: 'cat-item' },
       el('div', { class: 'name', text: m.name }),
-      el('div', { class: 'chips' }, ...(m.caps || []).map((x) => el('span', { class: 'chip', text: x }))),
+      el('div', { class: 'chips' }, el('span', { class: 'chip', text: m.source }), ...(m.caps || []).map((x) => el('span', { class: 'chip', text: x }))),
       el('p', { class: 'muted', text: m.description }),
-      el('div', {}, m.available ? pill(m.fit.label, FIT_KIND[m.fit.level]) : pill('Indisponible sur le registre', ''),
+      el('div', {}, m.available ? pill(m.fit.label, FIT_KIND[m.fit.level]) : pill(m.source === 'Hugging Face' ? 'Indisponible sur Hugging Face' : 'Indisponible sur le registre', ''),
         m.available ? document.createTextNode(' ' + fmtBytes(m.size) + (m.params ? ' - ' + m.params : '') + (m.quant ? ' ' + m.quant : '')) : null),
       el('div', { class: 'row' }, m.installed ? pill('Installé', 'ok') : (m.available && m.fit.level !== 'incompatible'
         ? el('button', { class: 'btn sm' + (['gpu', 'cpu'].includes(m.fit.level) ? ' primary' : ''), type: 'button', text: 'Télécharger', onclick: () => pullModel(m.name) }) : null))))))));
 }
+for (const id of ['#cat-source', '#cat-fit']) $(id).addEventListener('change', renderCatalog);
+$('#cat-q').addEventListener('input', renderCatalog);
 $('#insights-refresh').addEventListener('click', () => loadInsights(true));
 async function checkModel() {
   const name = $('#check-name').value.trim(), out = $('#check-result');
@@ -709,6 +726,7 @@ async function loadGpu() {
   }) : [card('Aucune carte', el('p', { class: 'muted', text: 'Aucune carte graphique ou accélérateur détecté.' }))]));
   loadEnv();
   loadPlacement();
+  loadGuard();
   resumeJob();
 }
 $('#gpu-refresh').addEventListener('click', loadGpu);
@@ -766,7 +784,7 @@ async function loadPublication() {
       el('td', { class: 'small', text: k.usage && k.usage.last ? fmtDate(k.usage.last) + ' (' + k.usage.count + ' requêtes)' : 'jamais' }),
       el('td', {}, k.enabled ? pill('active', 'ok') : pill('désactivée', 'warn'), keyExpiryPill(k)),
       el('td', { class: 'nowrap' }, el('button', { class: 'btn sm', type: 'button', text: k.enabled ? 'Désactiver' : 'Activer', onclick: () => keyToggle(k) }), ' ',
-        el('button', { class: 'btn sm', type: 'button', text: 'Échéance', onclick: () => keyExpiry(k) }), ' ',
+        el('button', { class: 'btn sm', type: 'button', text: 'Échéance', onclick: () => keyExpiry(k) }), ' ', el('button', { class: 'btn sm', type: 'button', text: 'Plafonds', onclick: () => keyCaps(k) }), ' ',
         el('button', { class: 'btn sm danger', type: 'button', text: 'Supprimer', onclick: () => keyDelete(k) })))))))] :
     [el('p', { class: 'muted small', text: 'Aucune clé. Créez une clé par application : vous pourrez la désactiver sans toucher aux autres.' })]));
   const kf = $('#key-form');
@@ -795,7 +813,7 @@ $('#key-form').addEventListener('submit', async (ev) => {
   const f = ev.target;
   try {
     const r = await api('/api/publication/keys/create', { json: { name: f.elements.name.value.trim(), perms: checkedValues(f, 'perm'), models: checkedValues(f, 'model'), deny: checkedValues(f, 'deny'),
-      max_concurrent: Number(f.elements.max_concurrent.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
+      max_concurrent: Number(f.elements.max_concurrent.value) || 0, max_ctx: Number(f.elements.max_ctx.value) || 0, max_output: Number(f.elements.max_output.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
     f.elements.name.value = ''; f.elements.expires.value = ''; $('#key-msg').textContent = '';
     await loadPublication();
     const code = el('code', { class: 'token', text: r.token });
@@ -1518,7 +1536,7 @@ const BAL_ISSUE = {
   'no-common-model': 'Aucun modèle en commun avec ce serveur : installez les mêmes modèles (Parc > Synchroniser > Modèles).',
 };
 const BAL_HELP = {
-  spread: 'Chaque requête va au serveur qui en traite le moins à cet instant ; à égalité, les serveurs se relaient. Un modèle est chargé sur chaque serveur à sa première utilisation, ce qui prend du temps pour un gros modèle. Une conversation peut changer de serveur d\'une réponse à l\'autre.',
+  spread: 'Chaque requête va au serveur qui en traite le moins à cet instant ; à égalité, les serveurs se relaient. Un modèle est chargé sur chaque serveur à sa première utilisation, ce qui prend du temps pour un gros modèle. Sans l\'option ci-dessous, une conversation peut changer de serveur d\'une réponse à l\'autre.',
   warm: 'Chaque requête va de préférence au serveur qui a déjà le modèle en mémoire, tant qu\'il n\'est pas occupé par plusieurs requêtes. Les autres serveurs ne servent qu\'en cas de forte demande ou de panne : avec un seul utilisateur, tout reste sur le même serveur.',
 };
 const balState = { multi: [] };
@@ -1527,6 +1545,7 @@ async function loadBalance() {
   try { d = await api('/api/fleet/balance'); } catch (e) { $('#bal-msg').className = 'small error'; $('#bal-msg').textContent = e.message; return; }
   const sel = $('#bal-strategy');
   if (w_active() !== sel) sel.value = d.strategy;
+  if (w_active() !== $('#bal-affinity')) $('#bal-affinity').checked = d.affinity !== false;
   $('#bal-strategy-help').textContent = BAL_HELP[sel.value] || '';
   const items = [];
   if (!d.servers.length) items.push(el('li', { text: 'Aucun serveur dans le parc : ajoutez-en un (onglet « Ajouter un serveur »).' }));
@@ -1644,7 +1663,7 @@ $('#ctx-default-save').addEventListener('click', async () => {
 /* Les éléments marqués data-panel sont regroupés en onglets ; l'adresse #écran/onglet
    permet un lien direct, et l'onglet choisi est mémorisé. */
 const TABS = {};
-const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'catalog', 'custom'], logs: ['requests', 'stats', 'system'], fleet: ['fleet', 'balance', 'rules', 'add'] };
+const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'system'], fleet: ['fleet', 'balance', 'rules', 'add'] };
 function setupTabs() {
   for (const sec of $$('section.view')) {
     const items = [...sec.querySelectorAll('[data-panel]')];
@@ -1913,6 +1932,8 @@ function keyLimits(k, u) {
   }
   if (k.quota_day) parts.push('jour : ' + n((u && u.day) || 0) + ' / ' + n(k.quota_day) + ' jetons');
   if (k.quota_month) parts.push('mois : ' + n((u && u.month) || 0) + ' / ' + n(k.quota_month) + ' jetons');
+  if (k.max_ctx) parts.push('contexte ≤ ' + n(k.max_ctx) + ' jetons');
+  if (k.max_output) parts.push('réponse ≤ ' + n(k.max_output) + ' jetons');
   if (!parts.length && u && u.total) parts.push(n(u.total) + ' jetons au total');
   return parts.length ? parts : ['sans limite'];
 }
@@ -2229,6 +2250,306 @@ $('#prom-create').addEventListener('click', async () => {
 $('#prom-revoke').addEventListener('click', async () => {
   if (!(await ask('Révoquer le jeton Prometheus ? Les collectes en cours échoueront.', { ok: 'Révoquer', danger: true }))) return;
   try { await api('/api/prom/token', { json: { action: 'revoke' } }); await loadProm(); } catch (e) { fail(e.message); }
+});
+
+/* ------------------------------------------------ disponibilité des GPU pour Ollama */
+const GG_CODE = { driver_down: 'Pilote inactif', ollama_blind: 'Carte non vue par Ollama', gpu_unused: 'Modèle sur le processeur', gpu_error_log: 'Erreur GPU dans le journal d\'Ollama', restricted: 'Visibilité limitée' };
+const GG_STEP = { 'load-driver': 'pilote rechargé', 'load-uvm': 'module UVM vérifié', 'restart-ollama': 'Ollama redémarré' };
+const GG_STATE = { ok: ['Toutes les cartes sont disponibles', 'ok'], info: ['Information', 'info'], warning: ['À surveiller', 'warn'], critical: ['Carte indisponible', 'err'], none: ['Aucune carte de calcul détectée', 'info'] };
+let ggTimer = null;
+async function loadGuard() {
+  let g;
+  try { g = await api('/api/gpu/guard'); } catch (e) { $('#gg-body').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  clearTimeout(ggTimer);
+  if (g.repairing) ggTimer = setTimeout(() => { if (location.hash.startsWith('#gpu')) loadGuard(); }, 4000);
+  const st = GG_STATE[g.state] || GG_STATE.ok, flag = (v) => (v ? pill('oui', 'ok') : pill('non', 'err'));
+  $('#gg-body').replaceChildren(
+    el('p', {}, pill(st[0], st[1]), g.repairing ? ' ' : null, g.repairing ? pill('réparation en cours...', 'info') : null),
+    g.checks.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+      el('thead', {}, el('tr', {}, ...['Carte', 'Emplacement PCI', 'Pilote actif', 'Utilisée par Ollama'].map((c) => el('th', { text: c })))),
+      el('tbody', {}, ...g.checks.map((c) => el('tr', {}, el('td', { class: 'name', text: c.name }), el('td', { class: 'small', text: c.pci }), el('td', {}, flag(c.driver)), el('td', {}, flag(c.ollama))))))) : null,
+    g.issues.length ? el('ul', { class: 'alerts' }, ...g.issues.map((i) => el('li', {}, i.text, i.fix === 'reboot' ? ' Un redémarrage du serveur est nécessaire.' : ''))) : null);
+  const fixable = g.issues.some((i) => i.fix === 'reload-driver' || i.fix === 'restart-ollama');
+  $('#gg-repair').classList.toggle('hidden', !fixable); $('#gg-repair').disabled = !!g.repairing;
+  if (w_active() !== $('#gg-auto')) $('#gg-auto').checked = !!g.auto;
+  $('#gg-events').replaceChildren(g.events.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Date', 'Déclenchée par', 'Problème', 'Étapes', 'Résultat'].map((c) => el('th', { text: c })))),
+    el('tbody', {}, ...g.events.map((e) => el('tr', {}, el('td', { class: 'small', text: fmtDate(e.t) }), el('td', { text: e.who }),
+      el('td', { text: (e.codes || []).map((c) => GG_CODE[c] || c).join(', ') }), el('td', { class: 'small', text: (e.steps || []).map((s) => GG_STEP[s] || s).join(', ') }),
+      el('td', {}, e.result === 'résolu' ? pill('résolu', 'ok') : pill('non résolu', 'err'), (e.remaining || []).length ? el('div', { class: 'small muted', text: e.remaining[0] }) : null))))))
+    : el('p', { class: 'muted small', text: 'Aucune réparation effectuée.' }));
+}
+$('#gg-repair').addEventListener('click', async () => {
+  if (!(await ask('Recharger le pilote NVIDIA si nécessaire et redémarrer Ollama ? Les modèles chargés sont déchargés et les requêtes en cours interrompues.', { ok: 'Réparer' }))) return;
+  try { await api('/api/gpu/guard/repair', { json: {} }); $('#gg-msg').className = 'small okmsg'; $('#gg-msg').textContent = 'Réparation lancée.'; setTimeout(loadGuard, 1500); } catch (e) { fail(e.message); }
+});
+$('#gg-auto').addEventListener('change', async () => {
+  try { await api('/api/gpu/guard/config', { json: { auto: $('#gg-auto').checked } }); $('#gg-msg').className = 'small okmsg'; $('#gg-msg').textContent = 'Enregistré.'; } catch (e) { fail(e.message); }
+});
+
+/* ------------------------------------------------ performance : mesure, profils, préchauffage, garde-fou, réglages système */
+const pf = { data: null, models: [], timer: null };
+const ENV_LABEL = { OLLAMA_FLASH_ATTENTION: 'Flash attention', OLLAMA_KV_CACHE_TYPE: 'Cache de contexte', OLLAMA_NUM_PARALLEL: 'Requêtes en parallèle', OLLAMA_KEEP_ALIVE: 'Maintien en mémoire', OLLAMA_MAX_LOADED_MODELS: 'Modèles chargés', OLLAMA_CONTEXT_LENGTH: 'Contexte par défaut' };
+const envShow = (k, v) => (v === '' || v == null ? 'défaut' : k === 'OLLAMA_FLASH_ATTENTION' ? (v === '1' ? 'activée' : 'désactivée') : v);
+const DAYS_SHORT = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
+const deltaPill = (pctv, higherIsBetter) => (pctv == null ? null : pill((pctv > 0 ? '+' : '') + DEC(pctv) + ' %', pctv === 0 ? '' : (pctv > 0) === higherIsBetter ? 'ok' : 'err'));
+function tpsBars(values) {
+  const W = 120, H = 28, n = values.length, mx = Math.max(...values, 1);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H); svg.setAttribute('class', 'spark'); svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'Évolution du débit');
+  const bw = W / Math.max(n, 1);
+  values.forEach((v, i) => {
+    const r = document.createElementNS(svg.namespaceURI, 'rect'), h = Math.max(2, (v / mx) * (H - 2));
+    r.setAttribute('x', (i * bw + 1).toFixed(1)); r.setAttribute('y', (H - h).toFixed(1)); r.setAttribute('width', Math.max(2, bw - 2).toFixed(1)); r.setAttribute('height', h.toFixed(1));
+    r.setAttribute('class', 'line ' + (i === n - 1 ? 'ok' : 'info')); svg.append(r);
+  });
+  return svg;
+}
+function renderBench(d) {
+  const b = d.bench, sel = $('#pf-model');
+  if (w_active() !== sel) {
+    const cur = sel.value;
+    sel.replaceChildren(...pf.models.map((m) => el('option', { value: m, text: m })));
+    if (cur && pf.models.includes(cur)) sel.value = cur; else if (b.model && pf.models.includes(b.model)) sel.value = b.model;
+  }
+  $('#pf-run').disabled = b.running || !pf.models.length;
+  const s = $('#pf-state');
+  s.className = 'small' + (b.error ? ' error' : '');
+  s.textContent = b.running ? 'Mesure en cours : passe ' + b.step + ' sur ' + b.runs + ' (' + b.model + ')...' : (b.error || '');
+  const last = b.history[0];
+  const kpi = (label, value, extra) => el('div', { class: 'card' }, el('h2', { text: label }), el('div', { class: 'big', text: value }), extra || null);
+  $('#pf-result').replaceChildren(last ? el('div', { class: 'grid kpis' },
+    kpi('Débit (' + last.model + ')', DEC(last.tps) + ' jetons/s', last.delta ? el('div', { class: 'small' }, deltaPill(last.delta.tps_pct, true), ' par rapport à la mesure précédente') : null),
+    kpi('Délai avant le 1er jeton', fmtMs(last.ttft_ms), last.delta && last.delta.ttft_pct != null ? el('div', { class: 'small' }, deltaPill(last.delta.ttft_pct, false)) : null),
+    kpi('Dans la mémoire vidéo', last.vram_pct == null ? '-' : last.vram_pct + ' %', last.vram_pct != null && last.vram_pct < 100 ? el('div', { class: 'small', text: 'le reste tourne sur le processeur' }) : null),
+    kpi('Chargement à froid', fmtMs(last.load_ms))) : el('p', { class: 'muted small', text: 'Aucune mesure : choisissez un modèle et lancez-la.' }));
+  const series = (name) => b.history.filter((h) => h.model === name).map((h) => h.tps).reverse();
+  $('#pf-history').replaceChildren(b.history.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Date', 'Modèle', 'Débit', 'Évolution', '1er jeton', 'Mémoire vidéo', 'Réglages'].map((c, i) => el('th', { class: i >= 2 && i !== 3 ? 'num' : '', text: c })))),
+    el('tbody', {}, ...b.history.map((h) => el('tr', {}, el('td', { class: 'small', text: fmtDate(h.t) }), el('td', { class: 'name', text: h.model }),
+      el('td', { class: 'num' }, DEC(h.tps) + ' j/s ', h.delta ? deltaPill(h.delta.tps_pct, true) : null), el('td', {}, tpsBars(series(h.model))),
+      el('td', { class: 'num', text: fmtMs(h.ttft_ms) }), el('td', { class: 'num', text: h.vram_pct == null ? '-' : h.vram_pct + ' %' }),
+      el('td', { class: 'small', text: (h.profile ? PF_LABEL(h.profile) + ' - ' : '') + 'cache ' + h.cfg.kv + ', parallèle ' + h.cfg.parallel })))))) : el('p', { class: 'muted small', text: 'Aucune mesure enregistrée.' }));
+}
+const PF_LABEL = (id) => (pf.data && (pf.data.profiles.find((p) => p.id === id) || {}).label) || id;
+function renderProfiles(d) {
+  $('#pf-profiles').replaceChildren(...d.profiles.map((p) => el('div', { class: 'card' + (d.current === p.id ? ' gpu-dev ok' : '') },
+    el('h2', { text: p.label }), d.current === p.id ? pill('profil actuel', 'ok') : null,
+    el('p', { class: 'small', text: p.help }),
+    p.diff.length ? el('ul', { class: 'small' }, ...p.diff.map((c) => el('li', { text: (ENV_LABEL[c.key] || c.key) + ' : ' + envShow(c.key, c.from) + ' → ' + envShow(c.key, c.to) }))) : el('p', { class: 'okmsg small', text: 'Ces réglages sont déjà appliqués.' }),
+    el('button', { class: 'btn' + (p.diff.length ? ' primary' : ''), type: 'button', disabled: p.diff.length ? null : true, text: 'Appliquer ce profil', onclick: () => applyProfile(p) }))),
+  d.current ? null : el('p', { class: 'muted small', text: 'Réglages actuels personnalisés : aucun profil ne correspond exactement.' }));
+}
+async function applyProfile(p) {
+  if (!(await ask('Appliquer le profil « ' + p.label + ' » ?\n' + p.diff.map((c) => '• ' + (ENV_LABEL[c.key] || c.key) + ' : ' + envShow(c.key, c.from) + ' → ' + envShow(c.key, c.to)).join('\n') + '\nOllama redémarre et les modèles chargés sont déchargés.', { ok: 'Appliquer' }))) return;
+  try { await api('/api/perf/profile', { json: { id: p.id, apply: true } }); await notify('Profil appliqué : Ollama redémarre. Refaites une mesure pour comparer.', { title: 'Profil de performance' }); setTimeout(loadPerformance, 3000); loadPerformance(); } catch (e) { fail(e.message); }
+}
+function modelChecks(selected) {
+  return el('div', { class: 'checks mods' }, ...(pf.models.length ? pf.models.map((m) => el('label', { class: 'check' }, el('input', { type: 'checkbox', value: m, checked: (selected || []).includes(m) || null }), ' ' + m)) : [el('span', { class: 'muted small', text: 'Aucun modèle installé.' })]));
+}
+function warmRow(t) {
+  const days = t.days || [0, 1, 2, 3, 4, 5, 6];
+  const row = el('div', { class: 'warm-row' },
+    el('input', { type: 'time', value: t.at || '07:30', required: true, 'aria-label': 'Heure' }),
+    el('div', { class: 'checks days' }, ...DAYS_SHORT.map((d, i) => el('label', { class: 'check' }, el('input', { type: 'checkbox', value: String(i), checked: days.includes(i) || null }), ' ' + d))),
+    modelChecks(t.models), el('button', { class: 'btn sm', type: 'button', text: 'Retirer', onclick: () => row.remove() }));
+  return row;
+}
+function renderWarmup(d) {
+  $('#pf-warm-boot').replaceChildren(...modelChecks(d.warmup.boot).children);
+  $('#pf-warm-times').replaceChildren(...d.warmup.times.map(warmRow));
+  $('#pf-warm-log').replaceChildren(d.warmup.log.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Date', 'Modèle', 'Déclencheur', 'Résultat'].map((c) => el('th', { text: c })))),
+    el('tbody', {}, ...d.warmup.log.map((l) => el('tr', {}, el('td', { class: 'small', text: fmtDate(l.t) }), el('td', { class: 'name', text: l.model }), el('td', { class: 'small', text: l.why }),
+      el('td', {}, l.ok ? pill('chargé', 'ok') : pill('échec', 'err'), l.error ? el('div', { class: 'small muted', text: l.error }) : null)))))) : el('p', { class: 'muted small', text: 'Aucun préchauffage depuis le démarrage de la console.' }));
+}
+$('#pf-warm-add').addEventListener('click', () => $('#pf-warm-times').append(warmRow({})));
+$('#pf-warm-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const boot = [...$('#pf-warm-boot').querySelectorAll('input:checked')].map((i) => i.value);
+  const times = [...$('#pf-warm-times').children].map((r) => ({ at: r.querySelector('input[type=time]').value, days: [...r.querySelectorAll('.days input:checked')].map((i) => Number(i.value)), models: [...r.querySelectorAll('.mods input:checked')].map((i) => i.value) }));
+  try { await api('/api/perf/warmup', { json: { boot, times } }); $('#pf-warm-msg').className = 'small okmsg'; $('#pf-warm-msg').textContent = 'Enregistré.'; } catch (e) { $('#pf-warm-msg').className = 'small error'; $('#pf-warm-msg').textContent = e.message; }
+});
+$('#pf-warm-now').addEventListener('click', async () => {
+  const models = [...$('#pf-warm-boot').querySelectorAll('input:checked')].map((i) => i.value);
+  if (!models.length) { fail('Cochez au moins un modèle « au démarrage du serveur ».'); return; }
+  try { await api('/api/perf/warmup/run', { json: { models } }); $('#pf-warm-msg').className = 'small okmsg'; $('#pf-warm-msg').textContent = 'Chargement lancé.'; setTimeout(loadPerformance, 6000); } catch (e) { fail(e.message); }
+});
+function renderPfGuard(d) {
+  const a = d.alert;
+  $('#pf-alert').replaceChildren(a ? el('div', { class: 'notice' }, el('strong', { text: a.kind === 'offload' ? 'Modèle partiellement sur le processeur' : 'Chute de débit' }), el('p', { text: a.text }),
+    a.fix ? el('button', { class: 'btn primary', type: 'button', text: 'Appliquer la suggestion', onclick: applySuggestion }) : null) : el('p', { class: 'okmsg small', text: d.guard.mode === 'off' ? 'Garde-fou désactivé.' : 'Débit normal : rien à signaler.' }));
+  if (w_active() !== $('#pf-guard-mode')) $('#pf-guard-mode').value = d.guard.mode;
+  if (w_active() !== $('#pf-guard-drop')) $('#pf-guard-drop').value = String(d.guard.drop_pct);
+  $('#pf-events').replaceChildren(d.events.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Date', 'Par', 'Réglage'].map((c) => el('th', { text: c })))),
+    el('tbody', {}, ...d.events.map((e) => el('tr', {}, el('td', { class: 'small', text: fmtDate(e.t) }), el('td', { text: e.who }), el('td', { class: 'small', text: e.text })))))) : el('p', { class: 'muted small', text: 'Aucun réglage appliqué.' }));
+}
+async function applySuggestion() {
+  if (!(await ask('Appliquer le réglage suggéré ? Ollama redémarre.', { ok: 'Appliquer' }))) return;
+  try { await api('/api/perf/apply-suggestion', { json: {} }); await notify('Réglage appliqué : Ollama redémarre.', { title: 'Garde-fou de débit' }); setTimeout(loadPerformance, 3000); } catch (e) { fail(e.message); }
+}
+async function saveGuardMode() {
+  try { await api('/api/perf/guard', { json: { mode: $('#pf-guard-mode').value, drop_pct: Number($('#pf-guard-drop').value) } }); $('#pf-guard-msg').className = 'small okmsg'; $('#pf-guard-msg').textContent = 'Enregistré.'; } catch (e) { fail(e.message); }
+}
+$('#pf-guard-mode').addEventListener('change', saveGuardMode);
+$('#pf-guard-drop').addEventListener('change', saveGuardMode);
+const CHECK_KIND = { ok: 'ok', warn: 'warn', info: 'info' }, CHECK_WORD = { ok: 'OK', warn: 'À traiter', info: 'Conseil' };
+function renderPfChecks(d) {
+  $('#pf-checks').replaceChildren(d.checks.length ? el('ul', { class: 'checks-list' }, ...d.checks.map((c) => el('li', {}, pill(CHECK_WORD[c.state], CHECK_KIND[c.state]), ' ', c.text, ' ',
+    c.fix ? el('button', { class: 'btn sm', type: 'button', text: 'Corriger', onclick: () => sysFix(c) }) : null))) : el('p', { class: 'muted small', text: 'Aucun contrôle disponible.' }));
+}
+async function sysFix(c) {
+  let value;
+  if (c.fix === 'webui_mem') {
+    const sel = el('select', { 'aria-label': 'Plafond de mémoire' }, ...['1g', '2g', '4g', '8g'].map((v) => el('option', { value: v, text: v.replace('g', ' Go') })));
+    sel.value = '2g';
+    if (!(await modal({ title: 'Plafonner la mémoire d\'Open WebUI', message: 'Le conteneur sera limité sans être recréé ; il est tué par le système s\'il dépasse ce plafond.', body: sel, ok: 'Appliquer' }))) return;
+    value = sel.value;
+  } else if (!(await ask(c.fix === 'governor' ? 'Passer tous les cœurs en mode « performance » ? La consommation au repos augmente légèrement.' : 'Régler vm.swappiness à 10 ?', { ok: 'Corriger' }))) return;
+  try { await api('/api/perf/fix', { json: { id: c.fix, value } }); loadPerformance(); } catch (e) { fail(e.message); }
+}
+async function loadPerformance() {
+  let d;
+  try {
+    [d] = await Promise.all([api('/api/perf'), api('/api/models').then((m) => { pf.models = (m.models || []).map((x) => x.name).filter((n) => !n.endsWith('-cloud')).sort(); }).catch(() => {})]);
+  } catch (e) { $('#pf-result').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  const first = !pf.data;
+  pf.data = d;
+  renderBench(d); renderProfiles(d); renderPfGuard(d); renderPfChecks(d);
+  if (first || !$('#pf-warm-form').contains(w_active())) renderWarmup(d);
+  clearInterval(pf.timer); pf.timer = null;
+  if (d.bench.running) pf.timer = setInterval(async () => {
+    if (location.hash.split('/')[0] !== '#perf') { clearInterval(pf.timer); return; }
+    try { const x = await api('/api/perf'); pf.data = x; renderBench(x); if (!x.bench.running) { clearInterval(pf.timer); pf.timer = null; } } catch (e) { /* nouvel essai */ }
+  }, 3000);
+}
+$('#pf-refresh').addEventListener('click', loadPerformance);
+$('#pf-run').addEventListener('click', async () => {
+  try { await api('/api/bench/run', { json: { model: $('#pf-model').value, runs: Number($('#pf-runs').value) } }); await loadPerformance(); } catch (e) { fail(e.message); }
+});
+$('#pf-clear').addEventListener('click', async () => {
+  if (!(await ask('Effacer tout l\'historique des mesures ?', { ok: 'Effacer', danger: true }))) return;
+  try { await api('/api/bench/clear', { json: {} }); loadPerformance(); } catch (e) { fail(e.message); }
+});
+
+/* ------------------------------------------------ santé du matériel */
+const HW_KIND = { ok: ['sain', 'ok'], warning: ['à surveiller', 'warn'], critical: ['défaillant', 'err'] };
+async function loadHardware(refresh) {
+  let h;
+  try { h = await api('/api/hw' + (refresh ? '?refresh=1' : '')); } catch (e) { $('#hw-body').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  const gb = (b) => (b ? fmtBytes(b) : '-');
+  const bad = h.issues.filter((i) => i.severity !== 'info');
+  $('#hw-body').replaceChildren(
+    el('p', {}, bad.length ? pill(bad.length + ' problème(s)', 'err') : pill('Aucun problème détecté', 'ok'), ' ', el('span', { class: 'muted small', text: 'Vérifié le ' + fmtDate(h.checked) })),
+    bad.length ? el('ul', { class: 'alerts' }, ...bad.map((i) => el('li', { text: i.text }))) : null,
+    el('h3', { text: 'Disques (SMART)' }),
+    !h.smartctl ? el('div', {}, el('p', { class: 'muted small', text: 'smartmontools n\'est pas installé : la santé des disques ne peut pas être lue.' }),
+      el('button', { class: 'btn primary', type: 'button', text: 'Installer smartmontools', onclick: installSmart })) :
+    h.disks.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+      el('thead', {}, el('tr', {}, ...['Disque', 'Type', 'Modèle', 'Taille', 'Température', 'Heures', 'Usure', 'État'].map((c, i) => el('th', { class: i >= 3 && i < 7 ? 'num' : '', text: c })))),
+      el('tbody', {}, ...h.disks.map((d) => el('tr', {}, el('td', { class: 'name', text: d.name }), el('td', { text: d.type }), el('td', { class: 'small', text: d.model }), el('td', { class: 'num', text: gb(d.size) }),
+        el('td', { class: 'num', text: d.temp == null ? '-' : d.temp + ' °C' }), el('td', { class: 'num', text: d.hours == null ? '-' : Number(d.hours).toLocaleString(LOCALE()) + ' h' }),
+        el('td', { class: 'num', text: d.wear == null ? '-' : d.wear + ' %' }), el('td', {}, pill(...(HW_KIND[d.state] || HW_KIND.ok)), ...(d.issues || []).map((i) => el('div', { class: 'small muted', text: i.text })))))))) : el('p', { class: 'muted small', text: 'Aucun disque lisible.' }),
+    el('h3', { text: 'RAID logiciel' }),
+    h.raid.length ? el('ul', {}, ...h.raid.map((r) => el('li', {}, el('strong', { text: r.name }), ' ' + r.level + ' - ', r.degraded ? pill('dégradée', 'err') : pill('saine', 'ok'),
+      r.progress ? ' ' + r.progress.action + ' ' + DEC(r.progress.percent) + ' %' : '', ' (' + r.members.join(', ') + ')'))) : el('p', { class: 'muted small', text: 'Aucune grappe RAID.' }),
+    el('h3', { text: 'Erreurs de la carte graphique (24 h)' }),
+    h.xid.length ? el('ul', {}, ...h.xid.map((x) => el('li', {}, pill(x.severity === 'info' ? 'info' : x.severity === 'critical' ? 'critique' : 'attention', x.severity === 'info' ? 'info' : x.severity === 'critical' ? 'err' : 'warn'),
+      ' ' + x.pci + ' - Xid ' + x.xid + (x.text ? ' : ' + x.text : '')))) : el('p', { class: 'muted small', text: 'Aucune erreur Xid.' }));
+}
+async function installSmart() {
+  try { const d = await api('/api/action', { json: { action: 'install-smart' } }); followJob(d.job); } catch (e) { fail(e.message); }
+}
+$('#hw-refresh').addEventListener('click', () => loadHardware(true));
+
+/* ------------------------------------------------ journal d'audit */
+let auTimer = null;
+const auQuery = () => { const p = new URLSearchParams(); for (const [k, id] of [['q', '#au-q'], ['user', '#au-user'], ['status', '#au-status']]) if ($(id).value) p.set(k, $(id).value); return p.toString(); };
+async function loadAudit() {
+  let a;
+  try { a = await api('/api/audit?' + auQuery()); } catch (e) { $('#au-table').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  const sel = $('#au-user'), cur = sel.value;
+  if (w_active() !== sel) { sel.replaceChildren(el('option', { value: '', text: 'Tous' }), ...a.users.map((u) => el('option', { value: u, text: u }))); sel.value = a.users.includes(cur) ? cur : ''; }
+  $('#au-count').textContent = a.total + ' action(s)' + (a.total > a.entries.length ? ', ' + a.entries.length + ' affichées' : '');
+  $('#au-table').replaceChildren(a.entries.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Date', 'Utilisateur', 'Action', 'Détail', 'Adresse', 'Résultat'].map((c) => el('th', { text: c })))),
+    el('tbody', {}, ...a.entries.map((e) => el('tr', {}, el('td', { class: 'small nowrap', text: fmtDate(e.ts) }), el('td', { class: 'name', text: e.user }), el('td', { text: e.label }), el('td', { class: 'small', text: e.detail }),
+      el('td', { class: 'small', text: e.ip }), el('td', {}, e.ok ? pill('ok', 'ok') : pill('refusé ' + e.status, 'err'))))))) : el('p', { class: 'muted small', text: 'Aucune action enregistrée.' }));
+}
+$('#au-q').addEventListener('input', () => { clearTimeout(auTimer); auTimer = setTimeout(loadAudit, 300); });
+$('#au-user').addEventListener('change', loadAudit);
+$('#au-status').addEventListener('change', loadAudit);
+$('#au-export').addEventListener('click', () => downloadBlob('/api/audit/export?' + auQuery(), 'audit-ollamabuntu.csv').catch((e) => fail(e.message)));
+$('#au-clear').addEventListener('click', async () => {
+  if (!(await ask('Effacer tout le journal d\'audit ? Cette action sera elle-même consignée.', { ok: 'Effacer', danger: true }))) return;
+  try { await api('/api/audit/clear', { json: {} }); loadAudit(); } catch (e) { fail(e.message); }
+});
+
+/* ------------------------------------------------ rapport hebdomadaire */
+const rpForm = $('#rp-form');
+$('#rp-hour').replaceChildren(...Array.from({ length: 24 }, (_, h) => el('option', { value: String(h), text: String(h).padStart(2, '0') + ' h' })));
+async function loadReport() {
+  let r;
+  try { r = await api('/api/report'); } catch (e) { $('#rp-preview').textContent = e.message; return; }
+  if (!rpForm.contains(w_active())) { rpForm.elements.enabled.checked = !!r.config.enabled; rpForm.elements.day.value = String(r.config.day); rpForm.elements.hour.value = String(r.config.hour); }
+  $('#rp-warn').classList.toggle('hidden', r.smtp);
+  $('#rp-preview').textContent = r.text;
+  if (r.last_error) { $('#rp-msg').className = 'small error'; $('#rp-msg').textContent = 'Dernier envoi : ' + r.last_error; }
+}
+rpForm.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  try { await api('/api/report/config', { json: { enabled: rpForm.elements.enabled.checked, day: Number(rpForm.elements.day.value), hour: Number(rpForm.elements.hour.value) } }); $('#rp-msg').className = 'small okmsg'; $('#rp-msg').textContent = 'Enregistré.'; } catch (e) { $('#rp-msg').className = 'small error'; $('#rp-msg').textContent = e.message; }
+});
+$('#rp-test').addEventListener('click', async () => {
+  $('#rp-msg').className = 'small'; $('#rp-msg').textContent = 'Envoi...';
+  try { await api('/api/report/send', { json: {} }); $('#rp-msg').className = 'small okmsg'; $('#rp-msg').textContent = 'Rapport d\'essai envoyé.'; } catch (e) { $('#rp-msg').className = 'small error'; $('#rp-msg').textContent = e.message; }
+});
+
+/* ------------------------------------------------ espace disque des modèles */
+const mdState = { unused: [] };
+function mdUpdateButton() { $('#md-delete').disabled = !$$('#md-table input[type=checkbox]:checked').length; }
+async function loadModelsDisk() {
+  let d;
+  try { d = await api('/api/models/disk?days=' + $('#md-days').value); } catch (e) { $('#md-table').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  mdState.unused = d.models.filter((m) => m.unused).map((m) => m.name);
+  $('#md-summary').replaceChildren(el('div', { class: 'grid kpis' },
+    ...[['Modèles installés', fmtBytes(d.total)], ['Récupérable', fmtBytes(d.reclaimable)], ['Disque libre', fmtBytes(d.disk.free) + ' / ' + fmtBytes(d.disk.total)]]
+      .map(([l, v]) => el('div', { class: 'card' }, el('h2', { text: l }), el('div', { class: 'big', text: v })))));
+  const ago = (m) => (m.last_used ? 'il y a ' + m.idle_days + ' j' : 'jamais vu depuis ' + d.journal_days + ' j');
+  $('#md-table').replaceChildren(d.models.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, el('th', {}), ...['Modèle', 'Taille', 'Installé depuis', 'Dernière requête', 'État'].map((c, i) => el('th', { class: i === 1 || i === 2 ? 'num' : '', text: c })))),
+    el('tbody', {}, ...d.models.map((m) => el('tr', {}, el('td', {}, el('input', { type: 'checkbox', value: m.name, 'aria-label': 'Sélectionner ' + m.name, disabled: m.loaded ? true : null, onchange: mdUpdateButton })),
+      el('td', { class: 'name', text: m.name }), el('td', { class: 'num', text: fmtBytes(m.size) }), el('td', { class: 'num', text: m.installed_days == null ? '-' : m.installed_days + ' j' }),
+      el('td', { class: 'small', text: ago(m) }), el('td', {}, m.loaded ? pill('en mémoire', 'info') : null, m.pinned ? pill('préchauffé ou réservé', 'info') : null, m.unused ? pill('inutilisé', 'warn') : null))))))
+    : el('p', { class: 'muted small', text: 'Aucun modèle installé.' }));
+  mdUpdateButton();
+}
+$('#md-days').addEventListener('change', loadModelsDisk);
+$('#md-select').addEventListener('click', () => { for (const c of $$('#md-table input[type=checkbox]')) c.checked = mdState.unused.includes(c.value); mdUpdateButton(); });
+$('#md-delete').addEventListener('click', async () => {
+  const names = $$('#md-table input[type=checkbox]:checked').map((c) => c.value);
+  if (!names.length || !(await ask('Supprimer définitivement ' + names.length + ' modèle(s) ?\n' + names.map((n) => '• ' + n).join('\n') + '\nLes télécharger de nouveau prendra du temps.', { ok: 'Supprimer', danger: true }))) return;
+  let done = 0;
+  for (const name of names) {
+    $('#md-msg').className = 'small'; $('#md-msg').textContent = 'Suppression ' + (done + 1) + ' sur ' + names.length + '...';
+    try { await api('/api/models/delete', { json: { name } }); done++; } catch (e) { $('#md-msg').className = 'small error'; $('#md-msg').textContent = name + ' : ' + e.message; break; }
+  }
+  if (done === names.length) { $('#md-msg').className = 'small okmsg'; $('#md-msg').textContent = done + ' modèle(s) supprimé(s).'; }
+  loadModelsDisk();
+});
+
+/* ------------------------------------------------ clés d'API : plafonds de contexte et de sortie */
+async function keyCaps(k) {
+  const ctx = el('input', { type: 'number', min: '0', max: '2000000', value: String(k.max_ctx || 0), 'aria-label': 'Contexte maximal' });
+  const out = el('input', { type: 'number', min: '0', max: '1000000', value: String(k.max_output || 0), 'aria-label': 'Réponse maximale' });
+  const ok = await modal({ title: 'Plafonds de la clé « ' + k.name + ' »', message: 'Ramène les demandes qui dépassent ces valeurs au plafond (en-tête de réponse X-OllamaBuntu-Clamped). 0 = sans plafond. Le contexte n\'est plafonné que s\'il est demandé explicitement.',
+    body: el('div', { class: 'row' }, el('label', {}, 'Contexte maximal (jetons) ', ctx), el('label', {}, 'Réponse maximale (jetons) ', out)), ok: 'Enregistrer' });
+  if (!ok) return;
+  try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0 } }); await loadPublication(); } catch (e) { fail(e.message); }
+}
+$('#bal-affinity').addEventListener('change', async () => {
+  try { await api('/api/fleet/balance/strategy', { json: { affinity: $('#bal-affinity').checked } }); $('#bal-msg').className = 'small okmsg'; $('#bal-msg').textContent = 'Enregistré.'; } catch (e) { $('#bal-msg').className = 'small error'; $('#bal-msg').textContent = e.message; }
 });
 
 /* ------------------------------------------------ palette de commandes (Ctrl+K) */

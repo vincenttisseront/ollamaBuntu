@@ -2,6 +2,7 @@
 """OllamaBuntu - limites du routeur : requêtes simultanées par clé (file d'attente), quotas de jetons, règles de routage.
 Bibliothèque standard de Python uniquement ; testable sans réseau."""
 import fnmatch
+import hashlib
 import json
 import os
 import threading
@@ -130,3 +131,105 @@ def apply_rules(cands, rules, kid, model):
     def sid(c):
         return "local" if c[0] == "local" else c[3]["id"]
     return [c for c in cands if sid(c) not in never and (not only or sid(c) in only)], True
+
+
+# ----------------------------------------------------------- affinité de session ---
+SESSION_HEADER = "x-ollamabuntu-session"
+
+
+def _flat(c):
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return " ".join(str(p.get("text", "")) if isinstance(p, dict) else str(p) for p in c if not isinstance(p, dict) or p.get("type") in (None, "text", "input_text"))
+    return ""
+
+
+def session_key(headers, body, kid="", model=""):
+    """Identifiant stable d'une conversation, pour renvoyer ses requêtes vers le même serveur (le cache du début de prompt y est déjà chaud).
+    Ordre : en-tête X-OllamaBuntu-Session, champ « user » (compatible OpenAI), sinon empreinte du message système et de la 1re question.
+    Retourne None s'il n'y a rien de stable (requête isolée)."""
+    h = {str(k).lower(): v for k, v in (headers or {}).items()}
+    raw = str(h.get(SESSION_HEADER) or "").strip()[:128]
+    d = None
+    if not raw and body:
+        try:
+            d = json.loads(body)
+        except (ValueError, TypeError):
+            d = None
+        if isinstance(d, dict):
+            raw = str(d.get("user") or "").strip()[:128]
+            if not raw and isinstance(d.get("messages"), list):
+                system = next((_flat(m.get("content")) for m in d["messages"] if isinstance(m, dict) and m.get("role") == "system"), "")
+                first = next((_flat(m.get("content")) for m in d["messages"] if isinstance(m, dict) and m.get("role") == "user"), "")
+                if first or system:
+                    raw = "h:" + hashlib.sha1((system[:300] + "\x00" + first[:300]).encode("utf-8", "replace")).hexdigest()[:16]
+    return "%s|%s|%s" % (kid or "", model, raw) if raw else None
+
+
+class Affinity:
+    """Mémorise quel serveur a traité une conversation. Un serveur déjà bien plus occupé que les autres est abandonné (priorité à la charge)."""
+
+    def __init__(self, ttl=900, slack=2, size=2000):
+        self.ttl, self.slack, self.size = ttl, slack, size
+        self._lock = threading.Lock()
+        self._map = {}
+
+    def order(self, skey, ordered_ids, busy, now=None):
+        """ordered_ids : serveurs dans l'ordre normal de la répartition ; busy : {id: requêtes en cours}.
+        Retourne la nouvelle liste (le serveur de la conversation en tête s'il est candidat et pas surchargé) et l'identifiant retenu."""
+        now = time.time() if now is None else now
+        if not skey or not ordered_ids:
+            return list(ordered_ids), False
+        with self._lock:
+            sid, ts = self._map.get(skey, (None, 0))
+            if sid in ordered_ids and now - ts <= self.ttl and busy.get(sid, 0) <= min(busy.get(i, 0) for i in ordered_ids) + self.slack:
+                out, hit = [sid] + [i for i in ordered_ids if i != sid], True
+            else:
+                out, hit = list(ordered_ids), False
+            self._map[skey] = (out[0], now)
+            if len(self._map) > self.size:
+                for k in sorted(self._map, key=lambda k: self._map[k][1])[:self.size // 4]:
+                    self._map.pop(k, None)
+        return out, hit
+
+
+# ---------------------------------------------------- plafonds de contexte et de sortie ---
+def apply_caps(path, body, max_ctx=0, max_output=0):
+    """Plafonne la taille de contexte (options.num_ctx, API native) et la longueur de sortie (num_predict, max_tokens, max_completion_tokens).
+    Une valeur absente ou illimitée reçoit le plafond de sortie ; le contexte n'est jamais ajouté (changer num_ctx recharge le modèle).
+    Retourne (corps, [paramètres ramenés au plafond])."""
+    if not body or not (max_ctx or max_output):
+        return body, []
+    try:
+        d = json.loads(body)
+    except (ValueError, TypeError):
+        return body, []
+    if not isinstance(d, dict):
+        return body, []
+    clamped = []
+    native = path in ("/api/chat", "/api/generate")
+    openai = path in ("/v1/chat/completions", "/v1/completions")
+    if native:
+        opts = d.get("options") if isinstance(d.get("options"), dict) else {}
+        if max_ctx and isinstance(opts.get("num_ctx"), (int, float)) and opts["num_ctx"] > max_ctx:
+            opts["num_ctx"] = int(max_ctx)
+            clamped.append("num_ctx")
+        if max_output:
+            cur = opts.get("num_predict")
+            if not isinstance(cur, (int, float)) or cur < 0 or cur > max_output:   # absent, -1 (illimité), -2 (jusqu'au remplissage du contexte) ou trop grand
+                opts["num_predict"] = int(max_output)
+                clamped.append("num_predict")
+        d["options"] = opts
+    elif openai and max_output:
+        present = [k for k in ("max_tokens", "max_completion_tokens") if k in d]
+        for k in present:
+            if not isinstance(d[k], (int, float)) or d[k] <= 0 or d[k] > max_output:
+                d[k] = int(max_output)
+                clamped.append(k)
+        if not present:
+            d["max_tokens"] = int(max_output)
+            clamped.append("max_tokens")
+    else:
+        return body, []
+    return (json.dumps(d).encode() if clamped else body), clamped

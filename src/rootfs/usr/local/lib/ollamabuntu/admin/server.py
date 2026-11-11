@@ -42,6 +42,10 @@ import monitor  # noqa: E402  débordement CPU/GPU, alertes, réglages recommand
 import backup  # noqa: E402  sauvegarde chiffrée de la configuration
 import usage  # noqa: E402  statistiques d'usage, export CSV du journal des requêtes
 import prom  # noqa: E402  exposition Prometheus
+import hw  # noqa: E402  disponibilité des GPU pour Ollama, santé du matériel
+import perf  # noqa: E402  mesure de débit, profils, préchauffage, garde-fou de débit
+import audit  # noqa: E402  journal d'audit des actions d'administration
+import report  # noqa: E402  rapport hebdomadaire
 
 VERSION = "@@OB_VERSION@@"
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
@@ -99,6 +103,7 @@ ENV_KEYS = [
     ("OLLAMA_MAX_LOADED_MODELS", "Nombre maximal de modèles chargés simultanément"),
     ("OLLAMA_CONTEXT_LENGTH", "Taille de contexte par défaut (jetons)"),
     ("OLLAMA_FLASH_ATTENTION", "Flash attention : 1 = activée"),
+    ("OLLAMA_KV_CACHE_TYPE", "Précision du cache de contexte : f16 (défaut), q8_0 (moitié moins de mémoire) ou q4_0 (quart) ; exige la flash attention"),
     ("OLLAMA_IGPU_ENABLE", "GPU intégrés (Intel, APU AMD) : 1 = autorisés"),
     ("OLLAMA_VULKAN", "Moteur Vulkan : 0 = désactivé"),
     ("HSA_OVERRIDE_GFX_VERSION", "AMD ROCm : forcer une cible GFX (ex. 10.3.0)"),
@@ -165,6 +170,7 @@ echo ">>> Les GPU AMD sont réglés automatiquement à chaque démarrage d'Ollam
 }
 
 JOBS.update({
+    "install-smart": ("Installation de smartmontools (santé des disques)", "export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a\nset -e\napt-get install -y smartmontools\necho \">>> smartmontools installé : la santé des disques apparaît dans Système > Matériel.\"\n"),
     "apt-refresh": ("Recherche des mises à jour", "set -e\napt-get update\necho \">>> Listes des paquets actualisées.\"\n"),
     "update-security": ("Installation des mises à jour de sécurité", """\
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
@@ -999,7 +1005,7 @@ def expiry_days(v, today=None):
     return (calendar.timegm(e) - calendar.timegm(t)) // 86400
 
 
-LIMIT_FIELDS = {"max_concurrent": 64, "quota_day": 10 ** 12, "quota_month": 10 ** 13}
+LIMIT_FIELDS = {"max_concurrent": 64, "quota_day": 10 ** 12, "quota_month": 10 ** 13, "max_ctx": 2_000_000, "max_output": 1_000_000}
 
 
 def validate_limits(data, current=None):
@@ -2015,8 +2021,532 @@ def alert_snapshot():
     servers = [{"name": x["name"], "online": (_fleet_state.get(x["id"]) or {}).get("state") == "en ligne"} for x in load_fleet()
                if (_fleet_state.get(x["id"]) or {}).get("state") not in (None, "en attente")]
     keys = [{"name": k["name"], "days_left": expiry_days(k.get("expires"))} for k in load_publication().get("keys", []) if k.get("enabled", True) and k.get("expires")]
-    return {"keys": keys, "service": st["ollama"]["service"], "disk": st["disk"], "gpus": st["gpu_live"], "offload": st["offload"], "servers": servers,
+    perf_res = perf_snapshot(st)
+    return {"perf": perf_res, "keys": keys, "guard": guard_status(max_age=120)["issues"], "hw": hw_view(max_age=600)["issues"], "service": st["ollama"]["service"], "disk": st["disk"], "gpus": st["gpu_live"], "offload": st["offload"], "servers": servers,
             "tps": {"avg": round(sum(tps) / len(tps), 1) if tps else None, "count": sum(x.get("req") or 0 for x in recent)}, "update": st["update_available"]}
+
+
+# ------------------------------------------- disponibilité du GPU pour Ollama ---
+# Surveille chaque minute que chaque carte de calcul a un pilote fonctionnel ET est utilisée par Ollama ;
+# sinon (et si l'incident dure), recharge les modules NVIDIA manquants puis redémarre Ollama (dans la limite de
+# 3 tentatives par heure, jamais de redémarrage du serveur). Chaque tentative est journalisée.
+GUARD_FILE = os.path.join(os.environ.get("OB_STATE", "/var/lib/ollamabuntu"), "gpu-guard.json")
+MODPROBE = os.environ.get("OB_MODPROBE", "modprobe")
+DEV_UVM = os.environ.get("OB_DEV_UVM", "/dev/nvidia-uvm")
+_guard = {"state": {}, "last": None, "t": 0.0, "busy": False}
+_guard_lock = threading.Lock()
+
+
+def guard_config():
+    c = load_json_file(GUARD_FILE, {})
+    return {"auto": c.get("auto", True) is not False, "events": [e for e in c.get("events", []) if isinstance(e, dict)][-30:]}
+
+
+def guard_store(auto=None, event=None):
+    c = guard_config()
+    if auto is not None:
+        c["auto"] = bool(auto)
+    if event:
+        c["events"] = (c["events"] + [event])[-30:]
+    atomic_write(GUARD_FILE, json.dumps(c, ensure_ascii=False), 0o644)
+
+
+def guard_snapshot():
+    info = gpu_info()
+    expected = [d for d in info["devices"] if d["kind"] == "gpu" and not d["dropped"] and (d["vendor"] == "NVIDIA" or d.get("ollama"))]
+    live = gpu_metrics()
+    try:
+        running = ollama_json("GET", "/api/ps", timeout=3, addr=OLLAMA_ADDR)[1].get("models", [])
+    except (OSError, ValueError):
+        running = []
+    lines = ollama_log_text("ollama.service").splitlines()
+    starts = [i for i, l in enumerate(lines) if "discovering available GPUs" in l]
+    restricted = bool(load_pools()) or any(k in read_env() or k in read_env_file(MAIN_OVERRIDE) for k in VIS_KEYS)
+    return {"pci": [{"slot": d["slot"], "name": d["name"], "vendor": d["vendor"]} for d in expected],
+            "driver": [g["pci"] for g in live] + [d["slot"] for d in expected if d["vendor"] != "NVIDIA"],
+            "ollama": [d["slot"] for d in expected if d.get("ollama")],
+            "ollama_active": run(["systemctl", "is-active", "ollama.service"], 5).strip() == "active",
+            "loaded": running, "free": {g["pci"]: (g.get("mem_total") or 0) - (g.get("mem_used") or 0) for g in live},
+            "restricted": restricted, "log_errors": hw.log_errors(lines[starts[-1]:] if starts else lines[-300:])}
+
+
+def guard_status(max_age=45):
+    """État courant (calculé au plus toutes les `max_age` secondes) + réglage + historique des réparations."""
+    with _guard_lock:
+        if _guard["last"] is None or time.time() - _guard["t"] > max_age:
+            _guard["last"], _guard["t"] = hw.gpu_guard(guard_snapshot()), time.time()
+        res = _guard["last"]
+    cfg = guard_config()
+    return dict(res, auto=cfg["auto"], events=list(reversed(cfg["events"])), repairing=_guard["busy"])
+
+
+def guard_remediate(plan, who="automatique"):
+    """Exécute les étapes d'un plan, vérifie le résultat et le consigne. Bloquant (jusqu'à ~90 s)."""
+    if _guard["busy"]:
+        raise ValueError("une réparation est déjà en cours")
+    _guard["busy"] = True
+    done = []
+    try:
+        for step in plan["steps"]:
+            if step == "load-driver":
+                run([MODPROBE, "nvidia"], timeout=40)
+            elif step == "load-uvm" and not os.path.exists(DEV_UVM):
+                run([MODPROBE, "nvidia_uvm"], timeout=30)
+                if not os.path.exists(DEV_UVM) and shutil.which("nvidia-modprobe"):
+                    run(["nvidia-modprobe", "-u", "-c=0"], timeout=20)
+            elif step == "restart-ollama":
+                run(["systemctl", "restart", "ollama.service"], timeout=90)
+                for p in load_pools():
+                    run(["systemctl", "restart", "ollama-pool@%s.service" % p["id"]], timeout=90)
+            else:
+                continue
+            done.append(step)
+        gpu_info_cache_clear()
+        ok, res = False, None
+        for _ in range(12):   # Ollama relance sa détection du matériel : jusqu'à 60 s
+            time.sleep(5)
+            res = guard_status(max_age=0)
+            if not [i for i in res["issues"] if i["severity"] != "info"]:
+                ok = True
+                break
+        guard_store(event={"t": int(time.time()), "who": who, "codes": plan.get("codes", []), "steps": done, "result": "résolu" if ok else "non résolu",
+                           "remaining": [i["text"] for i in (res or {})["issues"] if i["severity"] != "info"][:3] if not ok else []})
+        print("garde GPU : %s (%s) -> %s" % (", ".join(plan.get("codes", [])), ", ".join(done), "résolu" if ok else "non résolu"), flush=True)
+        return ok
+    finally:
+        _guard["busy"] = False
+
+
+def gpu_info_cache_clear():
+    _gpu_live["t"] = 0   # nvidia-smi relu immédiatement
+
+
+def guard_repair_now(who):
+    """Réparation demandée par l'administrateur : mêmes étapes, sans attendre la persistance ni le délai entre tentatives."""
+    res = guard_status(max_age=0)
+    codes = {i["code"] for i in res["issues"] if i.get("fix") in ("reload-driver", "restart-ollama")}
+    if not codes:
+        raise ValueError("rien à réparer : chaque carte est utilisée par Ollama")
+    plan = {"steps": (["load-driver"] if "driver_down" in codes else []) + ["load-uvm", "restart-ollama"], "codes": sorted(codes)}
+    threading.Thread(target=lambda: guard_remediate(plan, who), daemon=True).start()
+    return plan
+
+
+def guard_worker():
+    time.sleep(90)
+    while True:
+        try:
+            res = guard_status(max_age=0)
+            plan = hw.guard_plan(res["issues"], _guard["state"], time.time(), guard_config()["auto"])
+            if plan:
+                guard_remediate(plan)
+        except Exception as e:   # la surveillance ne doit jamais s'arrêter
+            sys.stderr.write("garde GPU : %s\n" % e)
+        time.sleep(60)
+
+
+# ------------------------------------------------------------ performances ---
+PERF_FILE = os.path.join(ETC, "perf.json")
+BENCH_FILE = os.path.join(os.environ.get("OB_STATE", "/var/lib/ollamabuntu"), "bench.json")
+WARMUP_FILE = os.path.join(ETC, "warmup.json")
+SYSCTL_CONF = "/etc/sysctl.d/90-ollamabuntu.conf"
+TMPFILES_CONF = "/etc/tmpfiles.d/ollamabuntu-governor.conf"
+WEBUI_LIMITS = os.path.join(ETC, "open-webui.limits")
+_perf_lock = threading.Lock()
+_perf_last = {"guard": None}
+_bench = {"running": False, "model": "", "step": 0, "runs": 0, "error": ""}
+_warm = {"log": [], "played": {}, "booted": False}
+
+
+def perf_config():
+    c = load_json_file(PERF_FILE, {})
+    g = c.get("guard") if isinstance(c.get("guard"), dict) else {}
+    mode = g.get("mode") if g.get("mode") in ("off", "suggest", "auto") else "suggest"
+    try:
+        drop = min(90, max(10, int(g.get("drop_pct", 50))))
+    except (TypeError, ValueError):
+        drop = 50
+    return {"guard": {"mode": mode, "drop_pct": drop}, "events": [e for e in c.get("events", []) if isinstance(e, dict)][-20:], "last_change": int(c.get("last_change") or 0)}
+
+
+def perf_store(guard=None, event=None, changed=False):
+    with _perf_lock:
+        c = perf_config()
+        if guard is not None:
+            c["guard"] = guard
+        if event:
+            c["events"] = (c["events"] + [event])[-20:]
+        if changed:
+            c["last_change"] = int(time.time())
+        atomic_write(PERF_FILE, json.dumps(c, ensure_ascii=False), 0o644)
+
+
+def perf_snapshot(st=None):
+    """Chute de débit éventuelle (calculée à chaque passage de la supervision) ; None si le garde-fou est désactivé."""
+    cfg = perf_config()["guard"]
+    if cfg["mode"] == "off":
+        _perf_last["guard"] = None
+        return None
+    st = st or status()
+    with _metrics_lock:
+        samples = list(_metrics["samples"])
+    res = perf.perf_guard(samples, time.time(), st.get("offload") or [], read_env(), cfg["drop_pct"])
+    _perf_last["guard"] = res
+    return res
+
+
+def perf_auto_step(res):
+    """Mode automatique : applique un seul pas de réglage, au plus un par heure, jamais pendant une mesure, 3 par jour au maximum."""
+    cfg = perf_config()
+    if cfg["guard"]["mode"] != "auto" or not res or not res.get("fix") or _bench["running"]:
+        return False
+    now = time.time()
+    if now - cfg["last_change"] < 3600 or sum(1 for e in cfg["events"] if e.get("who") == "automatique" and now - e.get("t", 0) < 86400) >= 3:
+        return False
+    changes = perf.normalize_env(res["fix"]["changes"], read_env())
+    update_env(changes)
+    perf_store(event={"t": int(now), "who": "automatique", "text": res["text"], "changes": changes}, changed=True)
+    print("garde-fou de débit : %s -> %s" % (res["text"], changes), flush=True)
+    return True
+
+
+def sys_view():
+    gov = [read_text(g) for g in sorted(glob.glob(sysp("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor")))]
+    sw = read_text(sysp("/proc/sys/vm/swappiness"))
+    mi = meminfo()
+    swaps = read_text(sysp("/proc/swaps"))
+    webui = {"deployed": webui_deployed(), "limit_mb": None, "rss_mb": None}
+    if webui["deployed"] and shutil.which("docker"):
+        lim = run(["docker", "inspect", "-f", "{{.HostConfig.Memory}}", "open-webui"], timeout=8).strip()
+        webui["limit_mb"] = int(lim) // 1048576 if lim.isdigit() and int(lim) > 0 else None
+        use = run(["docker", "stats", "--no-stream", "--format", "{{.MemUsage}}", "open-webui"], timeout=10).split("/")[0].strip()
+        m = re.fullmatch(r"([\d.]+)\s*(MiB|GiB|KiB|B)", use)
+        if m:
+            webui["rss_mb"] = round(float(m.group(1)) * {"GiB": 1024, "MiB": 1, "KiB": 1 / 1024.0, "B": 1 / 1048576.0}[m.group(2)])
+    return perf.sys_checks({"swappiness": int(sw) if sw.isdigit() else None, "governors": gov, "mem_total": mi.get("MemTotal"), "swap_total": mi.get("SwapTotal"),
+                            "zram": "zram" in swaps, "webui": webui})
+
+
+def sys_fix(fix, value=None):
+    if fix == "swappiness":
+        atomic_write(sysp(SYSCTL_CONF), "# OllamaBuntu : limite l'écriture précoce en swap (Ollama garde ses modèles en mémoire)\nvm.swappiness=10\n", 0o644)
+        run(["sysctl", "-w", "vm.swappiness=10"], timeout=10)
+    elif fix == "governor":
+        atomic_write(sysp(TMPFILES_CONF), "# OllamaBuntu : fréquence du processeur maximale (latence du premier jeton)\nw /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor - - - - performance\n", 0o644)
+        for g in glob.glob(sysp("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor")):
+            try:
+                with open(g, "w") as f:
+                    f.write("performance")
+            except OSError:
+                pass
+    elif fix == "webui_mem":
+        mb = perf.parse_limit(value or "2g")
+        atomic_write(WEBUI_LIMITS, "MEM=%dm\n" % mb, 0o644)
+        if shutil.which("docker"):
+            run(["docker", "update", "--memory", "%dm" % mb, "--memory-swap", "%dm" % mb, "open-webui"], timeout=30)
+    else:
+        raise ValueError("réglage inconnu")
+
+
+def bench_history():
+    return [h for h in load_json_file(BENCH_FILE, {}).get("history", []) if isinstance(h, dict)][-100:]
+
+
+def bench_addr(model):
+    for unit, addr, pool in instances():
+        try:
+            if any(m.get("name") == model for m in ollama_json("GET", "/api/ps", timeout=3, addr=addr)[1].get("models", [])):
+                return addr
+        except (OSError, ValueError):
+            continue
+    return main_addr()
+
+
+def bench_run(model, runs):
+    """Mesure en tâche de fond : `runs` générations identiques (température 0), médiane retenue et comparée à la précédente."""
+    results = []
+    try:
+        addr = bench_addr(model)
+        for i in range(runs):
+            _bench["step"] = i + 1
+            code, gen = ollama_json("POST", "/api/generate", {"model": model, "prompt": perf.BENCH_PROMPT, "stream": False, "keep_alive": "10m",
+                                                              "options": {"temperature": 0, "seed": 1, "num_predict": perf.BENCH_TOKENS}}, timeout=600, addr=addr)
+            if code != 200:
+                raise ValueError(str(gen.get("error") or "erreur Ollama %s" % code)[:200])
+            ps = next((m for m in ollama_json("GET", "/api/ps", timeout=5, addr=addr)[1].get("models", []) if m.get("name") == model), None)
+            mi = meminfo()
+            results.append(perf.bench_result(model, gen, ps, {"used": mi.get("MemTotal", 0) - mi.get("MemAvailable", 0), "total": mi.get("MemTotal")}, read_env()))
+        entry = perf.bench_median(results)
+        hist = bench_history()
+        entry["delta"] = perf.bench_compare(hist, entry)
+        gpus = gpu_metrics()
+        entry["vram_used"] = sum(g.get("mem_used") or 0 for g in gpus) or None
+        entry["vram_total"] = sum(g.get("mem_total") or 0 for g in gpus) or None
+        entry["profile"] = perf.detect_profile(read_env())
+        atomic_write(BENCH_FILE, json.dumps({"history": (hist + [entry])[-100:]}, ensure_ascii=False), 0o600)
+        _bench["error"] = ""
+    except (OSError, ValueError) as e:
+        _bench["error"] = str(e)[:200]
+    finally:
+        _bench["running"] = False
+
+
+def bench_start(model, runs):
+    model = str(model or "")
+    if not MODEL_RE.match(model):
+        raise ValueError("nom de modèle invalide")
+    try:
+        runs = int(runs or 2)
+    except (TypeError, ValueError):
+        raise ValueError("nombre de passes invalide")
+    if not 1 <= runs <= 3:
+        raise ValueError("1 à 3 passes")
+    if _bench["running"]:
+        raise ValueError("une mesure est déjà en cours")
+    _bench.update(running=True, model=model, step=0, runs=runs, error="")
+    threading.Thread(target=bench_run, args=(model, runs), daemon=True).start()
+
+
+def warmup_config():
+    try:
+        return perf.warmup_clean(load_json_file(WARMUP_FILE, {}))
+    except ValueError:
+        return {"boot": [], "times": []}
+
+
+def warm_model(model, why):
+    env = read_env()
+    keep = env.get("OLLAMA_KEEP_ALIVE") or "30m"
+    rec = {"t": int(time.time()), "model": model, "why": why, "ok": False, "error": ""}
+    try:
+        addr = bench_addr(model)
+        code, data = ollama_json("POST", "/api/generate", {"model": model, "prompt": "", "stream": False, "keep_alive": keep}, timeout=300, addr=addr)
+        rec["ok"] = code == 200
+        rec["error"] = "" if rec["ok"] else str(data.get("error") or code)[:160]
+    except (OSError, ValueError) as e:
+        rec["error"] = str(e)[:160]
+    _warm["log"] = (_warm["log"] + [rec])[-20:]
+    return rec["ok"]
+
+
+def warmup_worker():
+    time.sleep(60)
+    while True:
+        try:
+            cfg = warmup_config()
+            if not _warm["booted"]:
+                try:
+                    ollama_json("GET", "/api/tags", timeout=5)
+                    _warm["booted"] = True
+                    for m in cfg["boot"]:
+                        warm_model(m, "démarrage")
+                except OSError:
+                    pass   # Ollama pas encore prêt : nouvel essai à la prochaine boucle
+            for m in perf.warmup_due(cfg, time.localtime(), _warm["played"]):
+                warm_model(m, "heure programmée")
+        except Exception as e:
+            sys.stderr.write("préchauffage : %s\n" % e)
+        time.sleep(20)
+
+
+def perf_view():
+    env = read_env()
+    cfg = perf_config()
+    return {"env": {k: env.get(k, "") for k, _ in ENV_KEYS}, "current": perf.detect_profile(env),
+            "profiles": [{"id": k, "label": p["label"], "help": p["help"], "diff": perf.profile_diff(k, env)} for k, p in perf.PROFILES.items()],
+            "checks": sys_view(), "guard": cfg["guard"], "events": list(reversed(cfg["events"])), "alert": _perf_last.get("guard"),
+            "warmup": dict(warmup_config(), log=list(reversed(_warm["log"]))), "bench": dict(_bench, history=list(reversed(bench_history()))[:30])}
+
+
+# ------------------------------------------------- journal d'audit ---
+AUDIT_FILE = os.path.join(os.environ.get("OB_STATE", "/var/lib/ollamabuntu"), "audit.jsonl")
+AUDIT_MAX = 2 * 1024 * 1024
+_audit_lock = threading.Lock()
+
+
+def audit_record(user, role, ip, path, data, status):
+    """Ajoute une ligne au journal d'audit (jamais d'exception : la trace ne doit pas bloquer l'action)."""
+    try:
+        e = audit.entry(user, role, ip, path, data, status)
+        with _audit_lock:
+            os.makedirs(os.path.dirname(AUDIT_FILE), exist_ok=True)
+            try:
+                if os.path.getsize(AUDIT_FILE) > AUDIT_MAX:
+                    os.replace(AUDIT_FILE, AUDIT_FILE + ".1")
+            except OSError:
+                pass
+            fd = os.open(AUDIT_FILE, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    except Exception as ex:   # noqa: BLE001
+        sys.stderr.write("audit : %s\n" % ex)
+
+
+def audit_entries(limit=5000):
+    out = []
+    for path in (AUDIT_FILE + ".1", AUDIT_FILE):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                out.append(json.loads(line))
+            except ValueError:
+                continue
+    return out[-limit:]
+
+
+def audit_view(query):
+    one = lambda k: (query.get(k) or [""])[0]
+    rows = audit.search(audit_entries(), one("q"), one("user"), one("status"))
+    users = sorted({e.get("user") for e in audit_entries() if e.get("user")})
+    return {"entries": rows[:500], "total": len(rows), "users": users}
+
+
+def audit_clear():
+    for path in (AUDIT_FILE, AUDIT_FILE + ".1"):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+# ------------------------------------------------ rapport hebdomadaire ---
+REPORT_FILE = os.path.join(ETC, "report.json")
+_report = {"last_error": "", "booted": time.time()}
+
+
+def report_config():
+    c = load_json_file(REPORT_FILE, {})
+    try:
+        cfg = report.clean_config(c)
+    except ValueError:
+        cfg = report.clean_config({})
+    cfg["last_sent"] = str(c.get("last_sent") or "")
+    return cfg
+
+
+def models_disk(idle_days=30):
+    """Modèles installés avec leur taille, leur dernière utilisation connue (journal des requêtes) et leur état ; inutilisés = candidats à la suppression."""
+    try:
+        tags = ollama_json("GET", "/api/tags", timeout=10)[1].get("models", [])
+    except (OSError, ValueError):
+        tags = []
+    try:
+        loaded = {short_name(m.get("name", "")) for m in ollama_json("GET", "/api/ps", timeout=3)[1].get("models", [])}
+    except (OSError, ValueError):
+        loaded = set()
+    last = {}
+    for r in read_requests(50000):
+        m = r.get("model")
+        if m and r.get("ts"):
+            last[short_name(m)] = max(last.get(short_name(m), 0), r["ts"])
+    pinned = set()
+    for p in load_pools():
+        pinned |= {short_name(m) for m in p.get("models", [])}
+    for m in warmup_config()["boot"]:
+        pinned.add(short_name(m))
+    for t in warmup_config()["times"]:
+        pinned |= {short_name(m) for m in t["models"]}
+    now, keep = time.time(), reqlog_settings()["days"]
+    out = []
+    for t in tags:
+        name = t.get("name", "")
+        if name.endswith("-cloud"):
+            continue
+        sn = short_name(name)
+        mod = t.get("modified_at") or ""
+        try:
+            age = (now - calendar.timegm(time.strptime(mod[:19], "%Y-%m-%dT%H:%M:%S"))) / 86400.0 if mod else None
+        except ValueError:
+            age = None
+        seen = last.get(sn)
+        idle = (now - seen) / 86400.0 if seen else None
+        # inutilisé : aucune requête dans le journal conservé ET installé depuis plus longtemps que ce journal (sinon on ne sait pas)
+        unused = seen is None and age is not None and age > max(keep, 1) and age > idle_days and sn not in loaded and sn not in pinned
+        unused = unused or (seen is not None and idle > idle_days and sn not in loaded and sn not in pinned)
+        out.append({"name": name, "size": t.get("size") or 0, "installed_days": round(age) if age is not None else None, "last_used": int(seen) if seen else None,
+                    "idle_days": round(idle) if idle is not None else None, "loaded": sn in loaded, "pinned": sn in pinned, "unused": bool(unused)})
+    out.sort(key=lambda m: (not m["unused"], -m["size"]))
+    du = shutil.disk_usage(MODELS_DIR if os.path.isdir(MODELS_DIR) else "/")
+    return {"models": out, "total": sum(m["size"] for m in out), "reclaimable": sum(m["size"] for m in out if m["unused"]),
+            "disk": {"total": du.total, "free": du.free}, "journal_days": keep, "idle_days": idle_days}
+
+
+def report_data():
+    now = time.time()
+    reqs = read_requests(50000)
+    wk = now - 7 * 86400
+    tps = [r["tps"] for r in reqs if r.get("ts", 0) >= wk and r.get("status") == 200 and r.get("tps")]
+    st = status()
+    keys = []
+    for k in load_publication().get("keys", []):
+        d = expiry_days(k.get("expires")) if k.get("enabled", True) and k.get("expires") else None
+        if d is not None and d <= 14:
+            keys.append("Clé d'API « %s » %s" % (k["name"], "expirée" if d < 0 else "expire dans %d jour(s)" % d))
+    cfg_g, cfg_p = guard_config(), perf_config()
+    return {"host": socket.gethostname(), "version": VERSION, "since": wk, "until": now,
+            "usage": usage.aggregate(reqs, now, 7 * 86400, name=short_name), "tps_avg": round(sum(tps) / len(tps), 1) if tps else None,
+            "uptime_days": int(st["uptime"] // 86400), "disk": st["disk"], "alerts": [a["text"] for a in _alerts["active"].values() if a.get("severity") != "info"],
+            "guard_events": [e for e in cfg_g["events"] if e.get("t", 0) >= wk], "perf_events": ["%s (%s)" % (e["text"], e.get("who", "")) for e in cfg_p["events"] if e.get("t", 0) >= wk],
+            "hw": [i["text"] for i in hw_view(600)["issues"]], "keys_expiring": keys, "update": st["update_available"],
+            "models_unused": [m for m in models_disk()["models"] if m["unused"]]}
+
+
+def report_send(test=False):
+    cfg = load_alerts()["smtp"]
+    if not (cfg.get("host") and cfg.get("to") and cfg.get("from")):
+        raise ValueError("configurez d'abord le serveur SMTP et les destinataires (Système > Alertes)")
+    obj, text, page = report.build(report_data())
+    monitor.send_mail(cfg, cfg.get("password"), "[OllamaBuntu %s] %s" % (socket.gethostname(), ("TEST — " if test else "") + obj["title"].split(" — ", 1)[-1]), text, html=page)
+    return obj
+
+
+def report_worker():
+    time.sleep(120)
+    while True:
+        try:
+            cfg = report_config()
+            if report.due(cfg, time.localtime(), cfg["last_sent"]):
+                try:
+                    report_send()
+                    _report["last_error"] = ""
+                except (OSError, ValueError, smtplib.SMTPException) as e:
+                    _report["last_error"] = str(e)[:200]
+                c = load_json_file(REPORT_FILE, {})
+                c["last_sent"] = time.strftime("%Y-%m-%d")   # même en cas d'échec : un seul essai par jour, l'erreur reste affichée
+                atomic_write(REPORT_FILE, json.dumps(c), 0o644)
+        except Exception as e:   # noqa: BLE001
+            sys.stderr.write("rapport : %s\n" % e)
+        time.sleep(300)
+
+
+# ------------------------------------------------------ santé du matériel ---
+_hw_cache = {"t": 0.0, "data": None}
+
+
+def hw_view(max_age=120):
+    if _hw_cache["data"] is not None and time.time() - _hw_cache["t"] < max_age:
+        return _hw_cache["data"]
+    smart, have = [], bool(shutil.which("smartctl"))
+    if have:
+        try:
+            scan = json.loads(run(["smartctl", "--scan", "-j"], timeout=15) or "{}")
+        except ValueError:
+            scan = {}
+        for d in (scan.get("devices") or [])[:16]:
+            name = str(d.get("name") or "")
+            if re.fullmatch(r"/dev/[A-Za-z0-9/_-]{1,30}", name):
+                r = hw.parse_smart(run(["smartctl", "-j", "-a"] + (["-d", d["type"]] if d.get("type") and re.fullmatch(r"[a-z0-9,]{1,20}", str(d["type"])) else []) + [name], timeout=30))
+                if r and (r.get("passed") is not None or r.get("temp") is not None or r.get("hours") is not None):
+                    smart.append(r)
+    kern = run(["journalctl", "-k", "-b", "-n", "3000", "--no-pager", "-o", "short-unix", "-g", "NVRM: Xid"], timeout=15)
+    data = {"smartctl": have, "disks": smart, "raid": hw.parse_mdstat(read_text("/proc/mdstat")), "xid": hw.parse_xid(kern, time.time()), "checked": int(time.time())}
+    data["issues"] = hw.hw_issues(smart, data["raid"], data["xid"])
+    _hw_cache.update(t=time.time(), data=data)
+    return data
 
 
 # ------------------------------------------------------ export Prometheus ---
@@ -2100,6 +2630,7 @@ def alerts_worker():
             cfg = load_alerts()
             active = monitor.evaluate(alert_snapshot(), dict(cfg, events=list(monitor.EVENTS)))   # toutes visibles dans la console
             _alerts["active"] = {k: a for k, a in active.items() if k.split(":")[0] in cfg["events"]}
+            perf_auto_step(_perf_last.get("guard"))
             events = _alerts["notifier"].step(_alerts["active"], time.time())
             if events and cfg["enabled"]:
                 res = alerts_send(cfg, events)
@@ -2171,7 +2702,7 @@ def limits_view():
     for k in load_publication().get("keys", []):
         t, q = tokens.get(k["id"]) or {}, queue.get(k["id"]) or {}
         keys.append({"id": k["id"], "name": k["name"], "max_concurrent": k.get("max_concurrent", 0), "quota_day": k.get("quota_day", 0), "quota_month": k.get("quota_month", 0),
-                     "running": q.get("running", 0), "waiting": q.get("waiting", 0), "day": t.get("day", 0), "month": t.get("month", 0), "total": t.get("total", 0), "requests": t.get("req", 0)})
+                     "max_ctx": k.get("max_ctx", 0), "max_output": k.get("max_output", 0), "running": q.get("running", 0), "waiting": q.get("waiting", 0), "day": t.get("day", 0), "month": t.get("month", 0), "total": t.get("total", 0), "requests": t.get("req", 0)})
     return {"keys": keys, "queue_total": {"running": sum(v.get("running", 0) for v in queue.values()), "waiting": sum(v.get("waiting", 0) for v in queue.values())},
             "updated": lim.get("t")}
 
@@ -2697,10 +3228,14 @@ def balance_strategy():
     return "warm" if load_json_file(BALANCE_FILE, {}).get("strategy") == "warm" else "spread"
 
 
-def set_balance_strategy(value):
+def balance_affinity():
+    return load_json_file(BALANCE_FILE, {}).get("affinity", True) is not False
+
+
+def set_balance_strategy(value, affinity=None):
     if value not in BALANCE_STRATEGIES:
         raise ValueError("stratégie inconnue")
-    atomic_write(BALANCE_FILE, json.dumps({"strategy": value}), 0o644)
+    atomic_write(BALANCE_FILE, json.dumps({"strategy": value, "affinity": balance_affinity() if affinity is None else bool(affinity)}), 0o644)
 
 
 def balance_view():
@@ -2739,7 +3274,7 @@ def balance_view():
         servers.append({"id": s["id"], "name": s["name"], "state": st.get("state", "en attente"), "route": bool(s.get("route_token")),
                         "models": len(names), "common": len(common), "served": sv.get("count", 0), "last": sv.get("last") or None, "issues": issues})
     loc = served.get("", {})
-    return {"strategy": balance_strategy(), "local": {"models": len(local), "served": loc.get("count", 0), "last": loc.get("last") or None},
+    return {"strategy": balance_strategy(), "affinity": balance_affinity(), "local": {"models": len(local), "served": loc.get("count", 0), "last": loc.get("last") or None},
             "servers": servers, "models": [{"name": k, "on": v} for k, v in sorted(on.items())], "active": any(not x["issues"] for x in servers)}
 
 
@@ -2973,6 +3508,7 @@ def gpu_info():
             msg.append("Accélérateur non géré automatiquement par OllamaBuntu.")
         if dev["kind"] == "gpu" and vid in ("0x10de", "0x1002", "0x8086"):
             ready = (drv == "nvidia") if vid == "0x10de" else (drv in ("amdgpu", "i915", "xe") and (vulkan or (vid == "0x1002" and rocm)))
+            dev["ready"] = ready
             if dev["ollama"]:
                 state = "ok"
                 msg.append("Utilisé par Ollama (%s, %s)." % (dev["ollama"]["library"], dev["ollama"]["total"]))
@@ -3585,6 +4121,12 @@ def short_name(name):
     return "%s:%s" % (base, tag)
 
 
+def model_source(name):
+    """Registre d'origine d'un modèle : « Hugging Face » (hf.co/...), « Ollama » (registre officiel) ou l'adresse d'un registre privé."""
+    host = parse_model_name(name)[0]
+    return "Ollama" if host == "registry.ollama.ai" else "Hugging Face" if host in ("hf.co", "huggingface.co") else host
+
+
 def registry_manifest(name):
     """Manifeste distant (liste de manifestes GGUF/MLX gérée) + configuration du modèle. None si absent."""
     host, ns, model, tag = parse_model_name(name)
@@ -3731,23 +4273,29 @@ def model_insights(refresh=False):
             else:
                 dl = sum(r["sizes"].get(d, 0) for d in missing)
                 upd = {"state": "maj", "label": "Mise à jour disponible (%.1f Go à télécharger)" % (dl / 1e9), "download": dl}
-        inst_out.append({"name": m["name"], "size": m.get("size", 0), "details": m.get("details", {}),
+        inst_out.append({"name": m["name"], "source": model_source(m["name"]), "size": m.get("size", 0), "details": m.get("details", {}),
                          "modified_at": m.get("modified_at"), "update": upd,
                          "fit": assess_fit(m.get("size", 0), cap, (r or {}).get("requires"), current)})
     have_names = {short_name(m["name"]) for m in installed}
     cat_out = []
     for c in catalog:
         r = remote.get(c["name"])
-        item = dict(c, installed=short_name(c["name"]) in have_names)
+        item = dict(c, installed=short_name(c["name"]) in have_names, source=model_source(c["name"]))
         if r and not r.get("cloud"):
             item.update(available=True, size=r["size"], vision=r["vision"], draft=r["draft"], params=r["params"],
-                        quant=r["quant"], fit=assess_fit(r["size"], cap, r.get("requires"), current))
+                        quant=(r["quant"] if str(r["quant"]).lower() not in ("", "unknown") else parse_model_name(c["name"])[3]),
+                        fit=assess_fit(r["size"], cap, r.get("requires"), current))
         else:
             item.update(available=False, fit=None)
         cat_out.append(item)
     order = {"gpu": 0, "cpu": 1, "mixte": 2, "trop": 3, "incompatible": 4, None: 5}
     cat_out.sort(key=lambda c: (order[(c.get("fit") or {}).get("level")], c.get("size") or 0))
-    return {"capacity": cap, "ollama": current, "installed": inst_out, "catalog": cat_out,
+    sources = {}
+    for c in cat_out:
+        s_ = sources.setdefault(c["source"], {"total": 0, "available": 0})
+        s_["total"] += 1
+        s_["available"] += 1 if c.get("available") else 0
+    return {"capacity": cap, "ollama": current, "installed": inst_out, "catalog": cat_out, "sources": sources,
             "registry": {"ok": not errors, "errors": errors[:5], "checked": int(time.time())}}
 
 
@@ -3869,7 +4417,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -3900,6 +4448,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def send_json(self, code, obj, extra=None):
+        a = getattr(self, "_audit", None)
+        if a:
+            self._audit = None
+            audit_record(a[0], a[1], self.client_address[0], a[2], a[3], code)
         body = json.dumps(obj, ensure_ascii=False).encode()
         self.send_head(code, "application/json; charset=utf-8", len(body), extra)
         self.wfile.write(body)
@@ -4064,6 +4616,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, usage_view((query.get("span") or ["86400"])[0]))
             if path == "/api/prom":
                 return self.send_json(200, prom_status())
+            if path == "/api/gpu/guard":
+                return self.send_json(200, guard_status())
+            if path == "/api/perf":
+                return self.send_json(200, perf_view())
+            if path == "/api/audit":
+                return self.send_json(200, audit_view(query))
+            if path == "/api/audit/export":
+                one = lambda k: (query.get(k) or [""])[0]
+                return self.send_blob(audit.to_csv(audit.search(audit_entries(), one("q"), one("user"), one("status"))).encode("utf-8-sig"), "audit-ollamabuntu-%s.csv" % time.strftime("%Y%m%d-%H%M"))
+            if path == "/api/report":
+                obj, text, _ = report.build(report_data())
+                return self.send_json(200, {"config": report_config(), "preview": obj, "text": text, "last_error": _report["last_error"],
+                                            "smtp": bool(load_alerts()["smtp"].get("host") and load_alerts()["smtp"].get("to"))})
+            if path == "/api/models/disk":
+                try:
+                    days = max(1, min(365, int((query.get("days") or ["30"])[0])))
+                except ValueError:
+                    days = 30
+                return self.send_json(200, models_disk(days))
+            if path == "/api/hw":
+                return self.send_json(200, hw_view(0 if (query.get("refresh") or [""])[0] == "1" else 120))
             if path == "/api/requests/export":
                 reqs = read_requests()
                 q = {k: (query.get(k) or [""])[0].strip().lower() for k in ("q", "model", "client", "status")}
@@ -4126,6 +4699,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not sess:
             return self.send_json(401, {"error": "authentification requise"})
         user, role = sess
+        if not audit.skipped(path):
+            self._audit = (user, role, path, data)
         try:
             if path == "/api/logout":
                 return self.logout()
@@ -4196,6 +4771,72 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 written = backup.restore(ETC, meta, files)
                 print("configuration restaurée par %s : %s" % (user, ", ".join(written)), flush=True)
                 return self.send_json(200, {"ok": True, "applied": True, "summary": summary, "job": start_job("config-reload")})
+            if path == "/api/audit/clear":
+                audit_clear()
+                return self.send_json(200, {"ok": True})
+            if path == "/api/report/config":
+                cfg = report.clean_config(data, report_config())
+                c = load_json_file(REPORT_FILE, {})
+                c.update(cfg)
+                atomic_write(REPORT_FILE, json.dumps(c), 0o644)
+                return self.send_json(200, {"ok": True})
+            if path == "/api/report/send":
+                try:
+                    report_send(test=True)
+                except (OSError, smtplib.SMTPException) as e:
+                    raise ValueError("envoi impossible : %s" % str(e)[:160])
+                return self.send_json(200, {"ok": True})
+            if path == "/api/perf/profile":
+                name = str(data.get("id", ""))
+                diff = perf.profile_diff(name, read_env())
+                if not data.get("apply"):
+                    return self.send_json(200, {"diff": diff})
+                if diff:
+                    update_env(perf.normalize_env({d["key"]: d["to"] for d in diff}, read_env()))
+                    perf_store(event={"t": int(time.time()), "who": user, "text": "Profil « %s » appliqué" % perf.PROFILES[name]["label"], "changes": {d["key"]: d["to"] for d in diff}}, changed=True)
+                return self.send_json(200, {"ok": True, "changed": len(diff)})
+            if path == "/api/perf/fix":
+                sys_fix(str(data.get("id", "")), data.get("value"))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/perf/guard":
+                mode = data.get("mode")
+                if mode not in ("off", "suggest", "auto"):
+                    raise ValueError("mode inconnu")
+                try:
+                    drop = int(data.get("drop_pct", 50))
+                except (TypeError, ValueError):
+                    raise ValueError("seuil invalide")
+                perf_store(guard={"mode": mode, "drop_pct": min(90, max(10, drop))})
+                return self.send_json(200, {"ok": True})
+            if path == "/api/perf/apply-suggestion":
+                res = perf_snapshot()
+                if not res or not res.get("fix"):
+                    raise ValueError("aucune suggestion en cours")
+                changes = perf.normalize_env(res["fix"]["changes"], read_env())
+                update_env(changes)
+                perf_store(event={"t": int(time.time()), "who": user, "text": res["text"], "changes": changes}, changed=True)
+                return self.send_json(200, {"ok": True, "changes": changes})
+            if path == "/api/perf/warmup":
+                cfg = perf.warmup_clean(data)
+                atomic_write(WARMUP_FILE, json.dumps(cfg, ensure_ascii=False), 0o644)
+                return self.send_json(200, {"ok": True})
+            if path == "/api/perf/warmup/run":
+                models = [m for m in data.get("models") or [] if MODEL_RE.match(str(m))][:6]
+                if not models:
+                    raise ValueError("aucun modèle")
+                threading.Thread(target=lambda: [warm_model(m, "manuel (%s)" % user) for m in models], daemon=True).start()
+                return self.send_json(200, {"ok": True})
+            if path == "/api/bench/run":
+                bench_start(data.get("model"), data.get("runs"))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/bench/clear":
+                atomic_write(BENCH_FILE, json.dumps({"history": []}), 0o600)
+                return self.send_json(200, {"ok": True})
+            if path == "/api/gpu/guard/config":
+                guard_store(auto=bool(data.get("auto")))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/gpu/guard/repair":
+                return self.send_json(200, {"ok": True, "plan": guard_repair_now(user)})
             if path == "/api/prom/token":
                 token = prom_token(str(data.get("action", "")))
                 print("export Prometheus : %s par %s" % (data.get("action"), user), flush=True)
@@ -4230,7 +4871,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 clear_requests()
                 return self.send_json(200, {"ok": True})
             if path == "/api/fleet/balance/strategy":
-                set_balance_strategy(str(data.get("strategy", "")))
+                set_balance_strategy(str(data.get("strategy") or balance_strategy()), data.get("affinity") if "affinity" in data else None)
                 return self.send_json(200, {"ok": True})
             if path == "/api/fleet/balance/test":
                 return self.send_json(200, balance_test(data.get("model")))
@@ -4324,9 +4965,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         ok = verify_password(password, rec or {"salt": "AAAA", "hash": "AAAA", "iterations": PBKDF2_ITERATIONS})
         if not (rec and ok):
             record_failure(ip)
+            audit_record(name or "?", "", ip, "/api/login", {}, 403)
             time.sleep(1)
             return self.send_json(403, {"error": "Identifiant ou mot de passe incorrect."})
         role = rec.get("role", "utilisateur")
+        audit_record(name, role, ip, "/api/login", {}, 200)
         token = new_session(name, role, rec.get("rev"))
         cookie = "ob_session=%s; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=%d" % (token, SESSION_TTL)
         return self.send_json(200, {"user": name, "role": role, "version": VERSION}, {"Set-Cookie": cookie})
@@ -4499,7 +5142,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if k not in allowed or not ENV_VALUE_RE.match(v):
                 raise ValueError("valeur refusée pour %s" % k)
             changes[k] = v
-        update_env(changes)
+        update_env(perf.normalize_env(changes, read_env()))
         return self.send_json(200, {"ok": True})
 
     # -- comptes
@@ -4684,6 +5327,9 @@ def main():
     threading.Thread(target=fleet_worker, daemon=True).start()
     threading.Thread(target=metrics_worker, daemon=True).start()
     threading.Thread(target=alerts_worker, daemon=True).start()
+    threading.Thread(target=guard_worker, daemon=True).start()
+    threading.Thread(target=warmup_worker, daemon=True).start()
+    threading.Thread(target=report_worker, daemon=True).start()
     print("OllamaBuntu %s : console d'administration sur le port %d" % (VERSION, HTTPS_PORT), flush=True)
     httpd.serve_forever()
 

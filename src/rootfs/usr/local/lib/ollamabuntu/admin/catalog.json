@@ -1,6 +1,6 @@
 {
  "version": "2026-11",
- "source": "sélection OllamaBuntu ; tailles et disponibilité vérifiées en direct sur registry.ollama.ai",
+ "source": "sélection OllamaBuntu : registre Ollama et dépôts GGUF de Hugging Face (hf.co/...) ; tailles et disponibilité vérifiées en direct",
  "models": [
   {
    "name": "llama3.2:3b",
@@ -216,6 +216,78 @@
     "embeddings"
    ],
    "description": "Embeddings multilingues pour documents longs."
+  },
+  {
+   "name": "hf.co/unsloth/Qwen3-14B-GGUF:Q4_K_M",
+   "category": "Conversation",
+   "caps": [
+    "outils",
+    "raisonnement"
+   ],
+   "description": "Qwen3 14B : bon équilibre qualité / vitesse, raisonnement activable (Hugging Face)."
+  },
+  {
+   "name": "hf.co/bartowski/Mistral-Nemo-Instruct-2407-GGUF:Q4_K_M",
+   "category": "Conversation",
+   "caps": [
+    "outils"
+   ],
+   "description": "Mistral Nemo 12B : multilingue, très bon en français, contexte long (Hugging Face)."
+  },
+  {
+   "name": "hf.co/unsloth/SmolLM3-3B-GGUF:Q4_K_M",
+   "category": "Conversation",
+   "caps": [
+    "raisonnement"
+   ],
+   "description": "SmolLM3 3B : très compact, multilingue, raisonnement en option (Hugging Face)."
+  },
+  {
+   "name": "hf.co/unsloth/gemma-3-27b-it-GGUF:Q4_K_M",
+   "category": "Conversation",
+   "caps": [
+    "vision"
+   ],
+   "description": "Google Gemma 3 27B : rédaction, synthèse et analyse d'images (Hugging Face)."
+  },
+  {
+   "name": "hf.co/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF:Q4_K_M",
+   "category": "Conversation",
+   "caps": [
+    "outils"
+   ],
+   "description": "Qwen3 30B à experts mixtes : qualité d'un gros modèle, vitesse d'un petit (3 milliards de paramètres actifs) (Hugging Face)."
+  },
+  {
+   "name": "hf.co/bartowski/phi-4-GGUF:Q4_K_M",
+   "category": "Raisonnement",
+   "caps": [],
+   "description": "Microsoft Phi-4 14B : logique, mathématiques et questions techniques (Hugging Face)."
+  },
+  {
+   "name": "hf.co/unsloth/Magistral-Small-2509-GGUF:Q4_K_M",
+   "category": "Raisonnement",
+   "caps": [
+    "vision",
+    "raisonnement"
+   ],
+   "description": "Mistral Magistral Small : raisonnement pas à pas, vision, bon en français (Hugging Face)."
+  },
+  {
+   "name": "hf.co/bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF:Q4_K_M",
+   "category": "Raisonnement",
+   "caps": [
+    "raisonnement"
+   ],
+   "description": "DeepSeek R1 distillé en 32B : raisonnement approfondi, réservé aux grosses cartes (Hugging Face)."
+  },
+  {
+   "name": "hf.co/bartowski/Qwen2.5-Coder-32B-Instruct-GGUF:Q4_K_M",
+   "category": "Code",
+   "caps": [
+    "outils"
+   ],
+   "description": "Qwen2.5 Coder 32B : l'un des meilleurs modèles de code ouverts (Hugging Face)."
   }
  ]
 }

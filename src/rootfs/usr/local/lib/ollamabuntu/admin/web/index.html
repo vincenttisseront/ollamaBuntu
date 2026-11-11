@@ -30,6 +30,7 @@
       <a href="#models">Modèles</a>
       <a href="#chat">Chat</a>
       <a href="#gpu" data-admin>GPU</a>
+      <a href="#perf" data-admin>Performance</a>
       <a href="#system" data-admin>Système</a>
       <a href="#security" data-admin>Sécurité</a>
       <a href="#fleet" data-admin>Serveurs</a>
@@ -143,7 +144,23 @@
         <div id="ctx-models"></div>
         <p class="muted small" id="ctx-note">La valeur d'un modèle s'applique à toutes les requêtes de l'API d'Ollama (console, Open WebUI, applications), sauf si la requête précise sa propre taille. La mémoire est estimée pour une requête à la fois.</p>
       </div>
-      <div class="card" data-admin data-panel="catalog" data-label="Recommandés"><h2>Recommandés pour ce serveur</h2><p id="catalog-note" class="muted small"></p><div id="catalog"></div></div>
+      <div class="card wide" data-admin data-panel="disk" data-label="Espace disque">
+        <div class="card-head"><h2>Espace disque des modèles</h2>
+          <label>Inutilisé depuis <select id="md-days"><option value="30">30 jours</option><option value="60">60 jours</option><option value="90">90 jours</option></select></label></div>
+        <p class="muted small">Un modèle est proposé à la suppression s'il n'a servi à aucune requête depuis ce délai, n'est pas chargé en mémoire, ni réservé à un groupe de GPU, ni préchauffé. L'historique des requêtes n'est conservé que quelques jours : un modèle installé récemment n'est jamais proposé.</p>
+        <div id="md-summary"></div>
+        <div id="md-table"></div>
+        <div class="row"><button id="md-select" class="btn" type="button">Sélectionner les modèles inutilisés</button><button id="md-delete" class="btn danger" type="button" disabled>Supprimer la sélection</button><span id="md-msg" class="small" aria-live="polite"></span></div>
+      </div>
+      <div class="card" data-admin data-panel="catalog" data-label="Recommandés"><h2>Recommandés pour ce serveur</h2>
+        <p id="catalog-note" class="muted small"></p>
+        <div class="row" style="align-items:center;gap:8px;margin:6px 0">
+          <label class="inline">Source <select id="cat-source" aria-label="Source des modèles"><option value="">Toutes (vue agrégée)</option><option value="Ollama">Ollama</option><option value="Hugging Face">Hugging Face</option></select></label>
+          <label class="inline"><input type="checkbox" id="cat-fit"> Seulement ceux qui tiennent sur ce serveur</label>
+          <input type="search" id="cat-q" placeholder="Filtrer par nom ou usage..." aria-label="Filtrer les modèles recommandés" style="max-width:260px">
+          <a href="#models/hf" class="small">Chercher d'autres modèles sur Hugging Face</a>
+        </div>
+        <div id="catalog"></div></div>
     </section>
 
     <section id="view-chat" class="view hidden">
@@ -167,6 +184,15 @@
       <div class="section-title"><h1>GPU et accélération</h1><button id="gpu-refresh" class="btn" type="button">Actualiser</button></div>
       <div id="gpu-summary" class="card"></div>
       <div id="gpu-devices" data-panel="cards" data-label="Cartes" class="grid"></div>
+      <div class="card wide" data-panel="availability" data-label="Disponibilité">
+        <div class="card-head"><h2>Disponibilité des cartes pour Ollama</h2><button id="gg-repair" class="btn primary hidden" type="button">Réparer maintenant</button></div>
+        <p class="muted small">Chaque minute, la console vérifie que chaque carte de calcul a un pilote actif et qu'Ollama l'utilise. Au démarrage, Ollama attend aussi que le pilote NVIDIA soit prêt.</p>
+        <div id="gg-body"></div>
+        <label class="check"><input type="checkbox" id="gg-auto"> Réparer automatiquement (recharge le pilote NVIDIA et redémarre Ollama, 3 fois par heure au plus, jamais le serveur)</label>
+        <span id="gg-msg" class="small" aria-live="polite"></span>
+        <h3>Historique des réparations</h3>
+        <div id="gg-events"></div>
+      </div>
       <div class="card" data-panel="placement" data-label="Groupes et épinglage">
         <h2>Groupes de GPU</h2>
         <p class="muted small">Réservez des cartes à certains modèles : chaque groupe est une instance Ollama qui ne voit que ses cartes, et les requêtes (console, Open WebUI, API) sont orientées automatiquement vers le bon groupe. Les modèles hors groupe utilisent les cartes restantes.</p>
@@ -196,6 +222,50 @@
         <form id="env-form"><div id="env-fields" class="env-grid"></div>
           <div class="row"><button class="btn primary" type="submit">Enregistrer et redémarrer Ollama</button><span id="env-msg" class="small"></span></div>
         </form>
+      </div>
+    </section>
+
+    <section id="view-perf" class="view hidden">
+      <div class="section-title"><h1>Performance</h1><button id="pf-refresh" class="btn" type="button">Actualiser</button></div>
+      <div class="card wide" data-panel="bench" data-label="Mesure de débit">
+        <h2>Mesurer le débit d'un modèle</h2>
+        <p class="muted small">Génère un texte de 128 jetons (température 0) et relève le débit, le délai avant le premier jeton et la part du modèle en mémoire vidéo. Refaites la mesure après un changement de réglage pour le comparer. Évitez de mesurer pendant que des utilisateurs travaillent : les chiffres seraient faussés.</p>
+        <div class="row"><label>Modèle <select id="pf-model"></select></label>
+          <label>Passes <select id="pf-runs"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select></label>
+          <button id="pf-run" class="btn primary" type="button">Mesurer</button><button id="pf-clear" class="btn" type="button">Effacer l'historique</button><span id="pf-state" class="small" aria-live="polite"></span></div>
+        <div id="pf-result"></div>
+        <h3>Historique</h3>
+        <div id="pf-history"></div>
+      </div>
+      <div class="card wide" data-panel="profiles" data-label="Profils">
+        <h2>Profils de performance</h2>
+        <p class="muted small">Un profil règle d'un coup flash attention, précision du cache de contexte, parallélisme, durée de maintien en mémoire et nombre de modèles chargés. Les autres réglages ne sont pas touchés. L'application redémarre Ollama (les modèles chargés sont déchargés).</p>
+        <div id="pf-profiles" class="grid"></div>
+      </div>
+      <div class="card wide" data-panel="warmup" data-label="Préchauffage">
+        <h2>Préchauffage des modèles</h2>
+        <p class="muted small">Charge des modèles en mémoire avant que les utilisateurs n'en aient besoin : le premier message ne paie plus le chargement (plusieurs secondes). Le modèle reste chargé pendant la durée de maintien d'Ollama.</p>
+        <form id="pf-warm-form" class="pool-form">
+          <div><div class="small muted">Au démarrage du serveur</div><div id="pf-warm-boot" class="checks"></div></div>
+          <div><div class="small muted">À heures fixes</div><div id="pf-warm-times"></div></div>
+          <div class="row"><button id="pf-warm-add" class="btn" type="button">Ajouter un horaire</button><button class="btn primary" type="submit">Enregistrer</button><button id="pf-warm-now" class="btn" type="button">Préchauffer maintenant (démarrage)</button><span id="pf-warm-msg" class="small" aria-live="polite"></span></div>
+        </form>
+        <h3>Derniers préchauffages</h3>
+        <div id="pf-warm-log"></div>
+      </div>
+      <div class="card wide" data-panel="guard" data-label="Garde-fou">
+        <h2>Garde-fou de débit</h2>
+        <p class="muted small">Surveille le débit : une chute par rapport à l'habitude, ou un modèle qui déborde sur le processeur, déclenche une alerte avec le réglage suggéré. En mode automatique, un seul réglage est resserré à la fois (une fois par heure, 3 par jour au plus), jamais pendant une mesure.</p>
+        <div id="pf-alert"></div>
+        <div class="row"><label>Mode <select id="pf-guard-mode"><option value="off">Désactivé</option><option value="suggest">Suggérer</option><option value="auto">Appliquer automatiquement</option></select></label>
+          <label>Chute signalée sous <select id="pf-guard-drop"><option value="70">70 % du débit habituel</option><option value="50">50 % du débit habituel</option><option value="30">30 % du débit habituel</option></select></label><span id="pf-guard-msg" class="small" aria-live="polite"></span></div>
+        <h3>Réglages appliqués</h3>
+        <div id="pf-events"></div>
+      </div>
+      <div class="card wide" data-panel="tune" data-label="Réglages système">
+        <h2>Réglages système favorables à Ollama</h2>
+        <p class="muted small">Contrôles du système d'exploitation qui influencent la vitesse et la mémoire. Les corrections sont persistantes.</p>
+        <div id="pf-checks"></div>
       </div>
     </section>
 
@@ -235,6 +305,8 @@
               <label>Quota de jetons par jour (0 = sans limite) <input name="quota_day" type="number" min="0" value="0"></label>
               <label>Quota de jetons par mois (0 = sans limite) <input name="quota_month" type="number" min="0" value="0"></label>
               <label>Expire le (vide = jamais) <input name="expires" type="date"></label></div>
+            <div class="row"><label>Contexte maximal (jetons, 0 = sans plafond) <input name="max_ctx" type="number" min="0" max="2000000" value="0"></label>
+              <label>Réponse maximale (jetons, 0 = sans plafond) <input name="max_output" type="number" min="0" max="1000000" value="0"></label></div>
             <p class="muted small">Au-delà du plafond, les requêtes d'un client attendent leur tour (jusqu'à 10 minutes). Au-delà d'un quota, elles sont refusées (erreur 429) jusqu'à la période suivante.</p>
             <div class="row"><button class="btn primary" type="submit">Créer la clé</button><span id="key-msg" class="small"></span></div>
           </form>
@@ -286,6 +358,35 @@
             <label>Fichier de sauvegarde (.obbk) <input name="file" type="file" accept=".obbk" required></label>
             <label>Phrase secrète <input name="passphrase" type="password" autocomplete="off" required></label>
             <div class="row"><button class="btn" type="submit">Restaurer la configuration</button><span id="bk-import-msg" class="small"></span></div></form>
+        </div>
+        <div class="card wide" data-admin data-panel="report" data-label="Rapport">
+          <h2>Rapport hebdomadaire par e-mail</h2>
+          <p class="muted small">Une synthèse de la semaine (usage, débit, incidents, état du matériel, clés qui expirent, modèles inutilisés) envoyée aux destinataires configurés dans l'onglet Alertes.</p>
+          <p id="rp-warn" class="error small hidden">Aucun serveur SMTP ni destinataire : renseignez-les d'abord dans l'onglet <a href="#system/alerts">Alertes</a>.</p>
+          <form id="rp-form" class="pool-form">
+            <label class="check"><input type="checkbox" name="enabled"> Envoyer le rapport chaque semaine</label>
+            <div class="row"><label>Jour <select name="day"><option value="0">lundi</option><option value="1">mardi</option><option value="2">mercredi</option><option value="3">jeudi</option><option value="4">vendredi</option><option value="5">samedi</option><option value="6">dimanche</option></select></label>
+              <label>À partir de <select name="hour" id="rp-hour"></select></label></div>
+            <div class="row"><button class="btn primary" type="submit">Enregistrer</button><button id="rp-test" class="btn" type="button">Envoyer un essai maintenant</button><span id="rp-msg" class="small" aria-live="polite"></span></div>
+          </form>
+          <h3>Aperçu de la semaine</h3>
+          <pre id="rp-preview" class="example"></pre>
+        </div>
+        <div class="card wide" data-admin data-panel="hardware" data-label="Matériel">
+          <div class="card-head"><h2>Santé du matériel</h2><button id="hw-refresh" class="btn" type="button">Actualiser</button></div>
+          <p class="muted small">Disques (SMART), grappes RAID logicielles et erreurs matérielles de la carte graphique (Xid, dernières 24 h). Un problème déclenche une alerte.</p>
+          <div id="hw-body"></div>
+        </div>
+        <div class="card wide" data-admin data-panel="audit" data-label="Audit">
+          <div class="card-head"><h2>Journal d'audit</h2><div class="row"><button id="au-export" class="btn" type="button">Exporter en CSV</button><button id="au-clear" class="btn danger" type="button">Effacer</button></div></div>
+          <p class="muted small">Qui a modifié quoi, depuis quelle adresse, avec quel résultat. Les mots de passe, jetons et clés ne sont jamais enregistrés. Les consultations et les conversations de test ne sont pas journalisées.</p>
+          <div class="settings-row">
+            <label>Recherche <input id="au-q" type="search" placeholder="Action, détail, adresse..." aria-label="Rechercher dans l'audit"></label>
+            <label>Utilisateur <select id="au-user"><option value="">Tous</option></select></label>
+            <label>Résultat <select id="au-status"><option value="">Tous</option><option value="ok">Réussies</option><option value="error">Refusées ou en erreur</option></select></label>
+            <span id="au-count" class="small muted" aria-live="polite"></span>
+          </div>
+          <div id="au-table"></div>
         </div>
         <div class="card" data-panel="appliance" data-label="Appliance">
           <h2>Mise à jour depuis Internet</h2>
@@ -392,6 +493,7 @@
         <p class="muted small">Quand plusieurs serveurs ont le même modèle, cette console envoie chaque requête à l'un d'eux. Un serveur n'est utilisé que si la répartition y est activée, s'il est en ligne et s'il a le modèle demandé.</p>
         <div class="row"><label>Stratégie <select id="bal-strategy"><option value="spread">Répartir : le serveur le moins occupé, à tour de rôle</option><option value="warm">Privilégier le modèle déjà chargé en mémoire</option></select></label><span id="bal-msg" class="small" aria-live="polite"></span></div>
         <p class="muted small" id="bal-strategy-help"></p>
+        <label class="check"><input type="checkbox" id="bal-affinity"> Garder une conversation sur le même serveur (le cache du début de prompt y est déjà chaud, la première réponse est plus rapide). La charge reste prioritaire : un serveur nettement plus occupé que les autres est abandonné.</label>
         <ul id="bal-issues" class="alerts"></ul>
       </div>
       <div class="card" data-panel="balance" data-label="Répartition de charge">

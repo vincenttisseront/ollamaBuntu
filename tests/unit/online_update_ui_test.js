@@ -52,7 +52,7 @@ function make(lang) {
   w.location.hash = '#system/appliance';
   ok(await until(() => !$('#panel-system-appliance').classList.contains('hidden')), 'onglet « Appliance » de l\'écran Système accessible par #system/appliance');
   ok($$('#panel-system-appliance > .card').length === 2, 'onglet Appliance : deux cartes au plus (Internet, À propos + ISO)');
-  ok($$('#view-system > .subtabs a').map((a) => a.dataset.key).join() === 'overview,appliance,updates,api,central,alerts,backup', 'ordre des onglets : ' + $$('#view-system > .subtabs a').map((a) => a.textContent).join(' | '));
+  ok($$('#view-system > .subtabs a').map((a) => a.dataset.key).join() === 'overview,appliance,updates,api,central,alerts,report,hardware,audit,backup', 'ordre des onglets : ' + $$('#view-system > .subtabs a').map((a) => a.textContent).join(' | '));
   ok($('#appliance-update') && $('#panel-system-appliance').contains($('#appliance-update')), 'la mise à jour par ISO/clé USB est dans le même onglet');
   ok(await until(() => /v2026\.01\.01-0000/.test($('#ou-state').textContent)), 'version installée affichée : ' + $('#ou-state').textContent.replace(/\s+/g, ' ').slice(0, 120));
   ok(/jamais vérifié/.test($('#ou-state').textContent) && $('#ou-apply').classList.contains('hidden'), 'état initial « jamais vérifié », bouton de mise à jour masqué');

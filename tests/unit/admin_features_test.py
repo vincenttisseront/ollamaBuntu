@@ -14,7 +14,7 @@ def raises(f, *a):
 tmp = tempfile.mkdtemp(); GB = 1024 ** 3
 
 # --- limites par clé
-ok(server.validate_limits({"max_concurrent": "3", "quota_day": 1000}) == {"max_concurrent": 3, "quota_day": 1000, "quota_month": 0}, "limites : valeurs lues, absentes = 0 (sans limite)")
+ok(server.validate_limits({"max_concurrent": "3", "quota_day": 1000}) == {"max_concurrent": 3, "quota_day": 1000, "quota_month": 0, "max_ctx": 0, "max_output": 0}, "limites : valeurs lues, absentes = 0 (sans limite)")
 ok(server.validate_limits({"quota_day": 5}, {"max_concurrent": 2}) == {"quota_day": 5}, "mise à jour partielle : seuls les champs envoyés changent")
 ok(raises(server.validate_limits, {"max_concurrent": 999}) and raises(server.validate_limits, {"quota_day": -1}) and raises(server.validate_limits, {"quota_day": "abc"}), "limites hors bornes ou invalides refusées")
 

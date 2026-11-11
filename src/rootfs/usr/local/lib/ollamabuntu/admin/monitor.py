@@ -18,9 +18,14 @@ EVENTS = {
     "server_offline": "Serveur du parc hors ligne",
     "update": "Nouvelle version d'OllamaBuntu disponible",
     "key_expiry": "Clé d'API expirée ou bientôt expirée",
+    "gpu_guard": "Carte graphique indisponible ou inutilisée par Ollama",
+    "hw_disk": "Disque en mauvaise santé (SMART)",
+    "raid": "Grappe RAID dégradée",
+    "gpu_xid": "Erreur matérielle de la carte graphique (Xid)",
+    "perf_fix": "Chute de débit avec réglage suggéré",
 }
 DEFAULTS = {"enabled": False, "webhook": {"url": ""}, "smtp": {"host": "", "port": 587, "user": "", "from": "", "to": [], "starttls": True},
-            "events": ["offload", "service", "disk", "gpu_temp", "tps_low", "server_offline", "key_expiry"], "disk_pct": 90, "gpu_temp": 85, "tps_min": 0}
+            "events": ["offload", "service", "disk", "gpu_temp", "tps_low", "server_offline", "key_expiry", "gpu_guard", "hw_disk", "raid", "gpu_xid", "perf_fix"], "disk_pct": 90, "gpu_temp": 85, "tps_min": 0}
 
 
 def offload(running, has_gpu=True):
@@ -58,7 +63,7 @@ def recommend(vram_total, weights, bytes_per_token, ctx_max=None, max_parallel=4
 
 def evaluate(snap, cfg):
     """Alertes actives d'après l'instantané : {clé: {severity, text}}. snap : service, disk{used,total}, gpus[{name,temp}],
-    offload[{name,cpu_pct}], servers[{name,online}], tps{avg,count}, update."""
+    offload[{name,cpu_pct}], servers[{name,online}], tps{avg,count}, update, keys, guard[{code,severity,pci,text}], hw[{key,severity,text}]."""
     on = set(cfg.get("events") or [])
     out = {}
     if "service" in on and snap.get("service") not in (None, "active"):
@@ -87,6 +92,18 @@ def evaluate(snap, cfg):
                 continue
             out["key_expiry:%s" % k.get("name")] = ({"severity": "warning", "text": "Clé d'API « %s » expirée" % k.get("name")} if d < 0 else
                                                      {"severity": "info", "text": "Clé d'API « %s » expire %s" % (k.get("name"), "aujourd'hui" if d == 0 else "dans %d jour(s)" % d)})
+    if "gpu_guard" in on:
+        for i in snap.get("guard") or []:
+            if i.get("severity") != "info":
+                out["gpu_guard:%s:%s" % (i.get("code"), i.get("pci") or "")] = {"severity": i["severity"], "text": i.get("text", "")}
+    pf = snap.get("perf")
+    if "perf_fix" in on and pf:
+        out["perf_fix"] = {"severity": "warning", "text": pf.get("text", "")}
+    for i in snap.get("hw") or []:
+        kind = str(i.get("key", "")).split(":")[0]
+        ev = {"hw_disk": "hw_disk", "raid": "raid", "gpu_xid": "gpu_xid"}.get(kind)
+        if ev and ev in on and i.get("severity") != "info":
+            out[i["key"]] = {"severity": i["severity"], "text": i.get("text", "")}
     if "update" in on and snap.get("update"):
         out["update"] = {"severity": "info", "text": "Version %s d'OllamaBuntu disponible" % snap["update"]}
     return out
@@ -125,12 +142,14 @@ def post_webhook(url, payload, timeout=10):
         return r.status
 
 
-def send_mail(cfg, password, subject, body, timeout=15):
+def send_mail(cfg, password, subject, body, timeout=15, html=None):
     if not cfg.get("host") or not cfg.get("to") or not cfg.get("from"):
         raise ValueError("serveur SMTP, expéditeur et destinataires requis")
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, cfg["from"], ", ".join(cfg["to"])
     msg.set_content(body)
+    if html:
+        msg.add_alternative(html, subtype="html")
     port = int(cfg.get("port") or 587)
     if port == 465:
         s = smtplib.SMTP_SSL(cfg["host"], port, timeout=timeout, context=ssl.create_default_context())

@@ -1,6 +1,6 @@
 [Unit]
 Description=Ollama - serveur de modèles (OllamaBuntu)
-After=network.target
+After=network.target nvidia-persistenced.service
 
 [Service]
 ExecStart=/usr/local/bin/ollama serve
@@ -8,10 +8,13 @@ User=ollama
 Group=ollama
 Restart=always
 RestartSec=3
+TimeoutStartSec=120
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="HOME=/usr/share/ollama"
 Environment="OLLAMA_HOST=127.0.0.1:11400"
 # GPU AMD : cibles ROCm vérifiées à chaque démarrage (contournement ou carte écartée si nécessaire)
+# GPU NVIDIA : pilote prêt et /dev/nvidia-uvm présents avant le démarrage (sinon Ollama resterait sur le processeur)
+ExecStartPre=-+/usr/local/lib/ollamabuntu/gpu-ready.sh
 ExecStartPre=-+/usr/bin/python3 /usr/local/lib/ollamabuntu/gpu-auto.py main
 EnvironmentFile=-/run/ollamabuntu/gpu-auto-main.env
 EnvironmentFile=-/etc/ollamabuntu/ollama.env

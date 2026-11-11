@@ -27,12 +27,19 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/router_limits_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/router_expiry_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/batch2_test.py
+	bash tests/unit/gpu_ready_test.sh
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/gpu_guard_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/perf_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/router_batch3_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/ops3_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/catalog_sources_test.py
 
 # Console web (jsdom requis : npm install --no-save jsdom@24)
 test-ui:
 	node tests/unit/online_update_ui_test.js
 	node tests/unit/ops_ui_test.js
 	node tests/unit/batch2_ui_test.js
+	node tests/unit/batch3_ui_test.js
 
 # Archive de mise à jour en ligne (OB_VERSION=AAAA.MM.JJ-HHMM, OB_SIGNING_KEY=clé privée pour signer)
 bundle:

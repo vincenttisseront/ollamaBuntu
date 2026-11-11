@@ -40,8 +40,12 @@ run_container() {
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   local pol=()
   [[ -f /etc/ollamabuntu/open-webui-policy.env ]] && pol=(--env-file /etc/ollamabuntu/open-webui-policy.env)
+  # Plafond de mémoire (réglage « Performance » de la console) : /etc/ollamabuntu/open-webui.limits contient MEM=2g
+  local lim=() mem=""
+  [[ -f /etc/ollamabuntu/open-webui.limits ]] && mem=$(sed -n 's/^MEM=\([0-9]\{1,4\}[mg]\)$/\1/p' /etc/ollamabuntu/open-webui.limits | head -n1)
+  [[ -n $mem ]] && lim=(--memory "$mem" --memory-swap "$mem")
   docker run -d --name "$NAME" --restart always --network host \
-    -v open-webui:/app/backend/data --env-file "$ENVF" "${pol[@]}" "$IMAGE" >/dev/null
+    -v open-webui:/app/backend/data --env-file "$ENVF" "${pol[@]}" "${lim[@]}" "$IMAGE" >/dev/null
 }
 
 wait_ready() {

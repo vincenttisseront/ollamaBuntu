@@ -63,6 +63,7 @@ BALANCE_FILE = os.path.join(ETC, "balance.json")
 REQLOG_CONF = os.path.join(ETC, "request-log.json")
 _bal = {"mtime": None, "data": {}}
 _rqc = {"mtime": None, "data": {}}
+_aff = limits.Affinity()
 
 
 def inflight_add(key, delta):
@@ -89,6 +90,10 @@ def hot_json(path, cache):
 
 def balance_strategy():
     return "warm" if hot_json(BALANCE_FILE, _bal).get("strategy") == "warm" else "spread"
+
+
+def affinity_enabled():
+    return hot_json(BALANCE_FILE, _bal).get("affinity", True) is not False
 
 
 def reqlog_conf():
@@ -447,8 +452,9 @@ class Router(http.server.BaseHTTPRequestHandler):
             self.wfile.write(raw)
 
     @staticmethod
-    def candidates(model, fl, kid=None):
-        """Serveurs capables de répondre : le modèle déjà en mémoire d'abord, puis le moins chargé."""
+    def candidates(model, fl, kid=None, session=None):
+        """Serveurs capables de répondre : le modèle déjà en mémoire d'abord, puis le moins chargé.
+        Une conversation (session) retourne au serveur qui l'a déjà traitée tant qu'il n'est pas nettement plus occupé que les autres."""
         out = []
         loc = fl.get("local") or {}
         if model in local_models()["names"]:
@@ -484,6 +490,11 @@ class Router(http.server.BaseHTTPRequestHandler):
                     return (busy + (0 if c[1] else COLD_COST) + c[2] / 400.0, rank)
                 return (busy, rank)
             ordered = [c for _, c in sorted(((score(i, c), c) for i, c in enumerate(out)), key=lambda t: t[0])]
+            if session and len(ordered) > 1 and affinity_enabled():
+                sid = lambda c: "local" if c[0] == "local" else c[3]["id"]
+                by_id = {sid(c): c for c in ordered}
+                new_ids, _hit = _aff.order(session, [sid(c) for c in ordered], {i: _inflight.get(i, 0) for i in by_id})
+                ordered = [by_id[i] for i in new_ids]
             if ordered and any(c[0] == "remote" for c in ordered):   # choix et réservation d'un seul geste : deux requêtes simultanées ne visent pas le même serveur
                 first = ordered[0]
                 k = "local" if first[0] == "local" else first[3]["id"]
@@ -551,6 +562,8 @@ class Router(http.server.BaseHTTPRequestHandler):
                 if k.lower() not in HOP and k.lower() != "content-length":
                     self.send_header(k, v)
             self.send_header("X-OllamaBuntu-Instance", label)
+            if getattr(self, "_clamped", None):
+                self.send_header("X-OllamaBuntu-Clamped", ",".join(self._clamped))
             self.end_headers()
             if self.command != "HEAD":
                 while True:
@@ -763,6 +776,9 @@ class Router(http.server.BaseHTTPRequestHandler):
                     self._slot = kid
         self._kid = kid if r is not None else None
         body = with_context(path, body)
+        self._clamped = []
+        if r is not None and self._key and (self._key.get("max_ctx") or self._key.get("max_output")) and path in INFERENCE:
+            body, self._clamped = limits.apply_caps(path, body, self._key.get("max_ctx"), self._key.get("max_output"))
         fl = fleet()
         if fl.get("servers") and method == "GET" and path in ("/api/tags", "/v1/models"):
             return self.merged_models(path, allowed, fl)
@@ -773,7 +789,7 @@ class Router(http.server.BaseHTTPRequestHandler):
         if fl.get("servers") and body and not path.startswith(MANAGEMENT) and self.category(method, path) in ("inference", "read"):
             model = self.model_of(path, body)
             if model:
-                cands = self.candidates(norm(model), fl, getattr(self, "_kid", None))
+                cands = self.candidates(norm(model), fl, getattr(self, "_kid", None), limits.session_key(self.headers, body, getattr(self, "_kid", None), norm(model)))
                 if not cands and fl.get("rules"):
                     return self.json_reply(503, {"error": "aucun serveur autorisé par les règles de routage pour « %s »" % model})
                 if any(c[0] == "remote" for c in cands):

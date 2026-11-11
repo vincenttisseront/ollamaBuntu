@@ -1,6 +1,6 @@
 [Unit]
 Description=Ollama - groupe de GPU %i (OllamaBuntu)
-After=network.target
+After=network.target nvidia-persistenced.service
 ConditionPathExists=/etc/ollamabuntu/pools/%i.env
 
 [Service]
@@ -9,8 +9,11 @@ User=ollama
 Group=ollama
 Restart=always
 RestartSec=3
+TimeoutStartSec=120
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="HOME=/usr/share/ollama"
+# GPU NVIDIA : pilote prêt et /dev/nvidia-uvm présents avant le démarrage (sinon Ollama resterait sur le processeur)
+ExecStartPre=-+/usr/local/lib/ollamabuntu/gpu-ready.sh
 ExecStartPre=-+/usr/bin/python3 /usr/local/lib/ollamabuntu/gpu-auto.py pool:%i
 EnvironmentFile=-/run/ollamabuntu/gpu-auto-pool-%i.env
 EnvironmentFile=/etc/ollamabuntu/pools/%i.env
