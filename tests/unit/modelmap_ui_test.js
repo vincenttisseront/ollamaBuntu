@@ -62,6 +62,7 @@ async function scenario(lang) {
   ok(await until(() => calls.some((c) => c[1] === '/api/fleet/servers/modelmap' && c[2].id === 's1' && JSON.stringify(c[2].map) === JSON.stringify({ '*': 'granite4.2:8b' }))), L('enregistré : { "*": "granite4.2:8b" }', 'EN: saved'));
   // réouverture : l'association existante est préremplie, plus de proposition (le joker couvre tout)
   ok(await until(() => btn()), 'liste rechargée'); await sleep(100);
+  { const g = $('#fleet-grid').textContent; if (process.env.DBG) console.log(JSON.stringify(g)); ok(g.includes(L('Remplacements actifs : * ➔ granite4.2:8b', 'Active replacements: * ➔ granite4.2:8b')) && !g.includes(L('Modèles absents de ce serveur', 'Models missing on this server')), L('fiche du serveur : remplacements actifs affichés, avertissement « modèles absents » disparu', 'EN: card shows active replacements, no warning')); }
   btn().click();
   ok(await until(() => $$('#modal-extra .map-row').length === 1), L('réouverture : une seule ligne (existante)', 'EN: reopen one row'));
   ok(JSON.stringify(rows()) === JSON.stringify([['*', 'granite4.2:8b']]), L('association existante préremplie', 'EN: prefilled'));

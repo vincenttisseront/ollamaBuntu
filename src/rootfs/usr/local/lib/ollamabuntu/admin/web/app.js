@@ -1006,6 +1006,7 @@ async function loadFleet() {
       d ? el('div', { class: 'small muted', text: 'Processeur ' + (d.cpu.usage == null ? '-' : DEC(d.cpu.usage) + ' %') + ' - mémoire ' + pct(d.memory.total - d.memory.available, d.memory.total) + ' % - disque ' + pct(d.disk.used, d.disk.total) + ' %' }) : null,
       s.route && s.state === 'en ligne' && d && d.model_tags && fleetUnmapped(s, v.local_models, d.model_tags.map((m) => String(m.name))).length
         ? el('div', { class: 'small error' }, el('div', { text: 'Modèles absents de ce serveur (il ne reçoit pas leurs requêtes) :' }), el('div', { text: fleetUnmapped(s, v.local_models, d.model_tags.map((m) => String(m.name))).join(', ') }), el('div', { text: 'Installez-les (Synchroniser > Modèles) ou choisissez un modèle de remplacement si ses GPU sont différents.' })) : null,
+      s.route && Object.keys(s.model_map || {}).length ? el('div', { class: 'small muted', text: 'Remplacements actifs : ' + Object.entries(s.model_map).map(([k, val]) => k + ' ➔ ' + val).join(', ') }) : null,
       alerts.length ? el('ul', { class: 'alerts' }, ...alerts.map((x) => el('li', { text: x }))) : null,
       s.error ? el('div', { class: 'small error', text: s.error }) : null,
       el('div', { class: 'actions' }, ...acts, el('a', { class: 'btn sm', href: s.url + '/', target: '_blank', rel: 'noopener', text: 'Ouvrir sa console' }),

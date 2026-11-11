@@ -15,6 +15,7 @@ E = {
 Q = "\u201c{1}\u201d"
 P = [
 (r"Modèles de remplacement de « (.+) »", "Replacement models for " + Q),
+(r"Remplacements actifs : (.+)", "Active replacements: {1}"),
 (r"Ligne invalide : (.+)", "Invalid line: {1}"),
 (r"Proposition automatique pour (\d+) modèle\(s\) absent\(s\) de ce serveur : choisissez, modifiez ou retirez avant d'enregistrer\.", "Automatic proposal for {1} model(s) missing on this server: choose, edit or remove before saving."),
 (r"Un modèle ne peut pas se remplacer lui-même : (.+)", "A model cannot replace itself: {1}"),

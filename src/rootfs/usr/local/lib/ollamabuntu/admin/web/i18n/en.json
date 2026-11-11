@@ -2171,6 +2171,10 @@
 "Replacement models for “{1}”"
 ],
 [
+"Remplacements actifs : (.+)",
+"Active replacements: {1}"
+],
+[
 "Ligne invalide : (.+)",
 "Invalid line: {1}"
 ],
