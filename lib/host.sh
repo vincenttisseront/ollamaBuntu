@@ -75,6 +75,12 @@ run_in_docker() {
   else
     mounts=(-v "$PWD":/work -v "$OB_ROOT":/opt/ollamabuntu:ro -v "$cadir":/host-ca:ro)
   fi
+  # Clé privée de signature (--bundle) : montée en lecture seule dans le conteneur, qui ne voit sinon que le dossier de travail
+  if [[ -n ${OB_SIGNING_KEY:-} && -f $OB_SIGNING_KEY ]]; then
+    if [[ $kind == windows ]]; then mounts+=(--mount "type=bind,source=$(host_path "$OB_SIGNING_KEY"),target=/run/ob-signing-key.pem,readonly")
+    else mounts+=(-v "$OB_SIGNING_KEY":/run/ob-signing-key.pem:ro); fi
+    envs+=(-e OB_SIGNING_KEY=/run/ob-signing-key.pem)
+  fi
   # (syntaxe ${t[@]+"${t[@]}"} : compatible avec le bash 3.2 de macOS quand le tableau est vide)
   exec docker run --rm ${tty[@]+"${tty[@]}"} \
     "${mounts[@]}" -w /work \

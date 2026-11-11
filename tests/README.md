@@ -16,6 +16,7 @@ python3 tests/unit/monitor_test.py         # débordement CPU/GPU, recommandatio
 python3 tests/unit/admin_features_test.py  # console : limites, règles, test du parc, alertes
 python3 tests/unit/backup_test.py          # sauvegarde chiffrée, quantifications et VRAM
 bash tests/unit/rollback_test.sh           # retour arrière (racine factice)
+bash tests/unit/host_docker_test.sh        # construction en conteneur (Windows/macOS) : montage de la clé de signature (docker simulé)
 node tests/unit/ops_ui_test.js             # console : nouveaux écrans (jsdom)
 python3 tests/unit/batch2_test.py          # statistiques, export CSV, échéance des clés, Prometheus, GPU (routes HTTP réelles)
 python3 tests/unit/router_expiry_test.py   # routeur : clé expirée refusée
