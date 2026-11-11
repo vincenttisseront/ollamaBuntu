@@ -17,9 +17,10 @@ EVENTS = {
     "tps_low": "Débit de génération trop bas",
     "server_offline": "Serveur du parc hors ligne",
     "update": "Nouvelle version d'OllamaBuntu disponible",
+    "key_expiry": "Clé d'API expirée ou bientôt expirée",
 }
 DEFAULTS = {"enabled": False, "webhook": {"url": ""}, "smtp": {"host": "", "port": 587, "user": "", "from": "", "to": [], "starttls": True},
-            "events": ["offload", "service", "disk", "gpu_temp", "tps_low", "server_offline"], "disk_pct": 90, "gpu_temp": 85, "tps_min": 0}
+            "events": ["offload", "service", "disk", "gpu_temp", "tps_low", "server_offline", "key_expiry"], "disk_pct": 90, "gpu_temp": 85, "tps_min": 0}
 
 
 def offload(running, has_gpu=True):
@@ -79,6 +80,13 @@ def evaluate(snap, cfg):
         for s in snap.get("servers") or []:
             if not s.get("online"):
                 out["server_offline:%s" % s.get("name")] = {"severity": "critical", "text": "Serveur « %s » hors ligne" % s.get("name")}
+    if "key_expiry" in on:
+        for k in snap.get("keys") or []:
+            d = k.get("days_left")
+            if d is None or d > 7:
+                continue
+            out["key_expiry:%s" % k.get("name")] = ({"severity": "warning", "text": "Clé d'API « %s » expirée" % k.get("name")} if d < 0 else
+                                                     {"severity": "info", "text": "Clé d'API « %s » expire %s" % (k.get("name"), "aujourd'hui" if d == 0 else "dans %d jour(s)" % d)})
     if "update" in on and snap.get("update"):
         out["update"] = {"severity": "info", "text": "Version %s d'OllamaBuntu disponible" % snap["update"]}
     return out

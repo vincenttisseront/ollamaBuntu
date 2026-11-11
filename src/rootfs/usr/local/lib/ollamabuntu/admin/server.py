@@ -12,6 +12,7 @@ Bibliothèque standard de Python 3 uniquement : rien à installer.
 import base64
 import glob
 import grp
+import calendar
 import collections
 import hashlib
 import ipaddress
@@ -39,6 +40,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import updater  # noqa: E402  mise à jour depuis Internet (GitHub)
 import monitor  # noqa: E402  débordement CPU/GPU, alertes, réglages recommandés
 import backup  # noqa: E402  sauvegarde chiffrée de la configuration
+import usage  # noqa: E402  statistiques d'usage, export CSV du journal des requêtes
+import prom  # noqa: E402  exposition Prometheus
 
 VERSION = "@@OB_VERSION@@"
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
@@ -877,8 +880,9 @@ def server_addresses():
 
 def publication_view():
     pub = load_publication()
-    usage = load_json_file(ROUTER_USAGE, {})
-    keys = [{k: v for k, v in key.items() if k != "hash"} | {"usage": usage.get(key.get("id"), {})} for key in pub.get("keys", [])]
+    usage_by_key = load_json_file(ROUTER_USAGE, {})
+    keys = [{k: v for k, v in key.items() if k != "hash"} | {"usage": usage_by_key.get(key.get("id"), {}), "days_left": expiry_days(key.get("expires"))}
+            for key in pub.get("keys", [])]
     scheme = "https" if pub["tls"] else "http"
     urls = ["%s://%s:%d" % (scheme, a, pub["port"]) for a in server_addresses()]
     return {**{k: v for k, v in pub.items() if k != "keys"}, "keys": keys, "urls": urls,
@@ -966,9 +970,33 @@ def key_create(data):
                "deny": [x for x in KEY_RESTRICTIONS if x in (data.get("deny") or [])],
                "enabled": True, "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
         key.update(validate_limits(data))
+        key["expires"] = validate_expiry(data.get("expires"))
         pub["keys"].append(key)
         save_publication(pub)   # le routeur relit le fichier : aucune interruption
     return token, {k: v for k, v in key.items() if k != "hash"}
+
+
+def validate_expiry(v):
+    """Date d'expiration d'une clé (AAAA-MM-JJ, valable jusqu'à la fin de ce jour) ; vide = sans échéance."""
+    v = str(v or "").strip()
+    if not v:
+        return ""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+        raise ValueError("date d'expiration invalide (format AAAA-MM-JJ)")
+    try:
+        time.strptime(v, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError("date d'expiration invalide (format AAAA-MM-JJ)")
+    return v
+
+
+def expiry_days(v, today=None):
+    """Jours restants avant l'expiration (0 = dernier jour, négatif = expirée) ; None sans échéance."""
+    if not v:
+        return None
+    t = time.strptime(today or time.strftime("%Y-%m-%d"), "%Y-%m-%d")
+    e = time.strptime(v, "%Y-%m-%d")
+    return (calendar.timegm(e) - calendar.timegm(t)) // 86400
 
 
 LIMIT_FIELDS = {"max_concurrent": 64, "quota_day": 10 ** 12, "quota_month": 10 ** 13}
@@ -1011,6 +1039,8 @@ def key_update(data):
             key["deny"] = [x for x in KEY_RESTRICTIONS if x in (data.get("deny") or [])]
         if any(k in data for k in LIMIT_FIELDS):
             key.update(validate_limits(data, key))
+        if "expires" in data:
+            key["expires"] = validate_expiry(data.get("expires"))
         save_publication(pub)
 
 
@@ -1984,8 +2014,61 @@ def alert_snapshot():
     st = status()
     servers = [{"name": x["name"], "online": (_fleet_state.get(x["id"]) or {}).get("state") == "en ligne"} for x in load_fleet()
                if (_fleet_state.get(x["id"]) or {}).get("state") not in (None, "en attente")]
-    return {"service": st["ollama"]["service"], "disk": st["disk"], "gpus": st["gpu_live"], "offload": st["offload"], "servers": servers,
+    keys = [{"name": k["name"], "days_left": expiry_days(k.get("expires"))} for k in load_publication().get("keys", []) if k.get("enabled", True) and k.get("expires")]
+    return {"keys": keys, "service": st["ollama"]["service"], "disk": st["disk"], "gpus": st["gpu_live"], "offload": st["offload"], "servers": servers,
             "tps": {"avg": round(sum(tps) / len(tps), 1) if tps else None, "count": sum(x.get("req") or 0 for x in recent)}, "update": st["update_available"]}
+
+
+# ------------------------------------------------------ export Prometheus ---
+PROM_FILE = os.path.join(ETC, "prometheus.json")
+_prom_fail = {}
+
+
+def prom_status():
+    c = load_json_file(PROM_FILE, {})
+    return {"enabled": bool(c.get("hash")), "created": c.get("created"), "path": "/metrics"}
+
+
+def prom_token(action):
+    """Jeton de lecture seule des mesures : affiché une seule fois, seule l'empreinte est conservée."""
+    if action == "revoke":
+        try:
+            os.remove(PROM_FILE)
+        except FileNotFoundError:
+            pass
+        return None
+    if action != "create":
+        raise ValueError("action inconnue")
+    token = "obm_" + secrets.token_urlsafe(32)
+    atomic_write(PROM_FILE, json.dumps({"hash": hashlib.sha256(token.encode()).hexdigest(), "created": int(time.time())}), 0o600)
+    return token
+
+
+def prom_auth(headers, ip):
+    now = time.time()
+    fails = [t for t in _prom_fail.get(ip, []) if now - t < 300]
+    if len(fails) >= 10:
+        raise PermissionError(429, "trop d'essais : réessayez dans quelques minutes")
+    digest = load_json_file(PROM_FILE, {}).get("hash")
+    if not digest:
+        raise PermissionError(404, "export Prometheus désactivé")
+    auth = headers.get("Authorization") or ""
+    if not prom.token_ok(auth[7:].strip() if auth[:7].lower() == "bearer " else "", digest):
+        _prom_fail[ip] = fails + [now]
+        raise PermissionError(401, "jeton invalide")
+    _prom_fail.pop(ip, None)
+
+
+def prom_text():
+    with _metrics_lock:
+        last = _metrics["samples"][-1] if _metrics["samples"] else {}
+    lim = load_json_file(ROUTER_LIMITS, {}).get("queue") or {}
+    servers = [{"name": x["name"], "online": (_fleet_state.get(x["id"]) or {}).get("state") == "en ligne"} for x in load_fleet()
+               if (_fleet_state.get(x["id"]) or {}).get("state") not in (None, "en attente")]
+    return prom.render({"version": VERSION, "ollama_up": run(["systemctl", "is-active", "ollama.service"], 5).strip() == "active",
+                        "cpu": last.get("cpu"), "mem": last.get("mem"), "gpus": gpu_metrics(), "counters": dict(_counters),
+                        "queue": {"running": sum(v.get("running", 0) for v in lim.values()), "waiting": sum(v.get("waiting", 0) for v in lim.values())},
+                        "servers": servers, "alerts": len(_alerts["active"])})
 
 
 def alerts_send(cfg, events, test=False):
@@ -2244,6 +2327,7 @@ METRICS_FILE = os.path.join(os.environ.get("OB_STATE", "/var/lib/ollamabuntu"), 
 METRICS_EVERY = float(os.environ.get("OB_METRICS_INTERVAL", "10"))
 _metrics = {"samples": collections.deque(maxlen=int(86400 / max(METRICS_EVERY, 1)) + 10), "names": {}, "offset": 0, "cpu": None}
 _metrics_lock = threading.Lock()
+_counters = {"requests": 0, "errors": 0, "tokens_in": 0, "tokens_out": 0}   # compteurs Prometheus (depuis le démarrage)
 
 
 def cpu_times():
@@ -2284,8 +2368,14 @@ def take_sample():
     gpus = {}
     for g in gpu_metrics():
         _metrics["names"][g["pci"]] = g["name"]
-        gpus[g["pci"]] = {"u": g.get("util"), "m": round(100.0 * g["mem_used"] / g["mem_total"], 1) if g.get("mem_total") else None}
-    reqs = [r for r in new_requests() if r.get("status") == 200]
+        gpus[g["pci"]] = {"u": g.get("util"), "m": round(100.0 * g["mem_used"] / g["mem_total"], 1) if g.get("mem_total") else None,
+                          "t": g.get("temp"), "p": g.get("power")}
+    fresh = new_requests()
+    _counters["requests"] += len(fresh)
+    _counters["errors"] += sum(1 for r in fresh if r.get("status") != 200)
+    _counters["tokens_in"] += sum(r.get("in_tok") or 0 for r in fresh)
+    _counters["tokens_out"] += sum(r.get("out_tok") or 0 for r in fresh)
+    reqs = [r for r in fresh if r.get("status") == 200]
     tps = [r["tps"] for r in reqs if r.get("tps")]
     ttft = [r["ttft_ms"] for r in reqs if r.get("ttft_ms") is not None]
     s = {"t": int(time.time()), "cpu": cpu, "mem": mem, "gpus": gpus, "req": len(reqs),
@@ -2341,7 +2431,9 @@ def metrics_view(span):
         gp = {}
         for pci in names:
             gp[pci] = {"u": avg([x["gpus"][pci]["u"] for x in xs if pci in x.get("gpus", {}) and x["gpus"][pci]["u"] is not None]),
-                       "m": avg([x["gpus"][pci]["m"] for x in xs if pci in x.get("gpus", {}) and x["gpus"][pci]["m"] is not None])}
+                       "m": avg([x["gpus"][pci]["m"] for x in xs if pci in x.get("gpus", {}) and x["gpus"][pci]["m"] is not None]),
+                       "t": avg([x["gpus"][pci].get("t") for x in xs if pci in x.get("gpus", {}) and x["gpus"][pci].get("t") is not None]),
+                       "p": avg([x["gpus"][pci].get("p") for x in xs if pci in x.get("gpus", {}) and x["gpus"][pci].get("p") is not None])}
         series.append({"t": int(sum(x["t"] for x in xs) / len(xs)), "cpu": avg([x["cpu"] for x in xs if x["cpu"] is not None]),
                        "mem": avg([x["mem"] for x in xs if x["mem"] is not None]), "gpus": gp,
                        "rpm": round(sum(x["req"] for x in xs) * 60.0 / dur, 2), "tok_s": round(sum(x["tok"] for x in xs) / dur, 2),
@@ -2349,7 +2441,7 @@ def metrics_view(span):
     return {"span": span, "interval": METRICS_EVERY, "gpus": names, "series": series}
 
 
-def requests_view(limit=200):
+def read_requests(max_lines=5000):
     lines = []
     for path in (REQ_LOG + ".1", REQ_LOG):
         try:
@@ -2359,11 +2451,24 @@ def requests_view(limit=200):
         except OSError:
             continue
     reqs = []
-    for line in lines[-5000:]:
+    for line in lines[-max_lines:]:
         try:
             reqs.append(json.loads(line))
         except ValueError:
             continue
+    return reqs
+
+
+def usage_view(span):
+    try:
+        span = int(span)
+    except (TypeError, ValueError):
+        span = 86400
+    return usage.aggregate(read_requests(20000), time.time(), span, name=short_name)
+
+
+def requests_view(limit=200):
+    reqs = read_requests()
     hour = [r for r in reqs if r.get("ts", 0) > time.time() - 3600]
     by_model = {}
     for r in hour:
@@ -3764,7 +3869,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules", "/api/update/backups"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -3842,6 +3947,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             lang = read_text(os.path.join(ETC, "lang"), "fr").strip()
             return self.send_json(200, {"ok": True, "version": VERSION, "lang": lang if lang in ("fr", "en") else "fr",
                                         "boot": hashlib.sha256(boot_id().encode()).hexdigest()[:12]})
+        if path == "/metrics":   # jeton dédié (lecture seule des mesures), pas de session
+            try:
+                prom_auth(self.headers, self.client_address[0])
+            except PermissionError as e:
+                return self.send_json(e.args[0], {"error": e.args[1]})
+            body = prom_text().encode()
+            return self.send_head(200, "text/plain; version=0.0.4; charset=utf-8", len(body)) or self.wfile.write(body)
         if not path.startswith("/api/"):
             return self.send_json(404, {"error": "introuvable"})
         if path.startswith("/api/fleet/ollama/"):
@@ -3948,6 +4060,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, balance_view())
             if path == "/api/requests":
                 return self.send_json(200, requests_view((query.get("limit") or ["200"])[0]))
+            if path == "/api/usage":
+                return self.send_json(200, usage_view((query.get("span") or ["86400"])[0]))
+            if path == "/api/prom":
+                return self.send_json(200, prom_status())
+            if path == "/api/requests/export":
+                reqs = read_requests()
+                q = {k: (query.get(k) or [""])[0].strip().lower() for k in ("q", "model", "client", "status")}
+                if q["q"]:   # recherche libre : modèle, client, point d'API, extrait de la demande
+                    reqs = [r for r in reqs if any(q["q"] in str(r.get(f) or "").lower() for f in ("model", "client", "path", "prompt"))]
+                if q["model"]:
+                    reqs = [r for r in reqs if q["model"] in str(r.get("model") or "").lower()]
+                if q["client"]:
+                    reqs = [r for r in reqs if q["client"] in str(r.get("client") or "").lower()]
+                if q["status"] in ("ok", "error"):
+                    reqs = [r for r in reqs if (r.get("status") == 200 and not r.get("aborted")) == (q["status"] == "ok")]
+                print("journal des requêtes exporté par %s (%d lignes)" % (user, len(reqs)), flush=True)
+                body = ("\ufeff" + usage.to_csv(reqs)).encode("utf-8")   # BOM : Excel lit l'UTF-8
+                return self.send_head(200, "text/csv; charset=utf-8", len(body),
+                                      {"Content-Disposition": 'attachment; filename="requetes-%s.csv"' % time.strftime("%Y%m%d-%H%M")}) or self.wfile.write(body)
             if path == "/api/logs/live":
                 return self.send_json(200, logs_since((query.get("source") or ["ollama"])[0], (query.get("after") or [""])[0]))
             if path == "/api/logs":
@@ -4065,6 +4196,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 written = backup.restore(ETC, meta, files)
                 print("configuration restaurée par %s : %s" % (user, ", ".join(written)), flush=True)
                 return self.send_json(200, {"ok": True, "applied": True, "summary": summary, "job": start_job("config-reload")})
+            if path == "/api/prom/token":
+                token = prom_token(str(data.get("action", "")))
+                print("export Prometheus : %s par %s" % (data.get("action"), user), flush=True)
+                return self.send_json(200, {"ok": True, "token": token})
             if path == "/api/alerts/config":
                 alerts_save(data)
                 return self.send_json(200, {"ok": True})

@@ -38,7 +38,12 @@
       <a href="#logs" data-admin>Journaux</a>
       <a href="#about">À propos</a>
     </nav>
-    <div class="who"><a href="#account" id="who" class="who-link" title="Mon compte"></a><button id="logout" class="btn ghost" type="button">Déconnexion</button></div>
+    <div class="who">
+      <button id="palette-btn" class="icon-btn" type="button" title="Aller à... (Ctrl+K)" aria-label="Aller à... (Ctrl+K)" aria-haspopup="dialog"></button>
+      <span id="bell-wrap" data-admin><button id="bell" class="icon-btn" type="button" title="Alertes" aria-label="Alertes" aria-expanded="false" aria-controls="bell-pop">🔔<span id="bell-n" class="badge hidden">0</span></button>
+        <div id="bell-pop" class="pop hidden" role="region" aria-label="Alertes actives"></div></span>
+      <button id="theme-btn" class="icon-btn" type="button" title="Thème : automatique" aria-label="Thème : automatique"></button>
+      <a href="#account" id="who" class="who-link" title="Mon compte"></a><button id="logout" class="btn ghost" type="button">Déconnexion</button></div>
   </header>
   <div id="banner" class="banner hidden"><span id="banner-text"></span><button id="banner-btn" class="btn" type="button">Redémarrer le serveur</button></div>
 
@@ -47,6 +52,7 @@
       <div class="section-title"><h1 id="dash-host">Tableau de bord</h1><span id="dash-version" class="muted"></span></div>
       <div id="dash-alerts"></div>
       <div class="grid kpis" id="dash-grid"></div>
+      <div id="dash-fleet"></div>
       <div class="card">
         <div class="card-head"><h2>Performances</h2>
           <div class="seg" id="perf-range" role="group" aria-label="Période affichée">
@@ -227,10 +233,17 @@
             <div><div class="small muted">Interdire</div><div id="key-deny" class="checks"></div></div>
             <div class="row"><label>Requêtes simultanées au plus (0 = sans limite) <input name="max_concurrent" type="number" min="0" max="64" value="0"></label>
               <label>Quota de jetons par jour (0 = sans limite) <input name="quota_day" type="number" min="0" value="0"></label>
-              <label>Quota de jetons par mois (0 = sans limite) <input name="quota_month" type="number" min="0" value="0"></label></div>
+              <label>Quota de jetons par mois (0 = sans limite) <input name="quota_month" type="number" min="0" value="0"></label>
+              <label>Expire le (vide = jamais) <input name="expires" type="date"></label></div>
             <p class="muted small">Au-delà du plafond, les requêtes d'un client attendent leur tour (jusqu'à 10 minutes). Au-delà d'un quota, elles sont refusées (erreur 429) jusqu'à la période suivante.</p>
             <div class="row"><button class="btn primary" type="submit">Créer la clé</button><span id="key-msg" class="small"></span></div>
           </form>
+        </div>
+        <div class="card" data-panel="api" data-label="API Ollama" id="prom-card">
+          <h2>Export Prometheus</h2>
+          <p class="muted small">Expose l'état du serveur (GPU, mémoire, requêtes, jetons, file d'attente, parc) au format Prometheus. L'accès se fait avec un jeton dédié en lecture seule, distinct des clés d'API et des comptes ; seule son empreinte est conservée.</p>
+          <div id="prom-state"></div>
+          <div class="row"><button id="prom-create" class="btn primary" type="button">Générer un jeton</button><button id="prom-revoke" class="btn danger hidden" type="button">Révoquer le jeton</button></div>
         </div>
         <div class="card" data-panel="central" data-label="Gestion centralisée">
           <h2>Gestion centralisée</h2>
@@ -483,7 +496,21 @@
         <h3>Dernière heure, par modèle</h3>
         <div id="req-summary"></div>
         <h3 class="mt">Requêtes récentes</h3>
+        <div class="settings-row" id="req-filter">
+          <label>Recherche <input id="rf-q" type="search" placeholder="Modèle, client, demande..." aria-label="Rechercher dans les requêtes"></label>
+          <label>Statut <select id="rf-status"><option value="">Toutes</option><option value="ok">Réussies</option><option value="error">En erreur ou interrompues</option></select></label>
+          <button id="rf-export" class="btn" type="button">Exporter en CSV</button>
+          <span id="rf-count" class="small muted" aria-live="polite"></span>
+        </div>
         <div id="req-list"></div>
+      </div>
+      <div class="card" data-panel="stats" data-label="Statistiques">
+        <div class="card-head"><h2>Utilisation des modèles</h2>
+          <div class="seg" id="st-range" role="group" aria-label="Période affichée">
+            <button type="button" data-span="86400" class="on">24 h</button><button type="button" data-span="604800">7 jours</button>
+          </div></div>
+        <div id="st-body"></div>
+        <p class="muted small">Calculé d'après le journal des requêtes conservé sur ce serveur (métadonnées seulement). Une période plus longue que la conservation réglée dans l'onglet Requêtes est tronquée.</p>
       </div>
       <div class="card" data-panel="system" data-label="Journaux système">
         <div class="row logbar">
@@ -518,6 +545,14 @@
     <p id="modal-text"></p>
     <div id="modal-extra"></div>
     <div class="modal-actions"><button id="modal-cancel" class="btn" type="button">Annuler</button><button id="modal-ok" class="btn primary" type="button">OK</button></div>
+  </div>
+</div>
+
+<div id="palette" class="modal hidden" role="dialog" aria-modal="true" aria-label="Aller à...">
+  <div class="modal-box palette-box">
+    <input id="pal-q" type="search" placeholder="Aller à un écran, un onglet, une action..." aria-label="Rechercher une commande" autocomplete="off" role="combobox" aria-expanded="true" aria-controls="pal-list">
+    <ul id="pal-list" class="pal-list" role="listbox"></ul>
+    <p class="muted small">↑ ↓ pour choisir, Entrée pour valider, Échap pour fermer.</p>
   </div>
 </div>
 

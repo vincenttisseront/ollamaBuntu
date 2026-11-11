@@ -346,6 +346,12 @@ def publication():
         return _pub["data"], _pub["keys"]
 
 
+def key_expired(key, today=None):
+    """Clé valable jusqu'à la fin du jour d'expiration (AAAA-MM-JJ, heure locale du serveur) ; vide = sans échéance."""
+    exp = str(key.get("expires") or "")
+    return bool(exp) and (today or time.strftime("%Y-%m-%d")) > exp
+
+
 def norm(name):
     """Forme canonique d'un nom de modèle : « llama3.1 » == « llama3.1:latest » ==
     « registry.ollama.ai/library/llama3.1:latest »."""
@@ -667,6 +673,8 @@ class Router(http.server.BaseHTTPRequestHandler):
         key = next((k for h, k in keys.items() if hmac.compare_digest(h, digest)), None)
         if not key:
             raise PermissionError(401, "clé d'API invalide ou révoquée")
+        if key_expired(key):
+            raise PermissionError(401, "clé d'API expirée (le %s)" % key.get("expires"))
         self._key = key
         return (key.get("name", "?"), set(key.get("perms") or []), {norm(m) for m in key.get("models") or []}, key.get("id"), set(key.get("deny") or []))
 

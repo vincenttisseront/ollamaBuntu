@@ -1,5 +1,7 @@
 :root{--bg:#f6f3f6;--panel:#fff;--text:#24131f;--muted:#6f5f6b;--line:#e8dfe6;--brand:#E4471F;--brand2:#6A1B5C;--ok:#1f8a4c;--warn:#b7791f;--err:#c53030;--info:#4a5bb5;--chip:#f1eaf0;--code:#f5f0f4;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#150c13;--panel:#20131d;--text:#f3eaf1;--muted:#b4a3af;--line:#3a2834;--chip:#2d1d29;--code:#1a0f17;--info:#8f9ff0;color-scheme:dark}}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#150c13;--panel:#20131d;--text:#f3eaf1;--muted:#b4a3af;--line:#3a2834;--chip:#2d1d29;--code:#1a0f17;--info:#8f9ff0;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#150c13;--panel:#20131d;--text:#f3eaf1;--muted:#b4a3af;--line:#3a2834;--chip:#2d1d29;--code:#1a0f17;--info:#8f9ff0;color-scheme:dark}
+:root[data-theme=light]{color-scheme:light}
 *{box-sizing:border-box}
 body{margin:0;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif;background:var(--bg);color:var(--text)}
 .hidden{display:none!important}
@@ -208,3 +210,38 @@ table.dense td.num,table.dense th.num{text-align:right}
 td.prompt{max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.settings-row{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:8px 0}.settings-row label{display:flex;gap:6px;align-items:center}#bal-issues{list-style:none;padding-left:0}#bal-issues li{margin:4px 0}
 details.fold>summary{cursor:pointer;font-weight:600;padding:4px 0}
 details.fold>summary:focus-visible{outline:2px solid var(--info);outline-offset:2px}
+
+/* second lot : barre d'icônes, cloche, palette, statistiques, flotte */
+.icon-btn{position:relative;font:inherit;font-size:16px;line-height:1;width:36px;height:34px;border-radius:9px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.15);color:#fff;cursor:pointer}
+.icon-btn svg{display:block;margin:auto}
+.icon-btn:hover{background:rgba(255,255,255,.28)}
+.icon-btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.badge{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;padding:0 5px;border-radius:99px;background:var(--err);color:#fff;font-size:11px;font-weight:700;line-height:18px;text-align:center}
+.badge.info{background:var(--info)}
+.who{position:relative}
+#bell-wrap{position:relative}
+.pop{position:absolute;right:0;top:calc(100% + 8px);width:min(380px,90vw);background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.3);padding:12px 14px;z-index:90;font-size:14px}
+.pop h3{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.pop ul{list-style:none;margin:0 0 8px;padding:0}
+.pop li{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--line)}
+.pop li:last-child{border-bottom:0}
+.palette-box{padding:14px 16px;align-self:flex-start;margin-top:12vh}
+#pal-q{width:100%;font-size:16px;padding:10px 12px}
+.pal-list{list-style:none;margin:8px 0;padding:0;max-height:50vh;overflow:auto}
+.pal-list li{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:8px;cursor:pointer}
+.pal-list li small{color:var(--muted)}
+.pal-list li.on,.pal-list li:hover{background:var(--chip);box-shadow:inset 3px 0 0 var(--brand)}
+.hbars{display:grid;gap:6px;margin:6px 0 14px}
+.hbar{display:grid;grid-template-columns:minmax(90px,200px) 1fr auto;gap:10px;align-items:center;font-size:13px}
+.hbar .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbar .tr{height:10px;border-radius:5px;background:var(--chip);overflow:hidden}
+.hbar .tr i{display:block;height:100%;background:linear-gradient(90deg,#FF8A2B,#E4471F)}
+.hbar .vl{font-variant-numeric:tabular-nums;color:var(--muted)}
+.cols2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px}
+.bars-svg{width:100%;height:150px;display:block}
+.bars-svg .bar-ok{fill:var(--brand)}.bars-svg .bar-err{fill:var(--err)}
+.bars-svg .axis{fill:var(--muted);font-size:10px}
+.fleet-mini{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.fleet-mini .srv{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.fleet-mini .srv .nm{font-weight:600;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.card-head .small{white-space:nowrap}

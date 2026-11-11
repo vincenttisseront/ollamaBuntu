@@ -17,6 +17,9 @@ python3 tests/unit/admin_features_test.py  # console : limites, règles, test du
 python3 tests/unit/backup_test.py          # sauvegarde chiffrée, quantifications et VRAM
 bash tests/unit/rollback_test.sh           # retour arrière (racine factice)
 node tests/unit/ops_ui_test.js             # console : nouveaux écrans (jsdom)
+python3 tests/unit/batch2_test.py          # statistiques, export CSV, échéance des clés, Prometheus, GPU (routes HTTP réelles)
+python3 tests/unit/router_expiry_test.py   # routeur : clé expirée refusée
+node tests/unit/batch2_ui_test.js          # console : thème, cloche, statistiques, filtres, palette Ctrl+K (jsdom, FR et EN)
 python3 tests/unit/hf_test.py            # recherche Hugging Face (faux serveur local)
 python3 tests/unit/gpu_auto_test.py
 bash    tests/unit/crypt_engine_test.sh      # nécessite : cryptsetup, swtpm, tpm2-tools, clevis

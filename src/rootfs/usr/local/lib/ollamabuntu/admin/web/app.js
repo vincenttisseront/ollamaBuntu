@@ -163,11 +163,12 @@ async function ping(timeoutMs = 4000) {
 /* ---------------------------------------------------------------- session */
 const state = { timer: null, status: null, user: '', role: '', version: '' };
 const isAdmin = () => state.role === 'admin';
+const bell = { items: [], timer: null, fleetAt: 0 };
 
 function showLogin() {
   $('#app').classList.add('hidden');
   $('#login').classList.remove('hidden');
-  clearInterval(state.timer);
+  clearInterval(state.timer); clearInterval(bell.timer); bell.timer = null;
   ping().then((p) => { if (p) $('#login-version').textContent = 'OllamaBuntu ' + p.version; });
   setTimeout(() => $('#login-form [name=user]').focus(), 50);
 }
@@ -178,6 +179,7 @@ function showApp(d) {
   for (const e of $$('[data-admin]')) e.classList.toggle('hidden', !isAdmin());
   $('#login').classList.add('hidden');
   $('#app').classList.remove('hidden');
+  startBell();
   route();
 }
 
@@ -214,10 +216,10 @@ function route() {
   if (v === 'models') { loadModels(); if (isAdmin()) { loadCustom(); loadContext(); } }
   if (v === 'chat') loadChatModels();
   if (v === 'gpu') loadGpu();
-  if (v === 'system') loadSystem();
+  if (v === 'system') { loadSystem(); loadProm(); }
   if (v === 'webui') loadWebui();
   if (v === 'users') loadUsers();
-  if (v === 'logs') { loadRequests(); loadReqSettings(); loadLogs(); state.timer = setInterval(() => { if ($('#req-live').checked && currentTab('logs') === 'requests') loadRequests(); }, 4000); }
+  if (v === 'logs') { loadRequests(); loadReqSettings(); loadLogs(); if (currentTab('logs') === 'stats') loadStats(); state.timer = setInterval(() => { if ($('#req-live').checked && currentTab('logs') === 'requests') loadRequests(); }, 4000); }
   if (v === 'account') loadAccount();
   if (v === 'about') loadCredits();
   if (v === 'fleet') { loadFleet(); loadBalance(); state.timer = setInterval(() => { loadFleet(); loadBalance(); }, 10000); }
@@ -281,6 +283,7 @@ function gpuLoadCards(list) {
 }
 async function loadDashboard() {
   loadDashRequests();
+  loadDashFleet();
   let s;
   try { s = await api('/api/status'); } catch (e) { $('#dash-grid').replaceChildren(card('Erreur', el('p', { class: 'error', text: e.message }))); return; }
   state.status = s;
@@ -761,8 +764,9 @@ async function loadPublication() {
       el('td', { class: 'small', text: k.perms.map((x) => PERM_SHORT[x]).concat((k.deny || []).map((x) => DENY_SHORT[x])).join(', ') }), el('td', { class: 'small', text: k.models.length ? k.models.join(', ') : 'tous' }),
       el('td', { class: 'small' }, ...keyLimits(k, (pubState.limits || {})[k.id]).map((x) => el('div', { text: x }))),
       el('td', { class: 'small', text: k.usage && k.usage.last ? fmtDate(k.usage.last) + ' (' + k.usage.count + ' requêtes)' : 'jamais' }),
-      el('td', {}, k.enabled ? pill('active', 'ok') : pill('désactivée', 'warn')),
+      el('td', {}, k.enabled ? pill('active', 'ok') : pill('désactivée', 'warn'), keyExpiryPill(k)),
       el('td', { class: 'nowrap' }, el('button', { class: 'btn sm', type: 'button', text: k.enabled ? 'Désactiver' : 'Activer', onclick: () => keyToggle(k) }), ' ',
+        el('button', { class: 'btn sm', type: 'button', text: 'Échéance', onclick: () => keyExpiry(k) }), ' ',
         el('button', { class: 'btn sm danger', type: 'button', text: 'Supprimer', onclick: () => keyDelete(k) })))))))] :
     [el('p', { class: 'muted small', text: 'Aucune clé. Créez une clé par application : vous pourrez la désactiver sans toucher aux autres.' })]));
   const kf = $('#key-form');
@@ -791,8 +795,8 @@ $('#key-form').addEventListener('submit', async (ev) => {
   const f = ev.target;
   try {
     const r = await api('/api/publication/keys/create', { json: { name: f.elements.name.value.trim(), perms: checkedValues(f, 'perm'), models: checkedValues(f, 'model'), deny: checkedValues(f, 'deny'),
-      max_concurrent: Number(f.elements.max_concurrent.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0 } });
-    f.elements.name.value = ''; $('#key-msg').textContent = '';
+      max_concurrent: Number(f.elements.max_concurrent.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
+    f.elements.name.value = ''; f.elements.expires.value = ''; $('#key-msg').textContent = '';
     await loadPublication();
     const code = el('code', { class: 'token', text: r.token });
     const copied = el('span', { class: 'small okmsg' });
@@ -1640,7 +1644,7 @@ $('#ctx-default-save').addEventListener('click', async () => {
 /* Les éléments marqués data-panel sont regroupés en onglets ; l'adresse #écran/onglet
    permet un lien direct, et l'onglet choisi est mémorisé. */
 const TABS = {};
-const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'catalog', 'custom'], logs: ['requests', 'system'], fleet: ['fleet', 'balance', 'rules', 'add'] };
+const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'catalog', 'custom'], logs: ['requests', 'stats', 'system'], fleet: ['fleet', 'balance', 'rules', 'add'] };
 function setupTabs() {
   for (const sec of $$('section.view')) {
     const items = [...sec.querySelectorAll('[data-panel]')];
@@ -1738,6 +1742,8 @@ async function loadPerf(force) {
   $('#perf-charts').replaceChildren(
     lineChart({ title: 'Charge GPU', unit: '%', max: 100, span: m.span, series: gp.map(([pci, name]) => ({ name, points: pts((p) => p.gpus[pci] && p.gpus[pci].u) })) }),
     lineChart({ title: 'Mémoire vidéo occupée', unit: '%', max: 100, span: m.span, series: gp.map(([pci, name]) => ({ name, points: pts((p) => p.gpus[pci] && p.gpus[pci].m) })) }),
+    lineChart({ title: 'Température GPU', unit: '°C', max: 100, span: m.span, series: gp.map(([pci, name]) => ({ name, points: pts((p) => p.gpus[pci] && p.gpus[pci].t) })) }),
+    lineChart({ title: 'Puissance GPU', unit: 'W', span: m.span, series: gp.map(([pci, name]) => ({ name, points: pts((p) => p.gpus[pci] && p.gpus[pci].p) })) }),
     lineChart({ title: 'Processeur et mémoire', unit: '%', max: 100, span: m.span, series: [{ name: 'Processeur', points: pts((p) => p.cpu) }, { name: 'Mémoire', points: pts((p) => p.mem) }] }),
     lineChart({ title: 'Requêtes par minute', unit: '', span: m.span, decimals: 1, series: [{ name: 'Requêtes', points: pts((p) => p.rpm) }] }),
     lineChart({ title: 'Jetons par seconde', unit: 't/s', span: m.span, decimals: 1, series: [{ name: 'Vitesse par requête', points: pts((p) => p.tps) }, { name: 'Débit total', points: pts((p) => p.tok_s) }] }),
@@ -1768,15 +1774,41 @@ function reqTable(list, compact) {
       ...(compact ? [] : [el('td', { class: 'num', text: fmtMs(r.ttft_ms) }), el('td', { class: 'num', text: (r.in_tok == null ? '-' : r.in_tok) + ' / ' + (r.out_tok == null ? '-' : r.out_tok) })]),
       el('td', { class: 'num', text: r.tps ? DEC(r.tps) : '-' }))))));
 }
+const rq = { list: [] };
+function reqFiltered() {
+  const q = $('#rf-q').value.trim().toLowerCase(), st = $('#rf-status').value;
+  return rq.list.filter((r) => (!q || [r.model, r.client, r.prompt, r.path, reqWhere(r)].some((x) => String(x || '').toLowerCase().includes(q))) &&
+    (!st || ((r.status === 200 && !r.aborted) === (st === 'ok'))));
+}
+function renderReqList() {
+  const f = reqFiltered(), filtered = !!($('#rf-q').value.trim() || $('#rf-status').value);
+  $('#req-list').replaceChildren(reqTable(f.slice(0, 200), false));
+  $('#rf-count').textContent = filtered ? f.length + ' résultat(s) sur ' + rq.list.length : '';
+}
+$('#rf-q').addEventListener('input', renderReqList);
+$('#rf-status').addEventListener('change', renderReqList);
+$('#rf-export').addEventListener('click', async () => {
+  const p = new URLSearchParams(), q = $('#rf-q').value.trim(), st = $('#rf-status').value;
+  if (q) p.set('q', q);
+  if (st) p.set('status', st);
+  try { await downloadBlob('/api/requests/export' + (p.toString() ? '?' + p : ''), 'requetes-' + new Date().toISOString().slice(0, 10) + '.csv'); }
+  catch (e) { fail(e.message); }
+});
+async function downloadBlob(path, name) {
+  const r = await api(path, { raw: true }), url = URL.createObjectURL(await r.blob());
+  const a = el('a', { href: url, download: name });
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
 async function loadRequests() {
   let d;
-  try { d = await api('/api/requests?limit=100'); } catch (e) { $('#req-list').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  try { d = await api('/api/requests?limit=500'); } catch (e) { $('#req-list').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
   $('#req-summary').replaceChildren(d.summary.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
     el('thead', {}, el('tr', {}, ...['Modèle', 'Requêtes', 'Erreurs', 'Jetons générés', 't/s moyen', '1er jeton moyen', 'Durée médiane', 'Durée p95'].map((c, i) => el('th', { class: i ? 'num' : '', text: c })))),
     el('tbody', {}, ...d.summary.map((s) => el('tr', {}, el('td', { class: 'name', text: s.model }), el('td', { class: 'num', text: s.count }), el('td', { class: 'num', text: s.errors }),
       el('td', { class: 'num', text: s.tok }), el('td', { class: 'num', text: s.tps ? DEC(s.tps) : '-' }), el('td', { class: 'num', text: fmtMs(s.ttft_ms) }),
       el('td', { class: 'num', text: fmtMs(s.p50_ms) }), el('td', { class: 'num', text: fmtMs(s.p95_ms) })))))) : el('p', { class: 'muted small', text: 'Aucune requête dans la dernière heure.' }));
-  $('#req-list').replaceChildren(reqTable(d.requests, false));
+  rq.list = d.requests;
+  renderReqList();
 }
 async function loadDashRequests() {
   try {
@@ -2012,4 +2044,238 @@ $('#bal-check').addEventListener('click', async () => {
           el('td', { class: 'small', text: x.ok ? x.note : x.error }), el('td', { class: 'nowrap', text: x.ms ? DEC((x.ms / 1000).toFixed(1)) + ' s' : '-' }), el('td', { class: 'nowrap', text: x.tps ? DEC(x.tps) + ' t/s' : '-' })))))), ok: 'Fermer', cancel: null });
   } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
   $('#bal-check').disabled = false;
+});
+
+/* ================================================== second lot : interface ==== */
+
+/* ------------------------------------------------ thème (automatique, clair, sombre) */
+const THEMES = ['auto', 'light', 'dark'];
+const THEME_LABEL = { auto: 'Thème : automatique', light: 'Thème : clair', dark: 'Thème : sombre' };
+const themeNow = { v: 'auto' };
+/* Icônes vectorielles de l'en-tête (les symboles Unicode s'affichent trop petits ou différemment selon les polices). */
+const ICONS = {
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l5 5"/>',
+  auto: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/>',
+  light: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>',
+  dark: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/>',
+};
+function setIcon(btn, name) {
+  const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('width', '18'); svg.setAttribute('height', '18'); svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '2'); svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round');
+  const g = document.createElementNS(NS, 'g');
+  new DOMParser().parseFromString('<svg xmlns="' + NS + '">' + ICONS[name] + '</svg>', 'image/svg+xml').documentElement.childNodes.forEach((c) => g.append(document.importNode(c, true)));
+  svg.append(g); btn.replaceChildren(svg);
+}
+setIcon($('#palette-btn'), 'search');
+function applyTheme(th) {
+  themeNow.v = THEMES.includes(th) ? th : 'auto';
+  const r = document.documentElement;
+  if (themeNow.v === 'auto') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', themeNow.v);
+  const b = $('#theme-btn');
+  setIcon(b, themeNow.v);
+  b.setAttribute('title', THEME_LABEL[themeNow.v]); b.setAttribute('aria-label', THEME_LABEL[themeNow.v]);
+}
+function cycleTheme() {
+  const next = THEMES[(THEMES.indexOf(themeNow.v) + 1) % THEMES.length];
+  try { localStorage.setItem('ob-theme', next); } catch (e) { /* vide */ }
+  applyTheme(next);
+}
+$('#theme-btn').addEventListener('click', cycleTheme);
+(() => { let th = 'auto'; try { th = localStorage.getItem('ob-theme') || 'auto'; } catch (e) { /* vide */ } applyTheme(th); })();
+
+/* ------------------------------------------------ cloche d'alertes */
+async function pollBell() {
+  if (!isAdmin() || document.hidden || $('#app').classList.contains('hidden')) return;
+  try { const v = await api('/api/alerts'); bell.items = v.active || []; renderBell(); } catch (e) { /* vide */ }
+}
+function startBell() {
+  clearInterval(bell.timer); bell.timer = null;
+  if (!isAdmin()) return;
+  pollBell(); bell.timer = setInterval(pollBell, 30000);
+}
+function renderBell() {
+  const n = bell.items.length, badge = $('#bell-n');
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.classList.toggle('hidden', !n);
+  badge.classList.toggle('info', n > 0 && bell.items.every((x) => x.severity === 'info'));
+  const label = n ? n + ' alerte(s) active(s)' : 'Aucune alerte';
+  $('#bell').setAttribute('title', label); $('#bell').setAttribute('aria-label', label);
+  const sev = { critical: 'err', warning: 'warn', info: 'info' }, name = { critical: 'critique', warning: 'attention', info: 'info' };
+  $('#bell-pop').replaceChildren(el('h3', { text: 'Alertes actives' }),
+    n ? el('ul', {}, ...bell.items.map((x) => el('li', {}, pill(name[x.severity] || x.severity, sev[x.severity] || ''), el('span', { text: x.text })))) : el('p', { class: 'muted small', text: 'Aucune alerte active.' }),
+    el('a', { class: 'small', href: '#system/alerts', text: 'Configurer les alertes', onclick: () => closeBell() }));
+}
+function closeBell() { $('#bell-pop').classList.add('hidden'); $('#bell').setAttribute('aria-expanded', 'false'); }
+$('#bell').addEventListener('click', (ev) => {
+  ev.stopPropagation();
+  const open = $('#bell-pop').classList.contains('hidden');
+  if (open) renderBell();
+  $('#bell-pop').classList.toggle('hidden', !open); $('#bell').setAttribute('aria-expanded', open ? 'true' : 'false');
+});
+document.addEventListener('click', (ev) => { if (!ev.target.closest('#bell-wrap')) closeBell(); });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeBell(); });
+
+/* ------------------------------------------------ tableau de bord : parc de serveurs */
+async function loadDashFleet() {
+  if (!isAdmin() || Date.now() - bell.fleetAt < 25000) return;
+  bell.fleetAt = Date.now();
+  let d;
+  try { d = await api('/api/fleet/servers'); } catch (e) { return; }
+  const list = d.servers || [];
+  const kind = (s) => (s.state === 'en ligne' ? 'ok' : s.state === 'en attente' ? 'info' : 'err');
+  const mini = (s) => {
+    const x = s.data || {}, g = (x.gpu_live || [])[0], run = ((x.ollama || {}).running || []).map((m) => m.name);
+    return el('div', { class: 'srv' }, el('div', { class: 'nm' }, el('span', { text: s.name }), pill(s.state, kind(s))),
+      s.state === 'en ligne' ? el('div', { class: 'small muted' },
+        g && g.util != null ? 'GPU ' + DEC(g.util.toFixed(0)) + ' %' + (g.mem_total ? ' - ' + fmtBytes(g.mem_used) + ' / ' + fmtBytes(g.mem_total) : '') : (x.cpu && x.cpu.usage != null ? 'Processeur ' + DEC(x.cpu.usage) + ' %' : ''),
+        el('br'), run.length ? 'En mémoire : ' + run.join(', ') : 'Aucun modèle en mémoire') : el('div', { class: 'small muted', text: s.error || '' }),
+      s.route ? el('div', { class: 'small' }, pill('répartition', 'info')) : null);
+  };
+  $('#dash-fleet').replaceChildren(...(list.length ? [el('div', { class: 'card' },
+    el('div', { class: 'card-head' }, el('h2', { text: 'Parc de serveurs' }), el('a', { class: 'small', href: '#fleet', text: 'Gérer les serveurs' })),
+    el('div', { class: 'fleet-mini' }, ...list.map(mini)))] : []));
+}
+
+/* ------------------------------------------------ statistiques d'utilisation */
+const stats = { span: 86400 };
+function usageBars(buckets, span, width) {
+  const NS = 'http://www.w3.org/2000/svg', W = Math.max(width || 0, 320) || 560, H = 150, L = 34, B = 18, T = 6, n = buckets.length, bw = (W - L) / n;
+  const ymax = niceMax(Math.max(...buckets.map((b) => b.count), 1) * 1.05);
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H); svg.setAttribute('preserveAspectRatio', 'none'); svg.setAttribute('class', 'bars-svg'); svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Requêtes par tranche : ' + buckets.reduce((a, b) => a + b.count, 0) + ' au total');
+  const add = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (text != null) e.textContent = text; svg.append(e); return e; };
+  for (const f of [0, 0.5, 1]) {
+    const y = T + (1 - f) * (H - T - B);
+    add('line', { x1: L, x2: W, y1: y, y2: y, stroke: 'currentColor', 'stroke-opacity': '.12' });
+    add('text', { x: L - 4, y: y + 3, 'text-anchor': 'end', class: 'axis' }, DEC(+(ymax * f).toFixed(ymax * f < 10 && f ? 1 : 0)));
+  }
+  const fmtB = (t) => (span > 86400 ? new Date(t * 1000).toLocaleDateString(LOCALE(), { day: '2-digit', month: '2-digit' }) : fmtTime(t));
+  buckets.forEach((b, i) => {
+    const h = (b.count / ymax) * (H - T - B), he = (b.errors / ymax) * (H - T - B), x = L + i * bw + 1;
+    const ok = add('rect', { x: x.toFixed(1), y: (H - B - h).toFixed(1), width: Math.max(bw - 2, 1).toFixed(1), height: Math.max(h - he, 0).toFixed(1), class: 'bar-ok' });
+    ok.append(Object.assign(document.createElementNS(NS, 'title'), { textContent: fmtB(b.t) + ' : ' + b.count + ' requête(s)' + (b.errors ? ', ' + b.errors + ' en erreur' : '') }));
+    if (he > 0) add('rect', { x: x.toFixed(1), y: (H - B - h).toFixed(1), width: Math.max(bw - 2, 1).toFixed(1), height: he.toFixed(1), class: 'bar-err' });
+  });
+  for (const f of [0, 0.5, 1]) add('text', { x: L + f * (W - L), y: H - 4, 'text-anchor': f === 0 ? 'start' : f === 1 ? 'end' : 'middle', class: 'axis' }, fmtB(buckets[Math.min(n - 1, Math.round(f * (n - 1)))].t));
+  return svg;
+}
+function hbars(rows, unit) {
+  const max = Math.max(...rows.map((r) => r.count), 1), tok = (r) => r.in_tok + r.out_tok;
+  const n = (x) => (x >= 1e6 ? DEC((x / 1e6).toFixed(1)) + ' M' : x >= 1e3 ? DEC((x / 1e3).toFixed(1)) + ' k' : String(x));
+  if (!rows.length) return el('p', { class: 'muted small', text: 'Aucune requête sur cette période.' });
+  return el('div', { class: 'hbars' }, ...rows.map((r) => {
+    const i = el('i'); i.style.width = Math.max(2, (r.count / max) * 100) + '%';
+    return el('div', { class: 'hbar' }, el('span', { class: 'nm', title: r.name, text: r.name }), el('span', { class: 'tr' }, i),
+      el('span', { class: 'vl', text: r.count + ' - ' + n(tok(r)) + ' ' + unit }));
+  }));
+}
+async function loadStats() {
+  let u;
+  try { u = await api('/api/usage?span=' + stats.span); } catch (e) { $('#st-body').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  const t = u.total, rate = t.count ? Math.round((100 * t.errors) / t.count) : 0, avg = t.count ? Math.round(t.ms / t.count) : null;
+  const kpi = (label, value) => el('div', { class: 'card' }, el('h2', { text: label }), el('div', { class: 'big', text: value }));
+  const nn = (x) => Number(x).toLocaleString(LOCALE());
+  $('#st-body').replaceChildren(
+    el('div', { class: 'grid kpis' }, kpi('Requêtes', nn(t.count)), kpi('Taux d\'erreur', rate + ' %'), kpi('Jetons en entrée', nn(t.in_tok)), kpi('Jetons générés', nn(t.out_tok)), kpi('Durée moyenne', fmtMs(avg))),
+    el('div', { class: 'chart' }, el('div', { class: 'ct' }, el('strong', { text: 'Requêtes dans le temps' }), el('span', { class: 'muted small', text: 'rouge : en erreur' })), usageBars(u.buckets, u.span, $('#st-body').clientWidth - 26)),
+    el('div', { class: 'cols2' }, el('div', {}, el('h3', { text: 'Par modèle' }), hbars(u.models, 'jetons')), el('div', {}, el('h3', { text: 'Par client' }), hbars(u.clients, 'jetons'))));
+}
+for (const b of $$('#st-range button')) b.addEventListener('click', () => {
+  stats.span = Number(b.dataset.span);
+  for (const x of $$('#st-range button')) { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); }
+  loadStats();
+});
+
+/* ------------------------------------------------ clés d'API : échéance */
+function keyExpiryPill(k) {
+  if (k.days_left == null) return null;
+  const d = k.days_left;
+  return el('div', {}, d < 0 ? pill('expirée', 'err') : d <= 7 ? pill(d === 0 ? 'expire aujourd\'hui' : 'expire dans ' + d + ' j', 'warn') : pill('expire le ' + k.expires, ''));
+}
+async function keyExpiry(k) {
+  const inp = el('input', { type: 'date', value: k.expires || '', 'aria-label': 'Date d\'expiration' });
+  const ok = await modal({ title: 'Échéance de la clé « ' + k.name + ' »', message: 'La clé reste valable jusqu\'à la fin de ce jour. Laissez vide pour qu\'elle n\'expire jamais.', body: inp, ok: 'Enregistrer' });
+  if (!ok) return;
+  try { await api('/api/publication/keys/update', { json: { id: k.id, expires: inp.value } }); await loadPublication(); } catch (e) { fail(e.message); }
+}
+
+/* ------------------------------------------------ export Prometheus */
+async function loadProm() {
+  if (!isAdmin()) return;
+  let p;
+  try { p = await api('/api/prom'); } catch (e) { $('#prom-state').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  $('#prom-state').replaceChildren(
+    p.enabled ? el('p', {}, pill('actif', 'ok'), ' ' + 'Jeton créé le ' + fmtDate(p.created)) : el('p', { class: 'muted small', text: 'Export désactivé : aucun jeton.' }),
+    p.enabled ? el('pre', { class: 'example', text: 'scrape_configs:\n  - job_name: ollamabuntu\n    scheme: https\n    metrics_path: ' + p.path + '\n    authorization:\n      credentials: <jeton>\n    tls_config:\n      insecure_skip_verify: true\n    static_configs:\n      - targets: ["' + location.host + '"]' }) : null);
+  $('#prom-create').textContent = p.enabled ? 'Remplacer le jeton' : 'Générer un jeton';
+  $('#prom-revoke').classList.toggle('hidden', !p.enabled);
+}
+$('#prom-create').addEventListener('click', async () => {
+  const had = !$('#prom-revoke').classList.contains('hidden');
+  if (had && !(await ask('Remplacer le jeton ? L\'ancien cessera de fonctionner immédiatement.', { ok: 'Remplacer', danger: true }))) return;
+  try {
+    const r = await api('/api/prom/token', { json: { action: 'create' } });
+    const code = el('code', { class: 'token', text: r.token }), copied = el('span', { class: 'small okmsg' });
+    await loadProm();
+    await modal({ title: 'Jeton Prometheus créé', message: 'Copiez-le maintenant : il ne sera plus jamais affiché (seule son empreinte est conservée).',
+      body: el('div', {}, code, el('button', { class: 'btn sm', type: 'button', text: 'Copier', onclick: async () => {
+        try { await navigator.clipboard.writeText(r.token); copied.textContent = ' Copié.'; }
+        catch (e) { const rg = document.createRange(); rg.selectNodeContents(code); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg); copied.textContent = ' Sélectionné : Ctrl+C pour copier.'; } } }), copied),
+      ok: 'J\'ai copié le jeton', cancel: null });
+  } catch (e) { fail(e.message); }
+});
+$('#prom-revoke').addEventListener('click', async () => {
+  if (!(await ask('Révoquer le jeton Prometheus ? Les collectes en cours échoueront.', { ok: 'Révoquer', danger: true }))) return;
+  try { await api('/api/prom/token', { json: { action: 'revoke' } }); await loadProm(); } catch (e) { fail(e.message); }
+});
+
+/* ------------------------------------------------ palette de commandes (Ctrl+K) */
+const pal = { items: [], shown: [], sel: 0, prev: null };
+const fold = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+function paletteCommands() {
+  const cmds = [], go = (h) => () => { location.hash = h; };
+  for (const a of $$('#nav a')) {
+    if (a.classList.contains('hidden')) continue;
+    const v = a.getAttribute('href').slice(1), name = a.textContent.trim();
+    cmds.push({ label: name, hint: 'Écran', run: go('#' + v) });
+    for (const k of TABS[v] || []) { const tab = $('#tab-' + v + '-' + k); if (tab) cmds.push({ label: name + ' › ' + tab.textContent.trim(), hint: 'Onglet', run: go('#' + v + '/' + k) }); }
+  }
+  cmds.push({ label: $('#who').textContent.trim() || 'Mon compte', hint: 'Compte', run: go('#account') });
+  cmds.push({ label: 'Changer de thème', hint: 'Action', run: cycleTheme });
+  cmds.push({ label: 'Changer de langue', hint: 'Action', run: switchLanguage });
+  if (isAdmin()) cmds.push({ label: 'Actualiser le tableau de bord', hint: 'Action', run: () => { go('#dashboard')(); loadDashboard(); loadPerf(true); } });
+  cmds.push({ label: 'Se déconnecter', hint: 'Action', run: () => $('#logout').click() });
+  return cmds;
+}
+function paletteRender() {
+  const words = fold($('#pal-q').value).split(/\s+/).filter(Boolean);
+  pal.shown = pal.items.filter((c) => words.every((w) => fold(c.label + ' ' + c.hint).includes(w))).slice(0, 40);
+  pal.sel = Math.min(pal.sel, Math.max(pal.shown.length - 1, 0));
+  $('#pal-list').replaceChildren(...(pal.shown.length ? pal.shown.map((c, i) => el('li', { role: 'option', id: 'pal-' + i, class: i === pal.sel ? 'on' : '', 'aria-selected': i === pal.sel ? 'true' : 'false',
+    onclick: () => paletteRun(i) }, el('span', { text: c.label }), el('small', { text: c.hint }))) : [el('li', { class: 'muted', text: 'Aucun résultat.' })]));
+  $('#pal-q').setAttribute('aria-activedescendant', pal.shown.length ? 'pal-' + pal.sel : '');
+  const on = $('#pal-list .on'); if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' });
+}
+function paletteOpen() {
+  if ($('#app').classList.contains('hidden')) return;
+  pal.prev = document.activeElement; pal.items = paletteCommands(); pal.sel = 0;
+  $('#pal-q').value = ''; $('#palette').classList.remove('hidden'); paletteRender(); $('#pal-q').focus();
+}
+function paletteClose() { $('#palette').classList.add('hidden'); if (pal.prev && pal.prev.focus) pal.prev.focus(); }
+function paletteRun(i) { const c = pal.shown[i]; if (!c) return; paletteClose(); c.run(); }
+$('#pal-q').addEventListener('input', () => { pal.sel = 0; paletteRender(); });
+$('#pal-q').addEventListener('keydown', (ev) => {
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); const n = pal.shown.length || 1; pal.sel = (pal.sel + (ev.key === 'ArrowDown' ? 1 : -1) + n) % n; paletteRender(); }
+  else if (ev.key === 'Enter') { ev.preventDefault(); paletteRun(pal.sel); }
+  else if (ev.key === 'Escape') { ev.preventDefault(); paletteClose(); }
+});
+$('#palette').addEventListener('click', (ev) => { if (ev.target === $('#palette')) paletteClose(); });
+$('#palette-btn').addEventListener('click', paletteOpen);
+document.addEventListener('keydown', (ev) => {
+  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === 'k') {
+    ev.preventDefault();
+    if ($('#palette').classList.contains('hidden')) paletteOpen(); else paletteClose();
+  }
 });
