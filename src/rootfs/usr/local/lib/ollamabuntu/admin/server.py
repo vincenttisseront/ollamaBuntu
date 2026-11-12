@@ -1253,7 +1253,15 @@ def ollama_log_text(unit="ollama.service"):
         return read_text(os.path.join(OLLAMA_LOG_DIR, unit + ".log"))
     if OLLAMA_LOG_FILE and unit == "ollama.service":
         return read_text(OLLAMA_LOG_FILE)
-    return run(["journalctl", "-u", unit, "-b", "-n", "5000", "--no-pager", "-o", "cat"], timeout=15)
+    # Seules les lignes utiles sont demandées : sur un Ollama qui tourne depuis longtemps, la phrase de démarrage (« discovering available GPUs »)
+    # sort vite des 5000 dernières lignes du journal (une ligne par requête) et le GPU passerait à tort pour « non utilisé ».
+    out = run(["journalctl", "-u", unit, "-b", "-g", JOURNAL_GREP, "-n", "20000", "--no-pager", "-o", "cat"], timeout=20)
+    if out and "discovering available GPUs" in out:
+        return out
+    return run(["journalctl", "-u", unit, "-b", "-n", "5000", "--no-pager", "-o", "cat"], timeout=15)   # journalctl sans -g, ou démarrage sans détection
+
+
+JOURNAL_GREP = r"discovering available GPUs|inference compute|dropping integrated GPU|rocm|amdgpu|\bhip\b|kfd|gfx[0-9]|hsa"
 
 
 def ollama_discovery(unit="ollama.service"):
