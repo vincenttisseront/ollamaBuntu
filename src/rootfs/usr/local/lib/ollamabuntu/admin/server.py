@@ -1264,9 +1264,40 @@ def ollama_log_text(unit="ollama.service"):
 JOURNAL_GREP = r"discovering available GPUs|inference compute|dropping integrated GPU|rocm|amdgpu|\bhip\b|kfd|gfx[0-9]|hsa"
 
 
+def ollama_service_info(unit="ollama.service"):
+    """Identité de l'instance en cours (PID + instant de démarrage), nombre de redémarrages automatiques, état."""
+    out = run(["systemctl", "show", unit, "-p", "MainPID", "-p", "ActiveEnterTimestampMonotonic", "-p", "ActiveEnterTimestamp", "-p", "NRestarts", "-p", "ActiveState"], 5) or ""
+    d = dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
+    pid, mono = d.get("MainPID", "0"), d.get("ActiveEnterTimestampMonotonic", "0")
+    try:
+        restarts = int(d.get("NRestarts", "0"))
+    except ValueError:
+        restarts = 0
+    return {"id": ("%s:%s" % (pid, mono)) if pid not in ("", "0") and mono not in ("", "0") else "", "state": d.get("ActiveState", ""),
+            "since": d.get("ActiveEnterTimestamp", ""), "restarts": restarts}
+
+
 def ollama_discovery(unit="ollama.service"):
-    """Dernière détection de matériel faite par une instance Ollama (journal du démarrage en cours)."""
-    return parse_discovery(ollama_log_text(unit))
+    """Dernière détection de matériel faite par une instance Ollama (journal du démarrage en cours).
+    Le journal peut perdre la phrase de démarrage (rotation, journal en mémoire plein de lignes de requêtes) : le dernier résultat
+    est donc mémorisé avec l'identité de l'instance et réutilisé tant que c'est la même instance qui tourne."""
+    used, dropped = parse_discovery(ollama_log_text(unit))
+    if OLLAMA_LOG_DIR or OLLAMA_LOG_FILE:
+        return used, dropped
+    path = os.path.join(STATE_DIR, "gpu-discovery-%s.json" % re.sub(r"[^A-Za-z0-9_.-]", "_", unit))
+    sid = ollama_service_info(unit)["id"]
+    if used:
+        if sid:
+            try:
+                atomic_write(path, json.dumps({"id": sid, "used": used, "dropped": dropped}))
+            except OSError:
+                pass
+        return used, dropped
+    if sid:
+        saved = load_json_file(path, {})
+        if isinstance(saved, dict) and saved.get("id") == sid and saved.get("used"):
+            return saved["used"], saved.get("dropped") or []
+    return used, dropped
 
 
 ROCM_HINT_RE = re.compile(r"(?i)(rocm|amdgpu|\bhip\b|kfd|gfx\d|hsa)")
@@ -4878,7 +4909,8 @@ def gpu_info():
                 "pci_id": u.get("pci_id")} for u in used if u.get("library", "").lower() != "cpu"]
     return {"devices": devices, "compute": compute, "cpu_only": not compute,
             "vulkan_installed": vulkan, "rocm_installed": rocm, "nvidia_package": nv_branch,
-            "secure_boot": secure_boot, "reboot_required": reboot_required, "discovered": bool(used)}
+            "secure_boot": secure_boot, "reboot_required": reboot_required, "discovered": bool(used),
+            "service": ollama_service_info("ollama.service")}
 
 
 # ----------------------------------------------------------------- statut ---

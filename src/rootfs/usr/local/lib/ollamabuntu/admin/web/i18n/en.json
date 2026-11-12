@@ -2268,6 +2268,14 @@
 "rollback impossible ({1}); the copy remains under the name {2}"
 ],
 [
+"Service Ollama : (.+?) depuis (.+?) - (\\d+) redémarrage\\(s\\) automatique\\(s\\) depuis le démarrage du service\\.",
+"Ollama service: {1} since {2} - {3} automatic restart(s) since the service started."
+],
+[
+"Service Ollama : (.+?) - (\\d+) redémarrage\\(s\\) automatique\\(s\\) depuis le démarrage du service\\.",
+"Ollama service: {1} - {2} automatic restart(s) since the service started."
+],
+[
 "(\\d+) demande\\(s\\) en attente, la plus ancienne depuis (\\d+) s",
 "{1} request(s) waiting, the oldest for {2} s"
 ],

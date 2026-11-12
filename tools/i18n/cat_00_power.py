@@ -63,6 +63,8 @@ E = {
 "serveur inconnu": "unknown server", "demandé par un administrateur": "requested by an administrator",
 }
 P = [
+(r"Service Ollama : (.+?) depuis (.+?) - (\d+) redémarrage\(s\) automatique\(s\) depuis le démarrage du service\.", "Ollama service: {1} since {2} - {3} automatic restart(s) since the service started."),
+(r"Service Ollama : (.+?) - (\d+) redémarrage\(s\) automatique\(s\) depuis le démarrage du service\.", "Ollama service: {1} - {2} automatic restart(s) since the service started."),
 (r"(\d+) demande\(s\) en attente, la plus ancienne depuis (\d+) s", "{1} request(s) waiting, the oldest for {2} s"),
 (r"modèle demandé que seul un serveur endormi possède : (.+)", "requested model that only a sleeping server has: {1}"),
 (r"tous les serveurs éveillés sont occupés \((\d+) % ou plus\) depuis (\d+) s", "all awake servers are busy ({1}% or more) for {2} s"),

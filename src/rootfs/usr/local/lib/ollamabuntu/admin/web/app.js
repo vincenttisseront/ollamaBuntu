@@ -14,6 +14,11 @@ function el(tag, attrs = {}, ...kids) {
   for (const kid of kids) if (kid !== null && kid !== undefined && kid !== false) e.append(kid);
   return e;
 }
+/* replaceChildren(null) écrirait le mot « null » dans la page : les valeurs vides sont ignorées, comme dans el(). */
+(() => {
+  const orig = Element.prototype.replaceChildren;
+  Element.prototype.replaceChildren = function (...nodes) { return orig.apply(this, nodes.filter((n) => n !== null && n !== undefined && n !== false)); };
+})();
 /* ------------------------------------------------- langues (FR, EN) */
 /* Le français est la langue source. En anglais, le catalogue /i18n/en.json traduit tout
    texte affiché (page, messages du serveur, fenêtres) : phrases exactes, puis modèles à
@@ -750,6 +755,7 @@ async function loadGpu() {
   const sum = [el('h2', { text: 'Ollama calcule sur' })];
   if (g.compute.length) for (const c of g.compute) sum.push(el('div', { class: 'big' }, pill(c.library, 'ok'), document.createTextNode(' ' + c.name)), el('div', { class: 'muted small', text: 'Mémoire GPU : ' + c.total }));
   else sum.push(el('div', { class: 'big', text: 'Processeur uniquement' }), el('div', { class: 'muted small', text: g.discovered ? 'Aucun GPU retenu par Ollama lors de son dernier démarrage.' : 'Détection d\'Ollama introuvable (service arrêté ?).' }));
+  if (!g.compute.length && !g.discovered && g.service) sum.push(el('div', { class: 'muted small', text: 'Service Ollama : ' + (g.service.state || 'état inconnu') + (g.service.since ? ' depuis ' + g.service.since : '') + ' - ' + g.service.restarts + ' redémarrage(s) automatique(s) depuis le démarrage du service.' }));
   sum.push(el('p', { class: 'muted small', text: 'Vulkan (Mesa) : ' + (g.vulkan_installed ? 'installé' : 'non installé') + ' - ROCm : ' + (g.rocm_installed ? 'installé' : 'non installé') +
     (g.nvidia_package ? ' - pilote NVIDIA : ' + g.nvidia_package : '') + (g.secure_boot ? ' - Secure Boot actif' : '') }));
   $('#gpu-summary').replaceChildren(...sum);
