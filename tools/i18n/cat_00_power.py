@@ -1,5 +1,6 @@
 # Réveil (Wake-on-LAN) et mise en veille des serveurs du parc
 E = {
+"Lecture de l'état des cartes (jusqu'à quelques secondes)...": "Reading the cards' state (up to a few seconds)...",
 "Veille": "Sleep", "Réveil et mise en veille du parc": "Fleet wake-up and sleep",
 "Les serveurs du parc ne tournent que quand il y a du travail. La console réveille un serveur (paquet Wake-on-LAN) quand des demandes attendent trop longtemps, quand tous les serveurs éveillés sont saturés ou quand un modèle n'existe que sur un serveur endormi ; elle met en veille un serveur resté inactif. Le réveil dépend du matériel (carte réseau, BIOS, câble) : essayez d'abord à la main avec « Réveiller ».":
     "Fleet servers only run when there is work. The console wakes a server (Wake-on-LAN packet) when requests wait too long, when all awake servers are saturated, or when a model only exists on a sleeping server; it puts an idle server to sleep. Waking depends on the hardware (network card, BIOS, cable): try it by hand first with \"Wake up\".",

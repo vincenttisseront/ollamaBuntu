@@ -1248,14 +1248,32 @@ def parse_discovery(text):
     return used, dropped
 
 
+_LOG_CACHE = {}
+LOG_CACHE_TTL = 20
+
+
 def ollama_log_text(unit="ollama.service"):
+    """Lecture du journal d'Ollama, mémorisée 20 s : un affichage de l'écran GPU la demande plusieurs fois et chaque lecture
+    peut durer plusieurs secondes sur un gros journal."""
+    if OLLAMA_LOG_DIR or (OLLAMA_LOG_FILE and unit == "ollama.service"):
+        return _ollama_log_text(unit)
+    now = time.monotonic()
+    hit = _LOG_CACHE.get(unit)
+    if hit and now - hit[0] < LOG_CACHE_TTL:
+        return hit[1]
+    text = _ollama_log_text(unit)
+    _LOG_CACHE[unit] = (time.monotonic(), text)
+    return text
+
+
+def _ollama_log_text(unit="ollama.service"):
     if OLLAMA_LOG_DIR:
         return read_text(os.path.join(OLLAMA_LOG_DIR, unit + ".log"))
     if OLLAMA_LOG_FILE and unit == "ollama.service":
         return read_text(OLLAMA_LOG_FILE)
     # Seules les lignes utiles sont demandées : sur un Ollama qui tourne depuis longtemps, la phrase de démarrage (« discovering available GPUs »)
     # sort vite des 5000 dernières lignes du journal (une ligne par requête) et le GPU passerait à tort pour « non utilisé ».
-    out = run(["journalctl", "-u", unit, "-b", "-g", JOURNAL_GREP, "-n", "20000", "--no-pager", "-o", "cat"], timeout=20)
+    out = run(["journalctl", "-u", unit, "-b", "-g", JOURNAL_GREP, "-n", "20000", "--no-pager", "-o", "cat"], timeout=8)
     if out and "discovering available GPUs" in out:
         return out
     return run(["journalctl", "-u", unit, "-b", "-n", "5000", "--no-pager", "-o", "cat"], timeout=15)   # journalctl sans -g, ou démarrage sans détection

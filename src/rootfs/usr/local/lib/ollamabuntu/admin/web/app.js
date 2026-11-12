@@ -750,6 +750,7 @@ async function unpin(variant) {
 
 async function loadGpu() {
   let g;
+  if (!$('#gpu-summary').childElementCount) $('#gpu-summary').replaceChildren(el('p', { class: 'muted small', text: 'Lecture de l\'état des cartes (jusqu\'à quelques secondes)...' }));
   try { g = await api('/api/gpu'); } catch (e) { $('#gpu-summary').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
   setBanner(g.reboot_required);
   const sum = [el('h2', { text: 'Ollama calcule sur' })];

@@ -8,6 +8,7 @@ os.environ.pop("OB_OLLAMA_LOG_DIR", None)
 LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src", "rootfs", "usr", "local", "lib", "ollamabuntu")
 sys.path.insert(0, LIB); sys.path.insert(0, os.path.join(LIB, "admin"))
 import server
+server.LOG_CACHE_TTL = 0
 n = 0
 def ok(c, m):
     global n; n += 1; print("[%02d] %s - %s" % (n, "OK  " if c else "ÉCHEC", m), flush=True)
@@ -71,4 +72,11 @@ info = server.ollama_service_info()
 ok(info["id"] == "" and info["restarts"] == 0, "service arrêté : identité vide")
 instance(7, 9, restarts=4); info = server.ollama_service_info()
 ok(info["id"] == "7:9" and info["restarts"] == 4 and info["state"] == "active", "identité, redémarrages et état lus")
+server.LOG_CACHE_TTL = 20; server._LOG_CACHE.clear()
+calls = os.path.join(tmp, "calls"); open(calls, "w").close()
+jp = os.path.join(bindir, "journalctl"); body = open(jp).read()
+open(jp, "w").write(body.replace("import re, sys", "import re, sys\nopen(%r, 'a').write('x')" % calls)); os.chmod(jp, 0o755)
+instance(1, 1); write([START, USED] + [GIN] * 10)
+for _ in range(5): server.ollama_discovery(); server.ollama_log_text()
+ok(len(open(calls).read()) == 1, "5 affichages d'affilée : le journal n'est lu qu'une fois (mémoire de 20 s)")
 print("\n%d vérifications réussies" % n)

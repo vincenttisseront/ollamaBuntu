@@ -823,6 +823,7 @@
 "Le serveur ne redémarre pas automatiquement : notez ce message, puis Ctrl+Alt+Suppr.": "The server does not restart automatically: note this message, then press Ctrl+Alt+Del.",
 "Le serveur ne répond plus.": "The server no longer responds.",
 "Le serveur redémarre...": "The server is restarting...",
+"Lecture de l'état des cartes (jusqu'à quelques secondes)...": "Reading the cards' state (up to a few seconds)...",
 "Lecture des quantifications...": "Reading quantisations...",
 "Lecture...": "Reading...",
 "Les PDF demandent le programme pdftotext": "PDF files need the pdftotext program",
