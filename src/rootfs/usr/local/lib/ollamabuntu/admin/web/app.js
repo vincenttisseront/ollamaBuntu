@@ -8,6 +8,7 @@ function el(tag, attrs = {}, ...kids) {
     if (k === 'class') e.className = v;
     else if (k === 'text') e.textContent = v;
     else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (k === 'style') e.style.cssText = v; /* CSSOM : autorisé par la CSP (style-src 'self'), contrairement à l'attribut */
     else e.setAttribute(k, v === true ? '' : v);
   }
   for (const kid of kids) if (kid !== null && kid !== undefined && kid !== false) e.append(kid);

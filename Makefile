@@ -24,6 +24,7 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/rag_router_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/rag_admin_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/gpu_journal_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 -I tests/unit/csp_inline_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/power_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/power_admin_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/power_router_test.py

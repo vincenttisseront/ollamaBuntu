@@ -164,8 +164,8 @@
             <label>Modèles concernés <select name="scope"><option value="all">Tous ceux qui ont une mise à jour</option><option value="some">Seulement ceux que je coche</option></select></label></div>
           <div id="mu-scope" class="checks hidden"></div>
           <div class="row"><label>Jeu de tests de validation <select name="suite"></select></label>
-            <label>Retour si le débit baisse de <input type="number" name="drop_pct" min="10" max="90" style="width:80px"> %</label>
-            <label>Garder l'ancienne version <input type="number" name="keep_days" min="1" max="60" style="width:80px"> jours</label></div>
+            <label>Retour si le débit baisse de <input type="number" name="drop_pct" min="10" max="90" class="w80"> %</label>
+            <label>Garder l'ancienne version <input type="number" name="keep_days" min="1" max="60" class="w80"> jours</label></div>
           <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="mu-msg" class="small" aria-live="polite"></span></div>
         </form>
         <h3>Mises à jour disponibles</h3>
@@ -184,10 +184,10 @@
       </div>
       <div class="card" data-admin data-panel="catalog" data-label="Recommandés"><h2>Recommandés pour ce serveur</h2>
         <p id="catalog-note" class="muted small"></p>
-        <div class="row" style="align-items:center;gap:8px;margin:6px 0">
+        <div class="row row-filter">
           <label class="inline">Source <select id="cat-source" aria-label="Source des modèles"><option value="">Toutes (vue agrégée)</option><option value="Ollama">Ollama</option><option value="Hugging Face">Hugging Face</option></select></label>
           <label class="inline"><input type="checkbox" id="cat-fit"> Seulement ceux qui tiennent sur ce serveur</label>
-          <input type="search" id="cat-q" placeholder="Filtrer par nom ou usage..." aria-label="Filtrer les modèles recommandés" style="max-width:260px">
+          <input type="search" id="cat-q" placeholder="Filtrer par nom ou usage..." aria-label="Filtrer les modèles recommandés" class="mw260">
           <a href="#models/hf" class="small">Chercher d'autres modèles sur Hugging Face</a>
         </div>
         <div id="catalog"></div></div>
@@ -303,7 +303,7 @@
         <p class="muted small">Envoie les mêmes questions (température 0) à 2 ou 3 modèles, l'un après l'autre, et place les réponses côte à côte avec le débit, le délai avant le premier jeton et la mémoire utilisée. Le premier modèle sert de référence : « Recouvrement » est la part de mots communs avec ses réponses, un simple repère et non une note de qualité. Évitez de lancer la comparaison pendant que des utilisateurs travaillent : les modèles sont chargés tour à tour.</p>
         <div class="row"><label>Modèle 1 (référence) <select id="lab-m1"></select></label><label>Modèle 2 <select id="lab-m2"></select></label><label>Modèle 3 (facultatif) <select id="lab-m3"></select></label>
           <label>Réponse jusqu'à <select id="lab-len"><option value="128">128 jetons</option><option value="200" selected>200 jetons</option><option value="320">320 jetons</option><option value="512">512 jetons</option></select></label></div>
-        <label class="block">Questions (une par ligne, 5 au plus)<textarea id="lab-prompts" rows="4" class="mono" style="width:100%" aria-label="Questions à poser aux modèles"></textarea></label>
+        <label class="block">Questions (une par ligne, 5 au plus)<textarea id="lab-prompts" rows="4" class="mono w100" aria-label="Questions à poser aux modèles"></textarea></label>
         <div class="row"><button id="lab-cmp-run" class="btn primary" type="button">Comparer</button><button id="lab-cmp-default" class="btn" type="button">Questions d'exemple</button><span id="lab-cmp-state" class="small" aria-live="polite"></span></div>
         <div id="lab-cmp-result"></div>
       </div>

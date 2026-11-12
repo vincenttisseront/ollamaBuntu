@@ -281,3 +281,9 @@ label.block{display:block;margin:8px 0}
 .rag-job button{margin-left:8px}
 #pw-form details{margin-top:6px}
 #pw-form details label{display:block;margin-top:6px}
+
+/* remplace les attributs style="" (bloqués par la CSP) */
+.w80 { width: 80px; }
+.w100 { width: 100%; }
+.mw260 { max-width: 260px; }
+.row-filter { align-items: center; gap: 8px; margin: 6px 0; }
