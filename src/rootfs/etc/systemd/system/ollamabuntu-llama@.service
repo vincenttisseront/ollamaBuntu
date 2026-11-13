@@ -1,0 +1,28 @@
+[Unit]
+Description=OllamaBuntu - moteur llama.cpp %i (modèle à experts trop gros pour la mémoire vidéo)
+After=network.target ollama.service
+ConditionPathExists=/etc/ollamabuntu/engines.json
+
+[Service]
+# Démon léger compatible Ollama : llama-server n'est lancé qu'à la première demande et arrêté après inactivité
+ExecStart=/usr/bin/python3 /usr/local/lib/ollamabuntu/llama-engine.py %i
+User=ollama
+Group=ollama
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=40
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="HOME=/usr/share/ollama"
+Environment="XDG_CACHE_HOME=/var/cache/ollamabuntu-llama"
+CacheDirectory=ollamabuntu-llama
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+# Contournements GPU éventuels, comme pour Ollama (AMD : cible ROCm), puis réglages propres au moteur (ex. GGML_VK_VISIBLE_DEVICES=0)
+EnvironmentFile=-/run/ollamabuntu/gpu-auto-main.env
+EnvironmentFile=-/etc/ollamabuntu/llama.env
+
+[Install]
+WantedBy=multi-user.target

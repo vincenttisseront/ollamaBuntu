@@ -152,6 +152,59 @@
         <div id="ctx-models"></div>
         <p class="muted small" id="ctx-note">La valeur d'un modèle s'applique à toutes les requêtes de l'API d'Ollama (console, Open WebUI, applications), sauf si la requête précise sa propre taille. La mémoire est estimée pour une requête à la fois.</p>
       </div>
+      <div class="card wide" data-admin data-panel="fit" data-label="Ajustement">
+        <div class="card-head"><h2>Ajustement des modèles à ce serveur</h2><button id="fit-refresh" class="btn" type="button">Actualiser</button></div>
+        <p class="muted small">Pour chaque modèle installé : tient-il en mémoire vidéo, avec quel réglage, et sinon que déborder et à quel prix. La vitesse est une estimation (la génération est limitée par la bande passante mémoire) ; elle se cale sur vos mesures réelles ci-dessous. Un modèle « à experts » (MoE) trop gros peut garder ses experts en mémoire système sans perdre autant de vitesse qu'un débordement par couches : c'est le rôle du moteur llama.cpp (onglet « Moteur MoE »).</p>
+        <div id="fit-hw" class="small"></div>
+        <div id="fit-msg" class="small" aria-live="polite"></div>
+        <div id="fit-table"></div>
+      </div>
+      <div class="card wide hidden" id="fit-detail-card" data-admin data-panel="fit" data-label="Ajustement">
+        <h2 id="fit-detail-title"></h2>
+        <div id="fit-detail"></div>
+      </div>
+      <div class="card wide" data-admin data-panel="fit" data-label="Ajustement">
+        <h2>Un modèle Hugging Face, avant de le télécharger</h2>
+        <p class="muted small">Indique, pour chaque quantification, si le modèle tiendrait ici. Seules la taille et l'étiquette « à experts » sont connues avant le téléchargement : le verdict est un ordre de grandeur.</p>
+        <form id="fit-hf-form" class="row" autocomplete="off">
+          <label>Dépôt <input name="repo" maxlength="190" required placeholder="ex. unsloth/Qwen3-30B-A3B-GGUF"></label>
+          <button class="btn" type="submit">Étudier</button><span id="fit-hf-msg" class="small" aria-live="polite"></span>
+        </form>
+        <div id="fit-hf-out"></div>
+      </div>
+      <div class="card wide" data-admin data-panel="fit" data-label="Ajustement">
+        <h2>Mesures et calibrage</h2>
+        <p class="muted small">Sans mesure, la vitesse repose sur la bande passante théorique de la carte (reconnue d'après son nom) et sur une mémoire système prudente. Deux mesures la rendent plus fiable : le débit de la mémoire du serveur, et le débit réel d'un modèle qui tient en mémoire vidéo (pris dans vos requêtes récentes).</p>
+        <form id="fit-conf-form" class="user-form" autocomplete="off">
+          <label>Débit de la mémoire du serveur (Go/s)<input name="ram_gbps" type="number" step="0.1" min="1" max="2000" placeholder="non mesuré"></label>
+          <label>Bande passante théorique de la carte (Go/s)<input name="gpu_gbps" type="number" step="1" min="1" max="10000" placeholder="d'après son nom"></label>
+          <div class="row"><button class="btn primary" type="submit">Enregistrer</button><button id="fit-measure" class="btn" type="button">Mesurer la mémoire du serveur</button><span id="fit-conf-msg" class="small" aria-live="polite"></span></div>
+        </form>
+        <p class="muted small">La mesure copie des blocs de mémoire pendant environ 2 secondes : évitez de la lancer en pleine charge. Elle compte une copie comme une lecture (résultat prudent).</p>
+        <div id="fit-calib" class="small"></div>
+      </div>
+      <div class="card wide" data-admin data-panel="engine" data-label="Moteur MoE">
+        <div class="card-head"><h2>Moteur llama.cpp pour les modèles à experts</h2><button id="eng-refresh" class="btn" type="button">Actualiser</button></div>
+        <p class="muted small">Ollama ne sait pas laisser les experts d'un modèle MoE en mémoire système en gardant l'attention et le cache sur la carte. llama.cpp le sait (option --n-cpu-moe). Un moteur est un petit service qui se fait passer pour Ollama auprès du routeur : le modèle reste installé dans Ollama (son fichier est lu sur place), llama-server n'est lancé qu'à la première demande et arrêté après inactivité. Au démarrage, les modèles chargés dans Ollama sont déchargés pour libérer la mémoire vidéo ; un seul moteur tourne à la fois.</p>
+        <div id="eng-msg" class="small" aria-live="polite"></div>
+        <h3>Programme</h3>
+        <div id="eng-binary"></div>
+        <form id="eng-install-form" class="row" autocomplete="off">
+          <label>Calcul <select name="backend"><option value="vulkan">Vulkan (cartes AMD, Intel, NVIDIA)</option><option value="rocm">ROCm (cartes AMD)</option><option value="cpu">Processeur seul</option></select></label>
+          <button id="eng-install" class="btn primary" type="submit">Installer la dernière version</button>
+        </form>
+        <p class="muted small">Le fichier est téléchargé depuis GitHub (ggml-org/llama.cpp) et vérifié par sa somme SHA-256 publiée avec la version ; aucun fichier n'est installé s'il ne peut pas être vérifié. Cette version n'est pas signée par OllamaBuntu : c'est celle de l'éditeur de llama.cpp.</p>
+        <pre id="eng-install-log" class="logbox hidden"></pre>
+      </div>
+      <div class="card wide" data-admin data-panel="engine" data-label="Moteur MoE">
+        <h2>Moteurs</h2>
+        <div id="eng-list"></div>
+        <form id="eng-new-form" class="row" autocomplete="off">
+          <label>Créer un moteur pour le modèle <select name="model"></select></label>
+          <button class="btn" type="submit">Créer</button>
+        </form>
+        <p class="muted small">Les réglages proposés viennent du calcul d'ajustement (couches d'experts en mémoire système, contexte, cache en q8_0) ; vous pouvez les modifier ensuite.</p>
+      </div>
       <div class="card wide" data-admin data-panel="redirect" data-label="Redirections">
         <h2>Redirection de modèles</h2>
         <p class="muted small">Quand une application demande un modèle par son nom, la console peut le faire répondre par un autre : l'application n'a rien à changer. Exemple : toutes les demandes pour « gemma4:12b » servies par « Qwen3 ». Avec un pourcentage inférieur à 100, seule une partie des demandes est redirigée, pour comparer deux modèles en situation réelle. Les droits des clés d'accès s'appliquent au modèle demandé. Une règle ne s'enchaîne pas avec une autre.</p>

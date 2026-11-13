@@ -41,6 +41,8 @@ sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 import privacy  # noqa: E402  détection et masquage des données sensibles, termes interdits
 import rag  # noqa: E402  base de documents : extraction, découpage, vecteurs, recherche
 import power  # noqa: E402  réveil (Wake-on-LAN) et mise en veille des serveurs du parc
+import fit  # noqa: E402  ajustement d'un modèle à la mémoire : place, options, vitesse estimée
+import llamacpp  # noqa: E402  moteur llama.cpp : fichier du modèle, ligne de commande, traduction Ollama / OpenAI
 import updater  # noqa: E402  mise à jour depuis Internet (GitHub)
 import monitor  # noqa: E402  débordement CPU/GPU, alertes, réglages recommandés
 import backup  # noqa: E402  sauvegarde chiffrée de la configuration
@@ -409,6 +411,537 @@ def set_admin_cli(user, password):
         rec.update({"role": "admin", "linux": True, "updated": int(time.time()), "rev": secrets.token_hex(8)})
         users[user] = rec
         save_users(users)
+
+
+# ------------------------------------------------ ajustement des modèles et moteur llama.cpp (modèles MoE) ---
+FIT_FILE = os.path.join(ETC, "fit.json")             # débit mémoire mesuré, calibrage de la carte (aucun secret)
+ENGINES_FILE = os.path.join(ETC, "engines.json")     # moteurs llama.cpp : lu par le routeur ET par chaque démon (une seule source)
+LLAMA_GLOBAL = os.path.join(ETC, "llama.json")       # binaire installé
+LLAMA_ROOT = os.path.join(os.environ.get("OB_STATE", "/var/lib/ollamabuntu"), "llama")
+LLAMA_REPO = os.environ.get("OB_LLAMA_REPO", "ggml-org/llama.cpp")
+LLAMA_MAX_DOWNLOAD = 600 << 20
+LLAMA_MAX_UNPACKED = 2 << 30
+_fit_info = {}
+_llama_inst = {"state": "idle", "log": [], "error": "", "t": 0}
+_llama_lock = threading.Lock()
+_engine_lock = threading.Lock()
+FIT_LABELS = {"gpu": "Tient en mémoire vidéo", "ajuste": "Tient avec un réglage", "moe": "Experts en mémoire système", "couches": "Déborde (ralenti)", "trop": "Trop gros",
+              "sans-gpu": "Sur le processeur", "inconnu": "Inconnu"}
+
+
+def fit_hw():
+    """Matériel : mémoire vidéo totale, mémoire système disponible, noms des cartes."""
+    gpus = gpu_inventory()
+    mem = meminfo()
+    return {"vram": int(sum(parse_size(u.get("total")) for u in gpus)), "gpus": [str(u.get("description") or u.get("name") or "") for u in gpus],
+            "ram_total": mem.get("MemTotal", 0), "ram_avail": mem.get("MemAvailable", 0)}
+
+
+def fit_conf():
+    d = load_json_file(FIT_FILE, {})
+    out = {}
+    for k in ("ram_gbps", "gpu_gbps"):
+        v = d.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            out[k] = float(v)
+    c = d.get("calib")
+    if isinstance(c, dict) and isinstance(c.get("gpu_gbps"), (int, float)) and c["gpu_gbps"] > 0:
+        out["calib"] = {"gpu_gbps": float(c["gpu_gbps"]), "model": str(c.get("model") or ""), "tps": c.get("tps"), "t": c.get("t")}
+    return out
+
+
+def fit_conf_save(**changes):
+    d = fit_conf()
+    d.update(changes)
+    d = {k: v for k, v in d.items() if v is not None}
+    atomic_write(FIT_FILE, json.dumps(d), 0o644)
+    return d
+
+
+def fit_show(name, digest):
+    key = (name, digest)
+    if key not in _fit_info:
+        try:
+            info = ollama_json("POST", "/api/show", {"model": name}, timeout=20)[1].get("model_info") or {}
+        except (OSError, ValueError):
+            info = {}
+        if not info:
+            return {}
+        _fit_info[key] = info
+    return _fit_info[key]
+
+
+def fit_settings():
+    """Réglages actuels d'Ollama : contexte par défaut, parallélisme, cache de contexte."""
+    env = read_env()
+    num = lambda k: int(env[k]) if str(env.get(k, "")).isdigit() else None
+    return {"ctx": num("OLLAMA_CONTEXT_LENGTH"), "parallel": num("OLLAMA_NUM_PARALLEL") or 1, "kv": env.get("OLLAMA_KV_CACHE_TYPE") or "f16"}
+
+
+def fit_one(m, hwr, st, ctx_conf, rows, now):
+    """Étude d'un modèle installé (ligne de /api/tags). Retourne (forme, étude)."""
+    shape = fit.model_from_show(m["name"], m.get("size"), fit_show(m["name"], m.get("digest")))
+    if shape is None:
+        return None, None
+    want = ctx_conf.get(m["name"]) or ctx_conf.get(short_name(m["name"])) or st["ctx"]
+    cur = {"ctx": want, "kv": st["kv"], "parallel": st["parallel"]} if want else None
+    return shape, fit.plan(shape, hwr, want_ctx=want or min(shape.get("max_ctx") or 8192, 8192), parallel=st["parallel"], current=cur)
+
+
+def fit_row(shape, plan, engines, rows, now):
+    rec = next((s for s in plan["scenarios"] if s["id"] == plan["recommended"]), None)
+    moe = next((s for s in plan["scenarios"] if s["mode"] == "moe"), None)
+    return {"name": shape["name"], "weights": shape["weights"], "moe": shape["moe"], "experts": shape.get("experts"), "used": shape.get("used"), "layers": shape.get("layers"),
+            "max_ctx": shape.get("max_ctx"), "verdict": plan["verdict"], "label": FIT_LABELS.get(plan["verdict"], plan["verdict"]), "known_shape": plan["kv_known"],
+            "ctx": rec["ctx"] if rec else None, "kv": rec["kv"] if rec else None, "tps": rec["tps"] if rec else None, "tps_label": fit.speed_label(rec["tps"] if rec else None),
+            "n_cpu_moe": moe["n_cpu_moe"] if moe else None, "measured": fit.measured_tps(rows, shape["name"], now, norm=short_name),
+            "engine": any(short_name(e.get("model", "")) == short_name(shape["name"]) for e in engines)}
+
+
+def fit_view(model=None):
+    """Chaque modèle installé face à la mémoire du serveur ; le détail complet d'un modèle si `model` est donné."""
+    hw_ = fit_hw()
+    conf = fit_conf()
+    hwr = fit.resolve_hw(hw_, conf)
+    st = fit_settings()
+    ctx_conf = load_json_file(CONTEXT_FILE, {}).get("models", {})
+    now = time.time()
+    rows_log = read_requests(20000)
+    engines = engines_load()[0]
+    try:
+        tags = ollama_json("GET", "/api/tags", timeout=10)[1].get("models", [])
+    except (OSError, ValueError):
+        tags = []
+    models, detail = [], None
+    for m in sorted(tags, key=lambda t: t.get("name", "")):
+        if str(m.get("name", "")).endswith("-cloud") or hidden_model(m.get("name", "")):
+            continue
+        shape, plan = fit_one(m, hwr, st, ctx_conf, rows_log, now)
+        if shape is None:
+            continue
+        row = fit_row(shape, plan, engines, rows_log, now)
+        models.append(row)
+        if model and m["name"] == model:
+            detail = dict(plan, row=row)
+    return {"hw": {"vram": hw_["vram"], "gpus": hw_["gpus"], "ram_total": hw_["ram_total"], "ram_avail": hw_["ram_avail"], "gpu_theory": hwr["gpu_theory"], "gpu_eff": hwr["gpu_eff"],
+                   "calibrated": hwr["calibrated"], "ram_measured": hwr["ram_measured"], "ram_eff": hwr["ram_eff"]}, "conf": conf, "settings": st, "models": models, "detail": detail}
+
+
+def fit_hf(repo):
+    """Quantifications d'un modèle Hugging Face face à la mémoire du serveur (forme sommaire : seule la taille est connue)."""
+    f = hf_files(repo)
+    hwr = fit.resolve_hw(fit_hw(), fit_conf())
+    moe = fit.looks_moe(repo, f.get("arch") or "", f.get("tags") or [])
+    st = fit_settings()
+    for q in f["quants"]:
+        cand = fit.candidate_from_hf(repo, q["size"], f.get("arch") or "", f.get("tags") or [], f.get("ctx"))
+        p = fit.plan(cand, hwr, 8192, st["parallel"])
+        rec = next((s for s in p["scenarios"] if s["id"] == p["recommended"]), None)
+        q.update(verdict=p["verdict"], label=FIT_LABELS.get(p["verdict"], p["verdict"]), tps=rec["tps"] if rec else None, tps_label=fit.speed_label(rec["tps"] if rec else None),
+                 n_cpu_moe=next((s["n_cpu_moe"] for s in p["scenarios"] if s["mode"] == "moe"), None))
+    f.update(moe=moe, vram=hwr["vram"], ram_avail=hwr["ram_avail"], gpu_eff=hwr["gpu_eff"])
+    return f
+
+
+def fit_save_conf(data):
+    out = {}
+    for k, hi in (("ram_gbps", 2000.0), ("gpu_gbps", 10000.0)):
+        if k in data:
+            v = data[k]
+            if v in (None, ""):
+                out[k] = None
+                continue
+            try:
+                v = float(str(v).replace(",", "."))
+            except (TypeError, ValueError):
+                raise ValueError("débit invalide")
+            if not 1 <= v <= hi:
+                raise ValueError("débit : 1 à %d Go/s" % hi)
+            out[k] = round(v, 1)
+    if data.get("clear_calibration"):
+        out["calib"] = None
+    return fit_conf_save(**out)
+
+
+def fit_measure_ram(seconds=1.5, mb=48):
+    """Débit de la mémoire système (Go/s) : copies de blocs sur plusieurs fils (ctypes libère le verrou de l'interpréteur). Mesure prudente
+    (une copie lit et écrit : le débit de lecture seule d'une génération peut être plus haut). Dure ~2 s à pleine charge de la mémoire."""
+    import ctypes
+    n = max(1, min(os.cpu_count() or 2, 8))
+    size = mb << 20
+    done = [0] * n
+
+    def work(i):
+        src, dst = ctypes.create_string_buffer(size), ctypes.create_string_buffer(size)
+        end, total = time.time() + seconds, 0
+        while time.time() < end:
+            ctypes.memmove(dst, src, size)
+            total += size
+        done[i] = total
+    t0 = time.time()
+    ths = [threading.Thread(target=work, args=(i,)) for i in range(n)]
+    for t in ths:
+        t.start()
+    for t in ths:
+        t.join()
+    gbps = round(sum(done) / max(time.time() - t0, 0.001) / 1e9, 1)
+    fit_conf_save(ram_gbps=gbps)
+    return gbps
+
+
+def fit_calibrate(model):
+    """Calibre la bande passante effective de la carte d'après le débit MESURÉ d'un modèle qui tient en mémoire vidéo."""
+    hwr = fit.resolve_hw(fit_hw(), {k: v for k, v in fit_conf().items() if k != "calib"})
+    try:
+        m = next(t for t in ollama_json("GET", "/api/tags", timeout=10)[1].get("models", []) if t.get("name") == model)
+    except (StopIteration, OSError, ValueError):
+        raise ValueError("modèle introuvable")
+    shape = fit.model_from_show(m["name"], m.get("size"), fit_show(m["name"], m.get("digest")))
+    if shape is None:
+        raise ValueError("forme du modèle inconnue")
+    plan = fit.plan(shape, hwr, 8192, fit_settings()["parallel"])
+    if plan["verdict"] not in ("gpu", "ajuste"):
+        raise ValueError("ce modèle déborde de la mémoire vidéo : son débit ne mesure pas la carte")
+    tps = fit.measured_tps(read_requests(20000), model, time.time(), norm=short_name)
+    if tps is None:
+        raise ValueError("pas assez de requêtes récentes de ce modèle (3 au moins, de 30 jetons ou plus) : utilisez-le puis réessayez, ou lancez une mesure dans Performance")
+    sc = next((x for x in plan["scenarios"] if x["id"] == plan["recommended"]), None)
+    if sc is None or sc["mode"] != "gpu" or sc["cpu_read"]:
+        raise ValueError("ce modèle déborde de la mémoire vidéo : son débit ne mesure pas la carte")
+    gbps = fit.calibrate(tps, sc["gpu_read"])   # octets lus par jeton : poids actifs et cache déjà rempli, comme dans l'estimation
+    fit_conf_save(calib={"gpu_gbps": gbps, "model": model, "tps": tps, "t": int(time.time())})
+    return {"gpu_gbps": gbps, "tps": tps}
+
+
+def fit_apply(data):
+    """Applique un scénario « tient en mémoire vidéo » : contexte du modèle et, si besoin, précision du cache (réglage global d'Ollama)."""
+    model = str(data.get("model") or "")
+    if not MODEL_RE.match(model):
+        raise ValueError("nom de modèle invalide")
+    ctx, kv = data.get("ctx"), data.get("kv") or "f16"
+    if kv not in perf.KV_TYPES:
+        raise ValueError("type de cache inconnu")
+    set_model_context(model, ctx)
+    cur = fit_settings()["kv"]
+    if kv != cur:
+        update_env(perf.normalize_env({"OLLAMA_KV_CACHE_TYPE": "" if kv == "f16" else kv}, read_env()))
+    return {"ctx": check_ctx(ctx), "kv": kv}
+
+
+# --- moteur llama.cpp
+def engines_load():
+    d = load_json_file(ENGINES_FILE, {})
+    return [e for e in d.get("engines", []) if isinstance(e, dict)], d.get("exclusive") is not False
+
+
+def engines_store(engines, exclusive=True):
+    atomic_write(ENGINES_FILE, json.dumps({"exclusive": exclusive, "engines": engines}, ensure_ascii=False, indent=1), 0o644)
+
+
+def llama_binary():
+    g = load_json_file(LLAMA_GLOBAL, {})
+    b = str(g.get("binary") or "")
+    ok = bool(b) and os.path.isfile(b) and os.access(b, os.X_OK)
+    return {"installed": ok, "path": b if ok else "", "tag": g.get("tag"), "backend": g.get("backend"), "asset": g.get("asset"), "sha256": g.get("sha256"), "installed_at": g.get("installed"), "repo": g.get("repo")}
+
+
+def vulkan_ready():
+    icd = sorted(os.path.basename(p) for d in ("/usr/share/vulkan/icd.d", "/etc/vulkan/icd.d") for p in glob.glob(os.path.join(d, "*.json")))
+    loader = any(os.path.exists(p) for p in glob.glob("/usr/lib/*/libvulkan.so.1") + glob.glob("/usr/lib64/libvulkan.so.1") + glob.glob("/lib/*/libvulkan.so.1"))
+    return {"loader": loader, "icd": icd}
+
+
+def engine_unit(eid):
+    return "ollamabuntu-llama@%s.service" % eid
+
+
+def engine_status(e):
+    try:
+        st, d = ollama_json("GET", "/engine/status", timeout=3, addr="127.0.0.1:%d" % int(e["port"]))
+        if st == 200 and isinstance(d, dict):
+            d["service"] = "active"
+            return d
+    except (OSError, ValueError):
+        pass
+    svc = run(["systemctl", "is-active", engine_unit(e["id"])], timeout=5).strip() or "inactive"
+    return {"state": "service arrêté" if svc != "activating" else "démarrage du service", "service": svc, "error": "", "tail": [], "inflight": 0, "requests": 0}
+
+
+def engine_suggest(model):
+    """Réglages proposés pour un moteur MoE d'après le calcul d'ajustement : couches d'experts en mémoire système, contexte, cache."""
+    hwr = fit.resolve_hw(fit_hw(), fit_conf())
+    st = fit_settings()
+    try:
+        m = next(t for t in ollama_json("GET", "/api/tags", timeout=10)[1].get("models", []) if t.get("name") == model)
+    except (StopIteration, OSError, ValueError):
+        return {}
+    shape = fit.model_from_show(m["name"], m.get("size"), fit_show(m["name"], m.get("digest")))
+    if shape is None or not shape.get("moe"):
+        return {"moe": False}
+    p = fit.plan(shape, hwr, st["ctx"] or 8192, 1)
+    moe = next((s for s in p["scenarios"] if s["mode"] == "moe"), None)
+    if moe is None:   # le modèle tient déjà : aucun expert à déplacer
+        return {"moe": True, "n_cpu_moe": 0, "ctx": min(8192, shape.get("max_ctx") or 8192), "kv": "q8_0", "cpu_bytes": 0, "fits": True}
+    return {"moe": True, "n_cpu_moe": moe["n_cpu_moe"], "ctx": moe["ctx"], "kv": moe["kv"], "cpu_bytes": moe["ram"], "tps": moe["tps"], "fits": False}
+
+
+def engine_cpu_bytes(model, n_cpu_moe, ctx, kv, parallel):
+    """Octets d'experts laissés en mémoire système pour ces réglages (affichés dans /api/ps ; 0 si inconnus)."""
+    if not n_cpu_moe:
+        return 0
+    try:
+        m = next(t for t in ollama_json("GET", "/api/tags", timeout=10)[1].get("models", []) if t.get("name") == model)
+    except (StopIteration, OSError, ValueError):
+        return 0
+    shape = fit.model_from_show(m["name"], m.get("size"), fit_show(m["name"], m.get("digest")))
+    if shape is None or not shape.get("moe"):
+        return 0
+    return int(fit.scenario(shape, fit.resolve_hw(fit_hw(), fit_conf()), int(ctx), kv, int(parallel), "moe", n_cpu_moe=int(n_cpu_moe))["ram"])
+
+
+def engine_slug(model, taken):
+    base = re.sub(r"[^a-z0-9]+", "-", short_name(model).lower()).strip("-")[:20] or "moteur"
+    i, cand = 1, base
+    while cand in taken:
+        i += 1
+        cand = "%s-%d" % (base[:20 - len(str(i)) - 1], i)
+    return cand
+
+
+def engine_save(data):
+    """Crée ou modifie un moteur. Le modèle doit être installé dans Ollama (son fichier est lu sur place, jamais copié)."""
+    with _engine_lock:
+        engines, exclusive = engines_load()
+        cur = next((e for e in engines if e.get("id") == data.get("id")), None) if data.get("id") else None
+        model = str(data.get("model") or (cur or {}).get("model") or "")
+        if not MODEL_RE.match(model):
+            raise ValueError("nom de modèle invalide")
+        _, err = llamacpp.find_gguf(MODELS_DIR, model)
+        if err:
+            raise ValueError(err)
+        if any(e.get("model") == model and e is not cur and e.get("id") != (cur or {}).get("id") for e in engines):
+            raise ValueError("ce modèle a déjà un moteur")
+        d = dict(data)
+        d.setdefault("model", model)
+        if cur is None:
+            d["id"] = engine_slug(model, {e.get("id") for e in engines})
+            sug = engine_suggest(model)
+            for k in ("n_cpu_moe", "ctx", "kv"):
+                if k not in d or d[k] in (None, "") and k != "n_cpu_moe":
+                    if sug.get(k) is not None:
+                        d[k] = sug[k]
+            d["port"], d["backend_port"] = llamacpp.free_ports(engines)
+        cfg = llamacpp.config_clean(d, cur)
+        cfg["cpu_bytes"] = engine_cpu_bytes(model, cfg.get("n_cpu_moe"), cfg["ctx"], cfg["kv"], cfg["parallel"])
+        new = [cfg if e.get("id") == cfg["id"] else e for e in engines] if cur is not None else engines + [cfg]
+        engines_store(new, exclusive)
+    unit = engine_unit(cfg["id"])
+    run(["systemctl", "enable", "--now", unit], timeout=30)
+    if cur is not None:
+        run(["systemctl", "restart", unit], timeout=30)   # le démon relit ses réglages au démarrage ; llama-server redémarre à la demande
+    return cfg
+
+
+def engine_delete(eid):
+    with _engine_lock:
+        engines, exclusive = engines_load()
+        if not any(e.get("id") == eid for e in engines):
+            raise ValueError("moteur introuvable")
+        engines_store([e for e in engines if e.get("id") != eid], exclusive)
+    run(["systemctl", "disable", "--now", engine_unit(eid)], timeout=60)
+
+
+def engine_action(eid, act):
+    e = next((x for x in engines_load()[0] if x.get("id") == eid), None)
+    if e is None:
+        raise ValueError("moteur introuvable")
+    if act not in ("start", "stop", "restart"):
+        raise ValueError("action inconnue")
+    if act in ("start", "restart") and not llama_binary()["installed"]:
+        raise ValueError("le moteur llama.cpp n'est pas installé")
+    if run(["systemctl", "is-active", engine_unit(eid)], timeout=5).strip() != "active":
+        run(["systemctl", "start", engine_unit(eid)], timeout=30)
+        time.sleep(1)
+
+    def go():
+        try:
+            ollama_json("POST", "/engine/" + act, {}, timeout=600 if act != "stop" else 60, addr="127.0.0.1:%d" % int(e["port"]))
+        except (OSError, ValueError):
+            pass
+    if act == "stop":
+        go()
+    else:
+        threading.Thread(target=go, daemon=True).start()   # le chargement d'un gros modèle dure : l'écran suit l'état
+    return True
+
+
+def engine_logs(eid):
+    if not any(x.get("id") == eid for x in engines_load()[0]):
+        raise ValueError("moteur introuvable")
+    return {"text": run(["journalctl", "--no-pager", "-o", "short-iso", "-n", "200", "-u", engine_unit(eid)], timeout=15)}
+
+
+def llama_view():
+    engines, exclusive = engines_load()
+    hw_ = fit_hw()
+    out = []
+    for e in engines:
+        out.append(dict(e, status=engine_status(e)))
+    cands = []
+    try:
+        tags = ollama_json("GET", "/api/tags", timeout=10)[1].get("models", [])
+    except (OSError, ValueError):
+        tags = []
+    fv = fit_view() if tags else {"models": []}
+    for r in fv["models"]:
+        if r["moe"] and not r["engine"]:
+            cands.append({"name": r["name"], "verdict": r["verdict"], "label": r["label"], "n_cpu_moe": r["n_cpu_moe"], "weights": r["weights"], "tps": r["tps"]})
+    return {"binary": llama_binary(), "install": dict(_llama_inst, log=list(_llama_inst["log"])[-60:]), "engines": out, "exclusive": exclusive, "candidates": cands,
+            "all_models": sorted(t["name"] for t in tags if not str(t.get("name", "")).endswith("-cloud") and not hidden_model(t.get("name", ""))),
+            "vulkan": vulkan_ready(), "gpus": hw_["gpus"], "repo": LLAMA_REPO}
+
+
+def _llama_log(msg):
+    with _llama_lock:
+        _llama_inst["log"].append(msg)
+        del _llama_inst["log"][:-200]
+
+
+def _llama_extract(archive, name, dest):
+    """Extrait l'archive de llama.cpp : pas de chemin absolu ou remontant, liens relatifs internes seulement, taille bornée."""
+    import tarfile
+    import zipfile
+    root = os.path.realpath(dest)
+    os.makedirs(root, mode=0o755, exist_ok=True)
+    total, listing = 0, []
+
+    def target_ok(path):
+        return os.path.realpath(path).startswith(root + os.sep) or os.path.realpath(path) == root
+    if name.lower().endswith(".zip"):
+        with zipfile.ZipFile(archive) as zf:
+            for i in zf.infolist():
+                n = i.filename
+                if n.startswith("/") or ".." in n.split("/") or "\\" in n:
+                    raise ValueError("archive refusée : chemin suspect (%s)" % re.sub(r"[^\w./-]", "?", n)[:60])
+                total += i.file_size
+                if total > LLAMA_MAX_UNPACKED:
+                    raise ValueError("archive refusée : taille anormale")
+                out = os.path.join(root, n)
+                if i.is_dir() or n.endswith("/"):
+                    os.makedirs(out, exist_ok=True)
+                    continue
+                os.makedirs(os.path.dirname(out), exist_ok=True)
+                if ((i.external_attr >> 16) & 0o170000) == 0o120000:   # lien symbolique (bibliothèques versionnées)
+                    link = zf.read(i).decode()
+                    if link.startswith("/") or not target_ok(os.path.join(os.path.dirname(out), link)):
+                        raise ValueError("archive refusée : lien suspect (%s)" % re.sub(r"[^\w./-]", "?", n)[:60])
+                    os.symlink(link, out)
+                else:
+                    with zf.open(i) as src, open(out, "wb") as f:
+                        shutil.copyfileobj(src, f)
+                    os.chmod(out, 0o755 if (i.external_attr >> 16) & 0o111 else 0o644)
+                listing.append(n)
+    else:
+        with tarfile.open(archive) as tf:
+            for m in tf:
+                n = m.name
+                if n.startswith("/") or ".." in n.split("/"):
+                    raise ValueError("archive refusée : chemin suspect (%s)" % re.sub(r"[^\w./-]", "?", n)[:60])
+                total += max(m.size, 0)
+                if total > LLAMA_MAX_UNPACKED:
+                    raise ValueError("archive refusée : taille anormale")
+                out = os.path.join(root, n)
+                if m.isdir():
+                    os.makedirs(out, exist_ok=True)
+                elif m.issym():
+                    if m.linkname.startswith("/") or not target_ok(os.path.join(os.path.dirname(out), m.linkname)):
+                        raise ValueError("archive refusée : lien suspect")
+                    os.makedirs(os.path.dirname(out), exist_ok=True)
+                    os.symlink(m.linkname, out)
+                elif m.isreg():
+                    os.makedirs(os.path.dirname(out), exist_ok=True)
+                    with tf.extractfile(m) as src, open(out, "wb") as f:
+                        shutil.copyfileobj(src, f)
+                    os.chmod(out, 0o755 if m.mode & 0o111 else 0o644)
+                else:
+                    raise ValueError("archive refusée : type de fichier inattendu")
+                if not m.isdir():
+                    listing.append(n)
+    return listing
+
+
+def _llama_install(backend):
+    try:
+        _llama_log("Recherche de la dernière version de %s..." % LLAMA_REPO)
+        with updater._open("%s/repos/%s/releases/latest" % (updater.API, LLAMA_REPO), timeout=30) as r:
+            rel = json.loads(updater._read_limited(r, 5 << 20))
+        tag = str(rel.get("tag_name") or "")
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,40}", tag):
+            raise ValueError("version illisible dans la réponse de GitHub")
+        asset = llamacpp.pick_asset(rel.get("assets"), backend)
+        if asset is None:
+            raise ValueError("aucun fichier Ubuntu « %s » dans la version %s : essayez un autre moteur de calcul" % (backend, tag))
+        sha = llamacpp.digest_sha256(asset)
+        if not sha:
+            raise ValueError("GitHub ne publie pas la somme SHA-256 de ce fichier : installation refusée (elle ne pourrait pas être vérifiée)")
+        name = str(asset["name"])
+        _llama_log("Version %s, fichier %s (%d Mo)" % (tag, name, int(asset.get("size") or 0) >> 20))
+        os.makedirs(LLAMA_ROOT, mode=0o755, exist_ok=True)
+        part = os.path.join(LLAMA_ROOT, "download.part.%s" % ("zip" if name.lower().endswith(".zip") else "tgz"))
+        got = updater._download(str(asset.get("browser_download_url") or ""), part, LLAMA_MAX_DOWNLOAD, name)
+        if got != sha:
+            os.remove(part)
+            raise ValueError("somme SHA-256 incorrecte : téléchargement refusé")
+        _llama_log("Somme SHA-256 vérifiée (%s...)" % sha[:12])
+        dest = os.path.join(LLAMA_ROOT, tag + "-" + backend)
+        tmp = dest + ".tmp"
+        shutil.rmtree(tmp, ignore_errors=True)
+        listing = _llama_extract(part, name, tmp)
+        os.remove(part)
+        rel_server = llamacpp.server_in_listing(listing)
+        if not rel_server:
+            raise ValueError("llama-server est absent de l'archive")
+        binary = os.path.join(tmp, rel_server)
+        os.chmod(binary, 0o755)
+        env = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(binary) + os.pathsep + os.environ.get("LD_LIBRARY_PATH", ""))
+        r = subprocess.run([binary, "--help"], capture_output=True, text=True, timeout=30, env=env, cwd=os.path.dirname(binary))
+        text = (r.stdout or "") + (r.stderr or "")
+        if r.returncode not in (0, 1) or "--ctx-size" not in text:
+            raise ValueError("llama-server ne démarre pas sur ce serveur : %s" % (text.strip().splitlines() or ["aucun message"])[-1][:200])
+        caps = llamacpp.detect_caps(text)
+        _llama_log("llama-server démarre (--n-cpu-moe : %s)." % ("oui" if caps["n_cpu_moe"] else "non, repli sur --override-tensor" if caps["override_tensor"] else "NON : à mettre à jour"))
+        shutil.rmtree(dest, ignore_errors=True)
+        os.rename(tmp, dest)
+        final = os.path.join(dest, rel_server)
+        atomic_write(LLAMA_GLOBAL, json.dumps({"binary": final, "tag": tag, "backend": backend, "asset": name, "sha256": sha, "installed": int(time.time()), "repo": LLAMA_REPO}), 0o644)
+        for old in sorted(glob.glob(os.path.join(LLAMA_ROOT, "*-" + backend)), key=os.path.getmtime)[:-2]:   # on garde la version précédente
+            shutil.rmtree(old, ignore_errors=True)
+        for e in engines_load()[0]:   # les moteurs en marche reprennent le nouveau binaire à leur prochain démarrage
+            try:
+                ollama_json("POST", "/engine/stop", {}, timeout=60, addr="127.0.0.1:%d" % int(e["port"]))
+            except (OSError, ValueError):
+                pass
+        if backend == "vulkan" and not vulkan_ready()["icd"]:
+            _llama_log("Attention : aucun pilote Vulkan détecté. Installez-le (GPU > Activer Vulkan) avant de démarrer un moteur.")
+        _llama_log("Installation terminée.")
+        with _llama_lock:
+            _llama_inst.update(state="done", error="", t=time.time())
+    except (ValueError, OSError, updater.UpdateError, subprocess.SubprocessError, json.JSONDecodeError) as e:
+        msg = str(e) or e.__class__.__name__
+        sys.stderr.write("installation de llama.cpp : %s\n" % msg)
+        _llama_log("Échec : " + msg)
+        with _llama_lock:
+            _llama_inst.update(state="error", error=msg, t=time.time())
+
+
+def llama_install(backend):
+    if backend not in ("vulkan", "rocm", "cpu"):
+        raise ValueError("moteur de calcul : vulkan, rocm ou cpu")
+    with _llama_lock:
+        if _llama_inst["state"] == "running":
+            raise ValueError("une installation est déjà en cours")
+        _llama_inst.update(state="running", log=[], error="", t=time.time())
+    threading.Thread(target=_llama_install, args=(backend,), daemon=True).start()
 
 
 # ------------------------------------------------ base de documents (RAG) ---
@@ -5444,7 +5977,10 @@ def hf_files(repo):
         q = quants.setdefault(m.group(1).upper(), {"quant": m.group(1).upper(), "size": 0, "files": 0})
         q["size"] += int(f.get("size") or 0)
         q["files"] += 1
-    return {"id": repo, "uncensored": hf_is_uncensored(repo, info.get("tags") or []), "quants": sorted(quants.values(), key=lambda x: x["size"])}
+    gg = info.get("gguf") if isinstance(info.get("gguf"), dict) else {}
+    return {"id": repo, "uncensored": hf_is_uncensored(repo, info.get("tags") or []), "quants": sorted(quants.values(), key=lambda x: x["size"]),
+            "arch": str(gg.get("architecture") or "")[:40], "ctx": gg.get("context_length") if isinstance(gg.get("context_length"), int) else None,
+            "tags": [str(t)[:40] for t in (info.get("tags") or [])[:30]]}
 
 
 def ubuntu_scores(obj, out):
@@ -5882,7 +6418,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/redirects", "/api/power", "/api/costs", "/api/costs/export", "/api/privacy", "/api/rag", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/redirects", "/api/fit", "/api/fit/hf", "/api/llama", "/api/llama/logs", "/api/power", "/api/costs", "/api/costs/export", "/api/privacy", "/api/rag", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -6099,6 +6635,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, queue_view())
             if path == "/api/redirects":
                 return self.send_json(200, redirects_view())
+            if path == "/api/fit":
+                return self.send_json(200, fit_view((query.get("model") or [""])[0] or None))
+            if path == "/api/fit/hf":
+                try:
+                    return self.send_json(200, fit_hf((query.get("repo") or [""])[0]))
+                except ValueError as e:
+                    return self.send_json(400, {"error": str(e)})
+            if path == "/api/llama":
+                return self.send_json(200, llama_view())
+            if path == "/api/llama/logs":
+                try:
+                    return self.send_json(200, engine_logs((query.get("id") or [""])[0]))
+                except ValueError as e:
+                    return self.send_json(400, {"error": str(e)})
             if path == "/api/power":
                 return self.send_json(200, power_view())
             if path == "/api/sso/config":
@@ -6477,6 +7027,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, {"ok": True, "settings": queue_save(data)})
             if path == "/api/redirects/config":
                 return self.send_json(200, {"ok": True, "rules": redirects_save(data)})
+            if path == "/api/fit/config":
+                return self.send_json(200, {"ok": True, "conf": fit_save_conf(data)})
+            if path == "/api/fit/measure-ram":
+                return self.send_json(200, {"ok": True, "ram_gbps": fit_measure_ram()})
+            if path == "/api/fit/calibrate":
+                return self.send_json(200, dict(fit_calibrate(str(data.get("model") or "")), ok=True))
+            if path == "/api/fit/apply":
+                return self.send_json(200, dict(fit_apply(data), ok=True))
+            if path == "/api/llama/install":
+                llama_install(str(data.get("backend") or ""))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/llama/save":
+                return self.send_json(200, {"ok": True, "engine": engine_save(data)})
+            if path == "/api/llama/action":
+                engine_action(str(data.get("id") or ""), str(data.get("action") or ""))
+                return self.send_json(200, {"ok": True})
+            if path == "/api/llama/delete":
+                engine_delete(str(data.get("id") or ""))
+                return self.send_json(200, {"ok": True})
             if path == "/api/power/config":
                 return self.send_json(200, {"ok": True, "settings": power_save(data)})
             if path == "/api/power/server":

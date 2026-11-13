@@ -246,7 +246,7 @@ function route() {
   $('#job-card').classList.toggle('hidden', !(['gpu', 'system', 'webui'].includes(v) && jobs.current));
   clearInterval(state.timer); state.timer = null;
   if (v === 'dashboard') { loadDashboard(); loadPerf(); state.timer = setInterval(() => { loadDashboard(); loadPerf(); }, 10000); }
-  if (v === 'models') { loadModels(); if (isAdmin()) { loadCustom(); loadContext(); loadRedirects(); if (currentTab('models') === 'disk') loadModelsDisk(); if (currentTab('models') === 'updates') loadMu(); } }
+  if (v === 'models') { loadModels(); if (isAdmin()) { loadCustom(); loadContext(); loadRedirects(); if (currentTab('models') === 'fit') loadFit(); if (currentTab('models') === 'engine') loadEngines(); if (currentTab('models') === 'disk') loadModelsDisk(); if (currentTab('models') === 'updates') loadMu(); } }
   if (v === 'chat') { loadChatModels(); loadChatRag(); }
   if (v === 'gpu') loadGpu();
   if (v === 'perf') loadPerformance();
@@ -1968,6 +1968,179 @@ $('#pm-allow').addEventListener('change', async () => {
   catch (e) { out.className = 'small error'; out.textContent = e.message; }
 });
 
+/* ------------------------------------------------ ajustement des modèles et moteur llama.cpp */
+const FITV_KIND = { gpu: 'ok', ajuste: 'info', moe: 'warn', couches: 'warn', trop: 'err', 'sans-gpu': '' };
+const fitSpeed = (v) => (v == null ? 'non estimée' : DEC(v.toFixed(1)) + ' jetons/s');
+const fitState = { name: null };
+async function loadFit() {
+  if (!isAdmin()) return;
+  let d;
+  try { d = await api('/api/fit' + (fitState.name ? '?model=' + encodeURIComponent(fitState.name) : '')); } catch (e) { $('#fit-msg').className = 'small error'; $('#fit-msg').textContent = e.message; return; }
+  $('#fit-msg').textContent = '';
+  const hw = d.hw;
+  $('#fit-hw').replaceChildren(el('div', { text: 'Mémoire vidéo : ' + fmtBytes(hw.vram) + ' (' + (hw.gpus.length ? hw.gpus.join(', ') : 'aucune carte graphique') + ') ; mémoire système : ' + fmtBytes(hw.ram_avail) + ' disponibles sur ' + fmtBytes(hw.ram_total) + '.' }),
+    el('div', { class: 'muted', text: hw.gpu_eff ? 'Bande passante de la carte utilisée : ' + DEC(Math.round(hw.gpu_eff)) + ' Go/s' + (hw.calibrated ? ' (calibrée sur une mesure).' : ' (théorique × 0,65).') : 'Carte non reconnue : vitesse non estimée tant que la carte n\'est pas calibrée.' }));
+  $('#fit-table').replaceChildren(d.models.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Modèle', 'Taille', 'Type', 'Verdict', 'Vitesse estimée', 'Vitesse mesurée', ''].map((t, i) => el('th', { class: i === 1 ? 'num' : '', text: t })))),
+    el('tbody', {}, ...d.models.map((m) => el('tr', {}, el('td', { class: 'name', text: m.name }, m.engine ? el('span', { class: 'sso-tag', text: 'moteur MoE' }) : null),
+      el('td', { class: 'num', text: fmtBytes(m.weights) }), el('td', { class: 'small', text: m.moe ? (m.experts ? 'À experts (' + m.experts + ', ' + m.used + ' actifs)' : 'À experts') : 'Dense' }),
+      el('td', {}, pill(m.label, FITV_KIND[m.verdict] || '')), el('td', { class: 'small', text: fitSpeed(m.tps) }), el('td', { class: 'small', text: m.measured ? DEC(m.measured) + ' jetons/s' : '-' }),
+      el('td', {}, el('div', { class: 'row' }, el('button', { class: 'btn sm', type: 'button', text: 'Étudier', onclick: () => { fitState.name = m.name; loadFit(); } }),
+        m.measured && (m.verdict === 'gpu' || m.verdict === 'ajuste') ? el('button', { class: 'btn sm', type: 'button', text: 'Caler la carte sur cette mesure', onclick: () => fitCalibrate(m.name) }) : null))))))) : el('p', { class: 'muted', text: 'Aucun modèle installé.' }));
+  const conf = d.conf, f = $('#fit-conf-form').elements;
+  if (w_active() !== f.ram_gbps) f.ram_gbps.value = conf.ram_gbps || '';
+  if (w_active() !== f.gpu_gbps) f.gpu_gbps.value = conf.gpu_gbps || '';
+  $('#fit-calib').replaceChildren(conf.calib ? el('span', {}, el('span', { text: 'Carte calibrée sur ' + conf.calib.model + ' : ' + DEC(Math.round(conf.calib.gpu_gbps)) + ' Go/s effectifs (' + DEC(conf.calib.tps) + ' jetons/s mesurés). ' }),
+    el('button', { class: 'btn sm', type: 'button', text: 'Effacer le calibrage', onclick: async () => { try { await api('/api/fit/config', { json: { clear_calibration: true } }); } catch (e) { fail(e.message); } loadFit(); } })) : el('span', { class: 'muted', text: 'Carte non calibrée : choisissez, dans le tableau, un modèle qui tient en mémoire vidéo et que vous avez déjà utilisé.' }));
+  const card = $('#fit-detail-card');
+  if (d.detail) { card.classList.remove('hidden'); renderFitDetail(d.detail); } else card.classList.add('hidden');
+}
+function renderFitDetail(p) {
+  $('#fit-detail-title').textContent = p.model;
+  const r = p.row;
+  const scen = (s) => {
+    const acts = [];
+    if (s.mode === 'gpu') acts.push(el('button', { class: 'btn sm', type: 'button', text: 'Appliquer ces réglages', onclick: () => fitApply(p.model, s) }));
+    if (s.mode === 'moe') acts.push(el('button', { class: 'btn sm primary', type: 'button', text: r.engine ? 'Moteur déjà créé' : 'Créer le moteur MoE', disabled: r.engine, onclick: () => fitMakeEngine(p.model, s) }));
+    return el('tr', { class: s.id === p.recommended ? 'rec' : '' }, el('td', { class: 'name', text: s.label }, s.why ? el('div', { class: 'muted small', text: s.why }) : null),
+      el('td', { class: 'num', text: String(s.ctx) }), el('td', { text: s.kv }), el('td', { class: 'num' + (s.fits_vram ? '' : ' error'), text: fmtBytes(s.vram) }), el('td', { class: 'num' + (s.fits_ram ? '' : ' error'), text: s.ram ? fmtBytes(s.ram) : '-' }),
+      el('td', { class: 'small', text: fitSpeed(s.tps) }), el('td', {}, ...acts));
+  };
+  $('#fit-detail').replaceChildren(
+    el('p', { class: 'small' }, pill(r.label, FITV_KIND[p.verdict] || ''), ' ', el('span', { text: 'Poids : ' + fmtBytes(p.weights) }),
+      ...(p.moe && p.experts ? [el('span', { text: ' - ' }), el('span', { text: 'Experts : ' + fmtBytes(p.expert_bytes) + ' (' + p.used + ' actifs sur ' + p.experts + ')' })] : []),
+      ...(p.max_ctx ? [el('span', { text: ' - ' }), el('span', { text: 'Contexte maximal : ' + p.max_ctx + ' jetons' })] : [])),
+    el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+      el('thead', {}, el('tr', {}, ...['Scénario', 'Contexte', 'Cache', 'Mémoire vidéo', 'Mémoire système', 'Vitesse estimée', ''].map((t, i) => el('th', { class: i >= 1 && i <= 4 && i !== 2 ? 'num' : '', text: t })))), el('tbody', {}, ...p.scenarios.map(scen)))),
+    ...p.notes.map((t) => el('p', { class: 'small', text: t })),
+    el('p', { class: 'muted small', text: 'Les chiffres sont des estimations (poids + cache de contexte + réserve du moteur). La ligne en gras est le meilleur choix.' }),
+    el('button', { class: 'btn sm', type: 'button', text: 'Fermer', onclick: () => { fitState.name = null; $('#fit-detail-card').classList.add('hidden'); } }));
+}
+async function fitApply(model, s) {
+  const msg = 'Appliquer à « ' + model + ' » : contexte de ' + s.ctx + ' jetons' + (s.kv !== 'f16' ? ', cache de contexte en ' + s.kv + ' (réglage global d\'Ollama : il s\'applique à tous les modèles et redémarre Ollama)' : '') + ' ?';
+  if (!(await ask(msg))) return;
+  let done = false;
+  try { await api('/api/fit/apply', { json: { model, ctx: s.ctx, kv: s.kv } }); done = true; } catch (e) { fail(e.message); }
+  await loadFit();
+  if (done) { $('#fit-msg').className = 'small okmsg'; $('#fit-msg').textContent = 'Réglages appliqués.'; }
+}
+async function fitMakeEngine(model, s) {
+  if (!(await ask('Créer un moteur llama.cpp pour « ' + model + ' » (' + s.n_cpu_moe + ' couche(s) d\'experts en mémoire système, contexte ' + s.ctx + ', cache ' + s.kv + ') ? Le modèle reste installé dans Ollama.'))) return;
+  try { await api('/api/llama/save', { json: { model, n_cpu_moe: s.n_cpu_moe, ctx: s.ctx, kv: s.kv } }); location.hash = '#models/engine'; } catch (e) { fail(e.message); }
+}
+async function fitCalibrate(model) {
+  let text = '';
+  try { const r = await api('/api/fit/calibrate', { json: { model } }); text = 'Carte calibrée : ' + DEC(Math.round(r.gpu_gbps)) + ' Go/s effectifs.'; } catch (e) { fail(e.message); }
+  await loadFit();
+  if (text) { $('#fit-msg').className = 'small okmsg'; $('#fit-msg').textContent = text; }
+}
+$('#fit-refresh').addEventListener('click', loadFit);
+$('#fit-conf-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target.elements, out = $('#fit-conf-msg');
+  try { await api('/api/fit/config', { json: { ram_gbps: f.ram_gbps.value, gpu_gbps: f.gpu_gbps.value } }); out.className = 'small okmsg'; out.textContent = 'Enregistré.'; loadFit(); } catch (e) { out.className = 'small error'; out.textContent = e.message; }
+});
+$('#fit-measure').addEventListener('click', async () => {
+  const out = $('#fit-conf-msg'); out.className = 'small'; out.textContent = 'Mesure en cours...';
+  try { const r = await api('/api/fit/measure-ram', { json: {} }); out.className = 'small okmsg'; out.textContent = DEC(r.ram_gbps) + ' Go/s mesurés.'; loadFit(); } catch (e) { out.className = 'small error'; out.textContent = e.message; }
+});
+$('#fit-hf-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const out = $('#fit-hf-out'), msg = $('#fit-hf-msg'); msg.className = 'small'; msg.textContent = 'Recherche en cours...'; out.replaceChildren();
+  try {
+    const d = await api('/api/fit/hf?repo=' + encodeURIComponent(ev.target.elements.repo.value.trim()));
+    msg.textContent = '';
+    out.replaceChildren(el('p', { class: 'small', text: d.moe ? 'Modèle à experts (d\'après son nom ou son architecture).' : 'Modèle dense (ou non reconnu comme à experts).' }),
+      el('div', { class: 'table-wrap' }, el('table', { class: 'dense' }, el('thead', {}, el('tr', {}, ...['Quantification', 'Taille', 'Verdict', 'Vitesse estimée', 'Experts en mémoire système'].map((t, i) => el('th', { class: i === 1 ? 'num' : '', text: t })))),
+        el('tbody', {}, ...d.quants.map((q) => el('tr', {}, el('td', { class: 'name', text: q.quant }), el('td', { class: 'num', text: fmtBytes(q.size) }), el('td', {}, pill(q.label, FITV_KIND[q.verdict] || '')),
+          el('td', { class: 'small', text: fitSpeed(q.tps) }), el('td', { class: 'small', text: q.verdict === 'moe' && q.n_cpu_moe != null ? '≈ ' + q.n_cpu_moe + ' couche(s)' : '-' })))))));
+  } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
+});
+
+const ENG_STATE = { ready: ['En marche', 'ok'], stopped: ['Arrêté (démarre à la demande)', ''], starting: ['Démarrage...', 'warn'], stopping: ['Arrêt...', 'warn'], error: ['Échec', 'err'], 'service arrêté': ['Service arrêté', 'err'], 'démarrage du service': ['Démarrage du service', 'warn'] };
+const eng = { timer: null, data: null };
+async function loadEngines() {
+  clearTimeout(eng.timer);
+  if (!isAdmin()) return;
+  let d;
+  try { d = await api('/api/llama'); } catch (e) { $('#eng-msg').className = 'small error'; $('#eng-msg').textContent = e.message; return; }
+  eng.data = d; $('#eng-msg').textContent = '';
+  const b = d.binary, v = d.vulkan;
+  $('#eng-binary').replaceChildren(b.installed ? el('p', { class: 'small' }, pill('Installé', 'ok'), ' ', el('span', { text: 'Version : ' + b.tag }), el('span', { text: ' - ' }), el('span', { text: 'Calcul : ' + b.backend }),
+      ...(b.installed_at ? [el('span', { text: ' - ' }), el('span', { text: 'Installé le : ' + fmtDate(b.installed_at) })] : []), el('div', { class: 'muted', text: 'SHA-256 : ' + (b.sha256 || '').slice(0, 16) + '... - ' + b.path }))
+    : el('p', { class: 'small' }, pill('Non installé', 'warn'), ' ', el('span', { text: 'Installez le programme pour pouvoir créer un moteur.' })),
+    el('p', { class: 'muted small' }, el('span', { text: 'Vulkan :' }), ' ', el('span', { text: v.loader ? 'bibliothèque présente' : 'bibliothèque absente' }), ', ', el('span', { text: v.icd.length ? 'pilote(s) :' : 'aucun pilote détecté (GPU > Activer Vulkan)' }), v.icd.length ? ' ' + v.icd.join(', ') : '', '.'));
+  const inst = d.install, log = $('#eng-install-log');
+  const running = inst.state === 'running';
+  $('#eng-install').disabled = running;
+  log.classList.toggle('hidden', !inst.log.length);
+  log.textContent = inst.log.join('\n');
+  const busy = d.engines.some((e) => ['starting', 'stopping'].includes(e.status.state));
+  $('#eng-list').replaceChildren(d.engines.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Modèle', 'État', 'Réglages', 'Usage', ''].map((t) => el('th', { text: t })))),
+    el('tbody', {}, ...d.engines.map((e) => {
+      const st = e.status, S = ENG_STATE[st.state] || [st.state, ''];
+      return el('tr', {}, el('td', { class: 'name', text: e.model }, st.error ? el('div', { class: 'error small', text: st.error }) : null, ...(st.warnings || []).map((w) => el('div', { class: 'error small', text: w }))),
+        el('td', {}, pill(S[0], S[1]), st.state === 'ready' && st.uptime ? el('div', { class: 'muted small', text: 'depuis ' + Math.round(st.uptime / 60) + ' min' }) : null),
+        el('td', { class: 'small' }, el('div', { text: e.n_cpu_moe ? 'Experts de ' + e.n_cpu_moe + ' couche(s) en mémoire système' : 'Aucun expert déplacé' }), el('div', { text: 'Contexte ' + e.ctx + ' - cache ' + e.kv + (e.parallel > 1 ? ' - ' + e.parallel + ' requêtes' : '') }),
+          el('div', { text: e.idle_min ? 'Arrêt après ' + e.idle_min + ' min d\'inactivité' : 'Jamais arrêté pour inactivité' })),
+        el('td', { class: 'small' }, el('div', { text: st.requests + ' requête(s)' }), st.inflight ? el('div', { text: st.inflight + ' en cours' }) : null),
+        el('td', {}, el('div', { class: 'row' },
+          st.state === 'ready' ? el('button', { class: 'btn sm', type: 'button', text: 'Arrêter', onclick: () => engAct(e, 'stop') }) : el('button', { class: 'btn sm', type: 'button', text: 'Démarrer', disabled: !b.installed, onclick: () => engAct(e, 'start') }),
+          st.state === 'ready' ? el('button', { class: 'btn sm', type: 'button', text: 'Redémarrer', onclick: () => engAct(e, 'restart') }) : null,
+          el('button', { class: 'btn sm', type: 'button', text: 'Modifier', onclick: () => engEdit(e) }), el('button', { class: 'btn sm', type: 'button', text: 'Journal', onclick: () => engLog(e) }),
+          el('button', { class: 'btn sm danger', type: 'button', text: 'Supprimer', onclick: () => engDelete(e) })))); })))) : el('p', { class: 'muted', text: 'Aucun moteur.' }));
+  const sel = $('#eng-new-form').elements.model, cur = sel.value;
+  const cands = new Map(d.candidates.map((c) => [c.name, c]));
+  const names = d.candidates.map((c) => c.name).concat(d.all_models.filter((n) => !cands.has(n)));
+  sel.replaceChildren(...names.map((n) => el('option', { value: n, text: n + (cands.has(n) ? ' (modèle à experts trop gros)' : '') })));
+  if (names.includes(cur)) sel.value = cur;
+  if (running || busy) eng.timer = setTimeout(() => { if (location.hash.startsWith('#models/engine')) loadEngines(); }, 1500);
+}
+async function engAct(e, act) {
+  try { await api('/api/llama/action', { json: { id: e.id, action: act } }); } catch (x) { fail(x.message); }
+  setTimeout(loadEngines, 400);
+}
+async function engDelete(e) {
+  if (!(await ask('Supprimer le moteur de « ' + e.model + ' » ? Le modèle reste installé dans Ollama et ses demandes lui reviennent.'))) return;
+  try { await api('/api/llama/delete', { json: { id: e.id } }); } catch (x) { fail(x.message); }
+  loadEngines();
+}
+async function engLog(e) {
+  try { const d = await api('/api/llama/logs?id=' + encodeURIComponent(e.id)); await modal({ title: 'Journal du moteur « ' + e.model + ' »', body: el('pre', { class: 'logbox', text: d.text || '(vide)' }), cancel: null }); } catch (x) { fail(x.message); }
+}
+async function engEdit(e) {
+  const num = (v, label, min, max) => el('input', { type: 'number', value: v == null ? '' : String(v), min: String(min), max: String(max), 'aria-label': label });
+  const ctx = num(e.ctx, 'Contexte par requête (jetons)', 512, 1048576), par = num(e.parallel, 'Requêtes parallèles', 1, 8), moe = num(e.n_cpu_moe, 'Couches dont les experts vont en mémoire système', 0, 512);
+  const kv = el('select', { 'aria-label': 'Cache de contexte' }, ...['f16', 'q8_0', 'q4_0'].map((k) => el('option', { value: k, text: k })));
+  kv.value = e.kv;
+  const fa = el('input', { type: 'checkbox', 'aria-label': 'Flash attention' }); fa.checked = e.flash !== false;
+  const un = el('input', { type: 'checkbox', 'aria-label': 'Décharger Ollama avant le démarrage' }); un.checked = e.unload_ollama !== false;
+  const th = num(e.threads, 'Fils de calcul (0 = automatique)', 0, 256), idle = num(e.idle_min, 'Arrêt après inactivité (minutes, 0 = jamais)', 0, 1440), to = num(e.start_timeout, 'Délai de démarrage (secondes)', 30, 1800);
+  const extra = el('input', { type: 'text', value: e.extra || '', maxlength: '300', placeholder: 'ex. --no-mmap', 'aria-label': 'Options supplémentaires de llama-server' });
+  const ok = await modal({ title: 'Moteur de « ' + e.model + ' »', message: 'Les réglages s\'appliquent au prochain démarrage de llama-server (le service est relancé).',
+    body: el('div', { class: 'row' }, el('label', {}, 'Contexte par requête (jetons) ', ctx), el('label', {}, 'Requêtes parallèles ', par), el('label', {}, 'Couches dont les experts vont en mémoire système (vide = aucune) ', moe),
+      el('label', {}, 'Cache de contexte ', kv), el('label', { class: 'check' }, fa, ' Flash attention (nécessaire au cache quantifié)'), el('label', {}, 'Fils de calcul (0 = automatique) ', th),
+      el('label', {}, 'Arrêt après inactivité (minutes, 0 = jamais) ', idle), el('label', {}, 'Délai de démarrage (secondes) ', to), el('label', { class: 'check' }, un, ' Décharger les modèles d\'Ollama avant le démarrage'),
+      el('label', {}, 'Options supplémentaires de llama-server ', extra)), ok: 'Enregistrer' });
+  if (!ok) return;
+  try { await api('/api/llama/save', { json: { id: e.id, ctx: ctx.value, parallel: par.value, n_cpu_moe: moe.value, kv: kv.value, flash: fa.checked, threads: th.value, idle_min: idle.value, start_timeout: to.value, unload_ollama: un.checked, extra: extra.value } }); } catch (x) { fail(x.message); }
+  loadEngines();
+}
+$('#eng-refresh').addEventListener('click', loadEngines);
+$('#eng-install-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  try { await api('/api/llama/install', { json: { backend: ev.target.elements.backend.value } }); } catch (e) { fail(e.message); }
+  loadEngines();
+});
+$('#eng-new-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const model = ev.target.elements.model.value;
+  if (!model) return;
+  try { await api('/api/llama/save', { json: { model } }); } catch (e) { fail(e.message); }
+  loadEngines();
+});
+
 /* ------------------------------------------------ file d'attente */
 const fmtWait = (s) => (s >= 90 ? Math.round(s / 60) + ' min' : s < 10 ? DEC(Number(s).toFixed(1)) + ' s' : DEC(Math.round(s)) + ' s');
 async function loadQueue() {
@@ -2366,7 +2539,7 @@ function renderMuHistory(d) {
     el('tbody', {}, ...d.history.map((h) => { const s = MU_STATUS[h.status] || [h.status, '']; return el('tr', {}, el('td', { class: 'small', text: fmtDate(h.t) }), el('td', { class: 'name', text: h.model }), el('td', {}, pill(s[0], s[1])),
       el('td', { class: 'small', text: h.detail + (h.tps_before && h.tps_after ? ' (débit ' + DEC(h.tps_before) + ' → ' + DEC(h.tps_after) + ' jetons/s)' : '') }), el('td', { class: 'small', text: h.who + ' (' + h.reason + ')' })); })))) : el('p', { class: 'muted small', text: 'Aucune mise à jour enregistrée.' }));
 }
-const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'redirect', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'costs', 'privacy', 'system'], fleet: ['fleet', 'balance', 'queue', 'power', 'rules', 'add'] };
+const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'fit', 'engine', 'redirect', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'costs', 'privacy', 'system'], fleet: ['fleet', 'balance', 'queue', 'power', 'rules', 'add'] };
 function setupTabs() {
   for (const sec of $$('section.view')) {
     const items = [...sec.querySelectorAll('[data-panel]')];

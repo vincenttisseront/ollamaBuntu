@@ -34,6 +34,8 @@ def offload(running, has_gpu=True):
     if not has_gpu:
         return out
     for m in running or []:
+        if m.get("engine"):
+            continue   # moteur llama.cpp : les experts en mémoire système sont voulus (ils ne sont pas un débordement subi)
         size, vram = int(m.get("size") or 0), int(m.get("size_vram") or 0)
         if size <= 0 or vram >= size:
             continue

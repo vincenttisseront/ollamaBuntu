@@ -40,6 +40,10 @@ python3 tests/unit/power_admin_test.py           # réveil et veille côté cons
 python3 tests/unit/power_router_test.py          # routeur : modèle que seul un serveur endormi possède (503 + Retry-After, signal lu par la console)
 python3 tests/unit/redirect_router_test.py       # routeur : redirection de modèles (règles à chaud, pourcentage, OpenAI, pas d'enchaînement, journal)
 python3 tests/unit/redirect_admin_test.py        # console : validation des règles, routes HTTP, droits, audit, sauvegarde
+python3 tests/unit/fit_test.py                 # ajustement : mémoire du modèle (poids, cache de contexte, fenêtre glissante), scénarios (mémoire vidéo, experts en mémoire système, couches), vitesse estimée, calibrage, Hugging Face
+python3 tests/unit/llamacpp_test.py            # moteur llama.cpp : nom du fichier du modèle, arguments de llama-server, options détectées, traduction Ollama <-> OpenAI (flux, outils, durées), choix de l'archive
+python3 tests/unit/llama_engine_test.py        # service du moteur : démarrage à la demande (faux llama-server), arrêt sur inactivité, un moteur à la fois, annulation, erreurs, flux
+python3 tests/unit/llama_admin_test.py         # console : routes /api/fit* et /api/llama*, installation (somme SHA-256, extraction sûre), moteurs, sauvegarde, audit, routeur
 python3 tests/unit/sso_test.py                   # connexion unique : jetons OIDC (RS256, nonce, aud, exp), PKCE, LDAP/AD simulé (LDAPS, StartTLS, injection de filtre), rôles par groupe, comptes SSO, routes HTTP
 python3 tests/unit/costs_test.py                 # coûts : temps de calcul, énergie, registre mensuel alimenté par le journal, équipes, export CSV, rapport hebdomadaire
 python3 tests/unit/modelupdate_test.py          # mise à jour des modèles : fenêtre de maintenance, copie de sécurité, retour arrière automatique ou manuel (Ollama simulé)
@@ -48,6 +52,7 @@ node tests/unit/queue_ui_test.js             # console : Serveurs > File d'atten
 node tests/unit/privacy_ui_test.js           # console : Journaux > Confidentialité (statistiques, réglages, essai), termes interdits d'une clé, FR et EN
 node tests/unit/rag_ui_test.js               # console : écran Documents (dépôt, progression, réglages, essai), base choisie dans la conversation avec sources, bases autorisées d'une clé, FR et EN
 node tests/unit/power_ui_test.js             # console : Serveurs > Veille (réglages, états, journal, réveil et veille manuels), cartes réseau et autorisation de la gestion centralisée, FR et EN
+node tests/unit/fit_ui_test.js               # console : Modèles > Ajustement et Moteur MoE (verdicts, détail, calibrage, Hugging Face, création/modification/arrêt des moteurs, installation), FR et EN
 node tests/unit/redirect_ui_test.js          # console : Modèles > Redirections (règles, pourcentage, enregistrement, erreurs), FR et EN
 node tests/unit/sso_ui_test.js               # console : bouton de la page de connexion, codes d'erreur, Utilisateurs > Connexion unique (SSO), comptes SSO, FR et EN
 node tests/unit/costs_ui_test.js             # console : Journaux > Coûts (mois, équipes, clés, paramètres, export), équipe d'une clé, FR et EN

@@ -32,6 +32,7 @@ import rag  # noqa: E402
 
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
 POOLS_FILE = os.path.join(ETC, "pools.json")
+ENGINES_FILE = os.path.join(ETC, "engines.json")   # moteurs llama.cpp (modèles MoE) : un démon compatible Ollama par modèle
 PUB_FILE = os.path.join(ETC, "publication.json")
 TLS_DIR = os.path.join(ETC, "router-tls")
 USAGE_FILE = os.environ.get("OB_ROUTER_USAGE", "/var/lib/ollamabuntu-router/usage.json")
@@ -478,12 +479,17 @@ def norm(name):
     return n.lower()
 
 
-def routes():
-    """Table modèle -> instance, relue dès que pools.json change."""
+def _mtime(path):
     try:
-        mtime = os.path.getmtime(POOLS_FILE)
+        return os.path.getmtime(path)
     except OSError:
-        mtime = None
+        return None
+
+
+def routes():
+    """Table modèle -> instance, relue dès que pools.json ou engines.json change. Retourne (table, instances) : les moteurs llama.cpp
+    sont des instances comme les groupes de GPU (même table, même /api/ps)."""
+    mtime = (_mtime(POOLS_FILE), _mtime(ENGINES_FILE))
     with _lock:
         if mtime != _routes["mtime"]:
             table, pools = {}, []
@@ -495,6 +501,15 @@ def routes():
             for p in pools:
                 for m in p.get("models", []):
                     table[norm(m)] = "127.0.0.1:%d" % int(p["port"])
+            try:
+                with open(ENGINES_FILE, encoding="utf-8") as f:
+                    engines = json.load(f).get("engines", [])
+            except (OSError, ValueError):
+                engines = []
+            for e in engines:
+                if isinstance(e, dict) and e.get("model") and str(e.get("port", "")).isdigit():
+                    table[norm(e["model"])] = "127.0.0.1:%d" % int(e["port"])
+                    pools = pools + [{"id": "moteur-" + str(e.get("id")), "port": int(e["port"]), "models": [e["model"]], "engine": True}]
             _routes.update(mtime=mtime, map=table, pools=pools)
         return _routes["map"], _routes["pools"]
 

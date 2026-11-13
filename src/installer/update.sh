@@ -299,6 +299,7 @@ else
   agetty --reload 2>/dev/null || true   # bannière à jour sur les invites de connexion déjà affichées
   systemctl restart ollama.service || true
   systemctl restart ollamabuntu-router.service || true
+  systemctl try-restart 'ollamabuntu-llama@*.service' || true   # moteurs llama.cpp (modèles MoE) : reprennent le nouveau code
   systemctl restart ollamabuntu-firewall.service || true
   systemctl reload ssh.service 2>/dev/null || true
   systemctl try-restart ollamabuntu-admin.service || true

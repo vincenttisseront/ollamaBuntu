@@ -28,6 +28,10 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/power_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/power_admin_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/power_router_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/fit_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/llamacpp_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/llama_engine_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/llama_admin_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 -I tests/unit/redirect_router_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 -I tests/unit/redirect_admin_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/gpu_auto_test.py
@@ -68,6 +72,7 @@ test-ui:
 	node tests/unit/rag_ui_test.js
 	node tests/unit/power_ui_test.js
 	node tests/unit/redirect_ui_test.js
+	node tests/unit/fit_ui_test.js
 
 # Archive de mise à jour en ligne (OB_VERSION=AAAA.MM.JJ-HHMM, OB_SIGNING_KEY=clé privée pour signer)
 bundle:

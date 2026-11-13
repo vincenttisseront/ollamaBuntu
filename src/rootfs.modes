@@ -11,6 +11,7 @@
 0755 usr/local/lib/ollamabuntu/open-webui.sh
 0755 usr/local/lib/ollamabuntu/postinstall.sh
 0755 usr/local/lib/ollamabuntu/router.py
+0755 usr/local/lib/ollamabuntu/llama-engine.py
 0755 usr/local/sbin/ollamabuntu-crypt
 0755 usr/local/sbin/ollamabuntu-setup
 0755 usr/local/sbin/ollamabuntu-update

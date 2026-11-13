@@ -55,7 +55,7 @@ async function scenario(lang) {
   w.location.hash = '#models/redirect';
   ok(await until(() => $$('#rd-body tbody tr').length === 1), L('onglet « Redirections » chargé', 'EN: redirects tab loaded'));
   const keys = [...$$('#view-models > .subtabs a')].map((a) => a.dataset.key);
-  ok(keys.indexOf('redirect') === keys.indexOf('context') + 1, L('onglet placé après « Taille du contexte »', 'EN: tab order'));
+  ok(keys.indexOf('redirect') === keys.indexOf('engine') + 1, L('onglet placé après « Moteur MoE »', 'EN: tab order'));
   ok($('#view-models > .subtabs a[data-key=redirect]').textContent.trim() === L('Redirections', 'Redirects'), L('libellé de l\'onglet', 'EN: tab label'));
   let ins = $$('#rd-body tbody tr:first-child input');
   ok(ins[0].value === 'gemma4:12b' && ins[1].value === 'qwen3:14b' && ins[2].value === '100' && ins[3].checked, L('règle existante affichée', 'EN: existing rule shown'));
