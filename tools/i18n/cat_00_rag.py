@@ -1,5 +1,20 @@
 # Base de documents (RAG) : dépôt, indexation, recherche avec sources, bases autorisées par clé
 E = {
+"Classement hybride : les mots de la question départagent les extraits proches": "Hybrid ranking: the words of the question break ties between close excerpts",
+"Recherche rapide : premier tri sur le début des vecteurs (grandes bases)": "Fast search: first pass on the start of the vectors (large bases)",
+"Calculer les embeddings sur le processeur (le modèle de conversation reste en mémoire vidéo)": "Compute embeddings on the processor (the chat model stays in video memory)",
+"Vérifier la recherche rapide": "Check the fast search",
+"Mesure en cours (20 secondes au plus)...": "Measuring (20 seconds at most)...",
+"Mesure impossible": "Measurement impossible",
+"mesure impossible": "measurement impossible",
+"base trop petite (moins de 200 extraits) : la recherche exacte est déjà instantanée": "base too small (fewer than 200 excerpts): the exact search is already instant",
+"aucun document indexé avec ce modèle": "no document indexed with this model",
+"La recherche rapide ne perd presque rien sur cette base : vous pouvez l'activer.": "The fast search loses almost nothing on this base: you can turn it on.",
+"La recherche rapide perd une petite part des meilleurs résultats : à activer seulement si la lenteur de la recherche exacte vous gêne.":
+  "The fast search loses a small share of the best results: turn it on only if the slowness of the exact search bothers you.",
+"La recherche rapide perd trop de résultats avec ce modèle : laissez-la désactivée.": "The fast search loses too many results with this model: leave it off.",
+"Recherche rapide : sur une base d'au moins 200 extraits, le premier tri ne lit que le début de chaque vecteur, puis les meilleurs candidats sont départagés exactement. Ce n'est fiable que pour les modèles dont le début du vecteur suffit à classer : la vérification prend des extraits de votre base comme questions et mesure la part des meilleurs résultats exacts qu'elle retrouve. Classement hybride : à score proche, l'extrait qui contient les mots de la question passe devant (le score affiché reste celui des embeddings). Calcul sur le processeur : l'indexation est plus lente, mais le petit modèle d'embeddings ne prend plus de place sur la carte et ne chasse plus le modèle de conversation.":
+  "Fast search: on a base of at least 200 excerpts, the first pass only reads the start of each vector, then the best candidates are ranked exactly. This is only reliable for models whose vector start is enough to rank: the check takes excerpts from your base as questions and measures the share of the best exact results it finds again. Hybrid ranking: when scores are close, the excerpt that contains the words of the question comes first (the displayed score remains the embeddings one). Compute on the processor: indexing is slower, but the small embeddings model no longer takes room on the card and no longer pushes the chat model out.",
 "Documents": "Documents", "Base de documents": "Document base", "Sans documents": "Without documents",
 "Déposez vos documents : ils sont découpés puis indexés sur ce serveur (aucun envoi hors de l'appliance). Dans la conversation, choisissez une base pour que le modèle réponde d'après ces documents, avec ses sources. Les mêmes recherches sont disponibles par l'API (voir la documentation).":
     "Drop your documents: they are split and indexed on this server (nothing leaves the appliance). In the chat, pick a base so the model answers from these documents, with its sources. The same searches are available through the API (see the documentation).",
@@ -37,6 +52,9 @@ E = {
 "Les PDF demandent le programme pdftotext": "PDF files need the pdftotext program",
 }
 P = [
+(r'Résultats exacts retrouvés : (\d+) % des (\d+) premiers \((\d+) questions prises dans la base de (\d+) extraits\)\.', "Exact results found again: {1} % of the first {2} ({3} questions taken from the base of {4} excerpts)."),
+(r'Temps moyen d\'une recherche : (\d+) ms en exacte, (\d+) ms en rapide \(premier tri sur (\d+) valeurs sur (\d+)\)\.', "Average time of a search: {1} ms exact, {2} ms fast (first pass on {3} values out of {4})."),
+(r'vecteurs trop courts \((\d+) valeurs\) : la recherche rapide ne s\'applique pas', "vectors too short ({1} values): the fast search does not apply"),
 (r"Documents : (.+)", "Documents: {1}"),
 (r"documents : (.+)", "documents: {1}"),
 (r", p\. (\d+)", ", p. {1}"),

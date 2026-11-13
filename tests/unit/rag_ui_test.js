@@ -18,7 +18,7 @@ const st = {};
 function reset() {
   Object.assign(st, {
     docs: [doc('d1', 'conges.md', 'RH'), doc('d2', 'contrat.docx', 'Juridique', 'autre-modele:latest', 7), doc('d3', 'primes.txt', 'RH', 'nomic-embed-text', 3)], jobs: [], pdf: true, modelOk: true,
-    settings: { embed_model: 'nomic-embed-text', chunk_chars: 900, overlap: 120, top_k: 5, min_score: 0.35 }, saveError: '', uploadError: '', polls: 0,
+    settings: { embed_model: 'nomic-embed-text', chunk_chars: 900, overlap: 120, top_k: 5, min_score: 0.35, hybrid: false, fast: false, embed_cpu: false }, fast: null, saveError: '', uploadError: '', polls: 0,
   });
 }
 const view = () => {
@@ -26,7 +26,7 @@ const view = () => {
   for (const d of st.docs) { const c = colls[d.collection] || (colls[d.collection] = { name: d.collection, docs: 0, chunks: 0 }); c.docs++; c.chunks += d.chunks; }
   return { settings: st.settings, docs: st.docs, jobs: st.jobs, collections: Object.values(colls), chunks: st.docs.reduce((a, d) => a + d.chunks, 0), max_chunks: 20000,
     embed_models: st.modelOk ? ['nomic-embed-text:latest', 'mxbai-embed-large:latest'] : ['mxbai-embed-large:latest'], model_ok: st.modelOk, stale: st.docs.filter((d) => d.model !== st.settings.embed_model).length,
-    pdf: st.pdf, max_upload: 25 * 1048576 };
+    pdf: st.pdf, max_upload: 25 * 1048576, fast_check: st.fast };
 };
 async function fakeFetch(p, o = {}) {
   const body = o.body ? JSON.parse(o.body) : undefined, m = o.method || 'GET';
@@ -44,8 +44,9 @@ async function fakeFetch(p, o = {}) {
   if (p === '/api/rag/reindex') { st.docs.forEach((d) => { d.model = st.settings.embed_model; }); return json({ ok: true, ids: [] }); }
   if (p === '/api/rag/config') {
     if (st.saveError) return json({ error: st.saveError }, 400);
-    st.settings = Object.assign({}, st.settings, { embed_model: body.embed_model, chunk_chars: Number(body.chunk_chars), overlap: Number(body.overlap), top_k: Number(body.top_k), min_score: Number(body.min_score) }); return json({ ok: true, config: st.settings });
+    st.settings = Object.assign({}, st.settings, { embed_model: body.embed_model, chunk_chars: Number(body.chunk_chars), overlap: Number(body.overlap), top_k: Number(body.top_k), min_score: Number(body.min_score), hybrid: body.hybrid === true, fast: body.fast === true, embed_cpu: body.embed_cpu === true }); return json({ ok: true, config: st.settings });
   }
+  if (p === '/api/rag/fast-check') { if (st.fastError) return json({ error: st.fastError }, 400); st.fast = st.fastNext; return json(st.fast); }
   if (p === '/api/rag/search') {
     const s = /introuvable/.test(body.question) ? [] : [{ n: 1, doc: 'd1', name: 'conges.md', collection: 'RH', page: null, heading: 'Congés payés', score: 0.8123, excerpt: 'Chaque salarié a droit à 25 jours.' }, { n: 2, doc: 'd2', name: 'contrat.pdf', collection: 'RH', page: 3, heading: '', score: 0.51, excerpt: 'Préavis de deux mois.' }];
     return json({ system: 'CONSIGNE ' + s.length, sources: s, stale: /ancien/.test(body.question) ? 1 : 0, model: 'nomic-embed-text' });
@@ -130,6 +131,32 @@ async function scenario(lang) {
   ok(await until(() => T('#rag-cfg-msg') === L('Enregistré.', 'Saved.')), L('confirmation', 'EN: saved'));
   st.saveError = 'chevauchement : au plus la moitié de la taille des extraits'; submit('#rag-cfg-form');
   ok(await until(() => $('#rag-cfg-msg').classList.contains('error') && T('#rag-cfg-msg') === L(st.saveError, 'overlap: at most half the excerpt size')), L('erreur de validation traduite', 'EN: validation error'));
+  st.saveError = ''; cf.hybrid.checked = true; cf.fast.checked = false; cf.embed_cpu.checked = true; calls.length = 0; submit('#rag-cfg-form');
+  ok(await until(() => calls.some((c) => c[1] === '/api/rag/config')), L('options d\'accélération envoyées', 'EN: options sent'));
+  const sent2 = calls.find((c) => c[1] === '/api/rag/config')[2];
+  ok(sent2.hybrid === true && sent2.fast === false && sent2.embed_cpu === true, L('hybride et processeur cochés, recherche rapide décochée', 'EN: options payload'));
+  ok(await until(() => $('#rag-cfg-form').elements.hybrid.checked && !$('#rag-cfg-form').elements.fast.checked && $('#rag-cfg-form').elements.embed_cpu.checked), L('cases rechargées depuis le serveur', 'EN: boxes reloaded'));
+  // vérification de la recherche rapide
+  ok(T('#rag-fast-result') === '', L('aucune mesure : rien affiché', 'EN: no measurement shown'));
+  st.fastNext = { ok: false, reason: 'base trop petite (moins de 200 extraits) : la recherche exacte est déjà instantanée', chunks: 14, model: 'nomic-embed-text', t: 1790000000 };
+  calls.length = 0; $('#rag-fast-check').click();
+  ok(await until(() => calls.some((c) => c[1] === '/api/rag/fast-check')) && await until(() => T('#rag-fast-result').includes(L('trop petite', 'too small'))), L('base trop petite : raison affichée', 'EN: too small'));
+  ok(T('#rag-fast-result').includes(L('déjà instantanée', 'already instant')) && !$('#rag-fast-check').disabled, L('raison traduite, bouton de nouveau disponible', 'EN: reason translated'));
+  st.fastNext = { ok: false, reason: 'vecteurs trop courts (64 valeurs) : la recherche rapide ne s\'applique pas', chunks: 900, model: 'nomic-embed-text', t: 1790000001 };
+  $('#rag-fast-check').click();
+  ok(await until(() => T('#rag-fast-result').includes(L('64 valeurs', '64 values'))), L('vecteurs trop courts : raison avec le nombre de valeurs', 'EN: short vectors'));
+  st.fastNext = { ok: true, recall: 0.974, samples: 10, k: 5, chunks: 4200, dim: 1024, coarse_dims: 168, exact_ms: 38, fast_ms: 9, model: 'bge-m3', t: 1790000002 };
+  $('#rag-fast-check').click();
+  ok(await until(() => T('#rag-fast-result').includes(L('97 % des 5 premiers', '97 % of the first 5'))), L('rappel mesuré affiché', 'EN: recall shown'));
+  ok(T('#rag-fast-result').includes(L('10 questions prises dans la base de 4200 extraits', '10 questions taken from the base of 4200 excerpts')) && T('#rag-fast-result').includes(L('38 ms en exacte, 9 ms en rapide', '38 ms exact, 9 ms fast')) && T('#rag-fast-result').includes(L('168 valeurs sur 1024', '168 values out of 1024')), L('détails : échantillon, temps, début de vecteur', 'EN: details'));
+  ok(T('#rag-fast-result').includes(L('vous pouvez l\'activer', 'you can turn it on')) && $('#rag-fast-result .okmsg'), L('verdict favorable', 'EN: verdict good'));
+  st.fastNext = Object.assign({}, st.fastNext, { recall: 0.9 }); $('#rag-fast-check').click();
+  ok(await until(() => T('#rag-fast-result').includes(L('perd une petite part', 'loses a small share'))), L('verdict intermédiaire', 'EN: verdict middle'));
+  st.fastNext = Object.assign({}, st.fastNext, { recall: 0.62 }); $('#rag-fast-check').click();
+  ok(await until(() => T('#rag-fast-result').includes(L('laissez-la désactivée', 'leave it off'))) && $('#rag-fast-result .error'), L('verdict défavorable', 'EN: verdict bad'));
+  st.fastError = 'mesure impossible'; $('#rag-fast-check').click();
+  ok(await until(() => $('#rag-fast-msg').classList.contains('error') && T('#rag-fast-msg').length > 5) && !$('#rag-fast-check').disabled, L('erreur de la mesure affichée', 'EN: measure error'));
+  st.fastError = '';
   st.saveError = ''; calls.length = 0; $('#rag-reindex').click();
   ok(await until(() => calls.some((c) => c[1] === '/api/rag/reindex')) && await until(() => $('#rag-reindex').classList.contains('hidden')), L('réindexation demandée, bouton masqué ensuite', 'EN: reindex then hidden'));
   // modèle d'embeddings absent, PDF indisponible

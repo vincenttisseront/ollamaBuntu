@@ -50,6 +50,7 @@ async function fakeFetch(p, o = {}) {
   if (p === '/api/fit/apply') return json({ ok: true, ctx: body.ctx, kv: body.kv });
   if (p.startsWith('/api/fit/hf')) {
     if (st.hfError) return json({ error: st.hfError }, 400);
+    if (st.hfEmpty && !p.includes('u%2Fx-GGUF')) return json({ id: 'Org/x', moe: false, quants: [], safetensors: true, alternatives: [{ id: 'u/x-GGUF', downloads: 1234567 }, { id: 'b/x-GGUF', downloads: 800 }] });
     return json({ id: 'a/b', moe: true, quants: [{ quant: 'Q2_K', size: 11 * GIB, verdict: 'gpu', label: 'Tient en mémoire vidéo', tps: 60.1, n_cpu_moe: null }, { quant: 'Q4_K_M', size: 17.3 * GIB, verdict: 'moe', label: 'Experts en mémoire système', tps: 52.7, n_cpu_moe: 11 }] });
   }
   if (p === '/api/llama') return json({ binary: st.binary, install: st.install, engines: st.engines, exclusive: true, candidates: st.candidates, all_models: ['dense30:latest', 'gemma4:12b', 'qwen3:30b-a3b'], vulkan: st.vulkan, gpus: ['AMD Radeon RX 7800 XT'], repo: 'ggml-org/llama.cpp' });
@@ -152,6 +153,12 @@ async function scenario(lang) {
   const hr = $$('#fit-hf-out tbody tr').map((r) => [...r.children].map((c) => c.textContent));
   ok(hr[1][0] === 'Q4_K_M' && hr[1][2] === L('Experts en mémoire système', 'Experts in system memory') && hr[1][3] === L('52,7 jetons/s', '52.7 tokens/s') && hr[1][4] === L('≈ 11 couche(s)', '≈ 11 layer(s)') && hr[0][4] === '-', L('verdict, vitesse et couches d\'experts par quantification', 'EN: HF row'));
   ok(T('#fit-hf-out').includes(L('Modèle à experts', 'Mixture-of-experts model')), L('modèle à experts signalé', 'EN: HF moe label'));
+  st.hfEmpty = true; calls.length = 0; $('#fit-hf-form').elements.repo.value = 'Org/x'; submit('#fit-hf-form');
+  ok(await until(() => $$('#fit-hf-out .hf-nogguf button').length === 2) && $$('#fit-hf-out tbody tr').length === 0, L('dépôt sans GGUF : pas de tableau vide, des propositions', 'EN: no-GGUF repo'));
+  ok(T('#fit-hf-out').includes(L('poids d\'origine (safetensors)', 'original weights (safetensors)')) && T('#fit-hf-out').includes(L('Versions GGUF du même modèle', 'GGUF versions of the same model')) && $$('#fit-hf-out .hf-nogguf button')[0].textContent.includes(L('1,2 M téléchargements', '1.2 M downloads')), L('explication, propositions et nombre de téléchargements traduits', 'EN: no-GGUF texts'));
+  $$('#fit-hf-out .hf-nogguf button')[0].click();
+  ok(await until(() => calls.some((c) => c[1] === '/api/fit/hf?repo=u%2Fx-GGUF')) && $('#fit-hf-form').elements.repo.value === 'u/x-GGUF' && await until(() => $$('#fit-hf-out tbody tr').length === 2), L('un clic sur une proposition étudie ce dépôt GGUF', 'EN: click a proposal'));
+  st.hfEmpty = false;
   st.hfError = 'dépôt introuvable sur Hugging Face'; submit('#fit-hf-form');
   ok(await until(() => $('#fit-hf-msg').classList.contains('error') && T('#fit-hf-msg').length > 5), L('dépôt introuvable : message affiché', 'EN: HF error'));
   // ------- moteur

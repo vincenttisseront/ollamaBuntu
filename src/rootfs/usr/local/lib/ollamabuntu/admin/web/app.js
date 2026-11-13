@@ -485,6 +485,16 @@ async function hfSearch() {
       el('button', { class: 'btn sm', type: 'button', text: 'Choisir', onclick: () => hfQuants(m.id) }))));
   } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
 }
+/* Dépôt Hugging Face sans fichier GGUF (souvent le dépôt d'origine du modèle) : explique pourquoi et propose les versions GGUF du même modèle. */
+function hfNoGguf(r, pick) {
+  const alt = r.alternatives || [];
+  return el('div', { class: 'hf-nogguf' },
+    el('p', { class: 'small error', text: 'Aucune quantification GGUF exploitable dans ce dépôt.' }),
+    r.safetensors ? el('p', { class: 'small muted', text: 'Ce dépôt contient les poids d\'origine (safetensors) : Ollama et llama.cpp ne lisent que le format GGUF, que des tiers publient à part.' }) : null,
+    alt.length ? el('p', { class: 'small', text: 'Versions GGUF du même modèle (les plus téléchargées) :' })
+      : el('p', { class: 'small muted', text: 'Aucune version GGUF trouvée automatiquement : cherchez le nom du modèle dans la recherche Hugging Face de la page Modèles.' }),
+    alt.length ? el('div', { class: 'actions' }, ...alt.map((x) => el('button', { class: 'btn sm', type: 'button', onclick: () => pick(x.id) }, x.id + ' ', el('span', { class: 'muted', text: hfNum(x.downloads) + ' téléchargements' })))) : null);
+}
 async function hfQuants(repo) {
   const box = $('#hf-quants'), msg = $('#hf-msg');
   msg.className = 'small muted'; msg.textContent = 'Lecture des quantifications...';
@@ -495,7 +505,7 @@ async function hfQuants(repo) {
     box.replaceChildren(el('h3', { text: repo }),
       r.uncensored ? el('p', { class: 'small error', text: 'Version sans censure : les garde-fous du modèle d\'origine sont retirés. Son usage reste soumis à la politique d\'usage de l\'IA de votre organisation.' }) : null,
       r.quants.length ? el('div', { class: 'small muted', text: 'Plus la quantification est basse (Q2, Q3), plus le fichier est petit et la qualité réduite ; Q4_K_M est un bon compromis.' })
-        : el('div', { class: 'small error', text: 'Aucune quantification GGUF exploitable dans ce dépôt.' }),
+        : hfNoGguf(r, hfQuants),
       el('div', { class: 'small muted', text: r.vram ? 'Mémoire vidéo de ce serveur : ' + fmtBytes(r.vram) : 'Ce serveur n\'a pas de GPU : le modèle tournera sur le processeur.' }),
       el('div', { class: 'actions' }, ...r.quants.map((q) => el('button', { class: 'btn sm', type: 'button', onclick: () => hfPull(repo, q.quant, r.uncensored, q.fit) }, q.quant + ' (' + fmtBytes(q.size) + ') ', pill(HF_FIT[q.fit][0], HF_FIT[q.fit][1])))));
     box.scrollIntoView({ block: 'nearest' });
@@ -1805,6 +1815,8 @@ async function loadRag() {
   if (w_active() !== f.elements.embed_model) f.elements.embed_model.replaceChildren(...models.map((m) => el('option', { value: m, text: m })));
   f.elements.embed_model.value = c.embed_model;
   for (const k of ['chunk_chars', 'overlap', 'top_k', 'min_score']) if (w_active() !== f.elements[k]) f.elements[k].value = c[k];
+  for (const k of ['hybrid', 'fast', 'embed_cpu']) if (w_active() !== f.elements[k]) f.elements[k].checked = !!c[k];
+  ragFastShow(d.fast_check);
   $('#rag-reindex').classList.toggle('hidden', !d.stale);
   $('#rag-warn').replaceChildren(...[
     d.model_ok ? null : el('p', { class: 'error', text: 'Le modèle d\'embeddings « ' + c.embed_model + ' » n\'est pas installé : installez-le dans Modèles (par exemple nomic-embed-text) avant de déposer des documents.' }),
@@ -1828,6 +1840,19 @@ async function loadRag() {
       el('td', {}, el('button', { class: 'btn sm danger', type: 'button', text: 'Supprimer', onclick: () => ragDelete(x) }))))))) : el('p', { class: 'muted', text: 'Aucun document pour le moment.' }));
   $('#rag-totals').textContent = d.docs.length ? d.chunks + ' extraits sur ' + d.max_chunks + ' possibles, dans ' + d.collections.length + ' base(s).' : '';
   if (active) rag.timer = setTimeout(() => { if (location.hash === '#rag') loadRag(); }, 1500);
+}
+function ragFastShow(r) {
+  const box = $('#rag-fast-result');
+  if (!r) { box.replaceChildren(); return; }
+  if (!r.ok) { box.replaceChildren(el('p', { class: 'muted', text: r.reason || 'Mesure impossible' })); return; }
+  const pct = Math.round(r.recall * 100);
+  const verdict = r.recall >= 0.95 ? ['okmsg', 'La recherche rapide ne perd presque rien sur cette base : vous pouvez l\'activer.']
+    : r.recall >= 0.85 ? ['', 'La recherche rapide perd une petite part des meilleurs résultats : à activer seulement si la lenteur de la recherche exacte vous gêne.']
+    : ['error', 'La recherche rapide perd trop de résultats avec ce modèle : laissez-la désactivée.'];
+  box.replaceChildren(
+    el('p', { text: 'Résultats exacts retrouvés : ' + pct + ' % des ' + r.k + ' premiers (' + r.samples + ' questions prises dans la base de ' + r.chunks + ' extraits).' }),
+    el('p', { text: 'Temps moyen d\'une recherche : ' + r.exact_ms + ' ms en exacte, ' + r.fast_ms + ' ms en rapide (premier tri sur ' + r.coarse_dims + ' valeurs sur ' + r.dim + ').' }),
+    el('p', { class: verdict[0], text: verdict[1] }));
 }
 async function ragDelete(x) {
   if (!(await ask('Supprimer le document « ' + x.name + ' » de la base « ' + x.collection + ' » ?'))) return;
@@ -1859,9 +1884,17 @@ $('#rag-cfg-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target, out = $('#rag-cfg-msg');
   try {
-    await api('/api/rag/config', { json: { embed_model: f.elements.embed_model.value, chunk_chars: f.elements.chunk_chars.value, overlap: f.elements.overlap.value, top_k: f.elements.top_k.value, min_score: f.elements.min_score.value } });
+    await api('/api/rag/config', { json: { embed_model: f.elements.embed_model.value, chunk_chars: f.elements.chunk_chars.value, overlap: f.elements.overlap.value, top_k: f.elements.top_k.value, min_score: f.elements.min_score.value,
+      hybrid: f.elements.hybrid.checked, fast: f.elements.fast.checked, embed_cpu: f.elements.embed_cpu.checked } });
     out.className = 'small okmsg'; out.textContent = 'Enregistré.'; loadRag();
   } catch (e) { out.className = 'small error'; out.textContent = e.message; }
+});
+$('#rag-fast-check').addEventListener('click', async () => {
+  const b = $('#rag-fast-check'), out = $('#rag-fast-msg');
+  b.disabled = true; out.className = 'small'; out.textContent = 'Mesure en cours (20 secondes au plus)...';
+  try { const r = await api('/api/rag/fast-check', { json: {} }); out.textContent = ''; ragFastShow(r); }
+  catch (e) { out.className = 'small error'; out.textContent = e.message; }
+  b.disabled = false;
 });
 $('#rag-reindex').addEventListener('click', async () => {
   try { await api('/api/rag/reindex', { json: {} }); } catch (e) { fail(e.message); }
@@ -2050,6 +2083,7 @@ $('#fit-hf-form').addEventListener('submit', async (ev) => {
   try {
     const d = await api('/api/fit/hf?repo=' + encodeURIComponent(ev.target.elements.repo.value.trim()));
     msg.textContent = '';
+    if (!d.quants.length) { out.replaceChildren(hfNoGguf(d, (id) => { ev.target.elements.repo.value = id; ev.target.requestSubmit(); })); return; }
     out.replaceChildren(el('p', { class: 'small', text: d.moe ? 'Modèle à experts (d\'après son nom ou son architecture).' : 'Modèle dense (ou non reconnu comme à experts).' }),
       el('div', { class: 'table-wrap' }, el('table', { class: 'dense' }, el('thead', {}, el('tr', {}, ...['Quantification', 'Taille', 'Verdict', 'Vitesse estimée', 'Experts en mémoire système'].map((t, i) => el('th', { class: i === 1 ? 'num' : '', text: t })))),
         el('tbody', {}, ...d.quants.map((q) => el('tr', {}, el('td', { class: 'name', text: q.quant }), el('td', { class: 'num', text: fmtBytes(q.size) }), el('td', {}, pill(q.label, FITV_KIND[q.verdict] || '')),

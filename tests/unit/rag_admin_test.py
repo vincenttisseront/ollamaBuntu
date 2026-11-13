@@ -123,6 +123,36 @@ v = server.rag_view(); ok(v["stale"] == 0 and all(d["model"] == "bge-m3" for d i
 ok(server.rag_search({"question": "congés payés vingt cinq jours"})["sources"][0]["name"] in ("règlement.md", "copie.md") and not any(b["input"][0].startswith("search_document") and b["model"] == "bge-m3" for b in EMBEDS), "recherche à nouveau possible ; pas de préfixe nomic avec un autre modèle")
 ok(raises(server.rag_reindex, "zzzzzzzzzzzz") and server.rag_reindex() == [], "réindexer rien : liste vide ; document inconnu : refusé")
 
+# --- accélérations : options, calcul sur processeur, reprise des vecteurs, vérification de la recherche rapide
+c = server.rag_save({"hybrid": True, "fast": True, "embed_cpu": True})
+ok(c["hybrid"] is True and c["fast"] is True and c["embed_cpu"] is True and c["top_k"] == 3 and server.rag_config()["embed_cpu"] is True, "options d'accélération enregistrées sans toucher aux autres réglages")
+c = server.rag_save({"hybrid": "oui", "fast": 1}); ok(c["hybrid"] is False and c["fast"] is False and c["embed_cpu"] is True, "seules de vraies valeurs « vrai » activent une option")
+server.rag_save({"embed_model": "bge-m3", "hybrid": True, "embed_cpu": True})
+EMBEDS.clear(); MODE[0] = "ok"
+paras = ["Section %d du manuel interne. " % i + "mot%d " % i * 60 for i in range(6)]
+base = "\n\n".join(paras)
+ja = server.rag_upload({"name": "manuel-a.txt", "collection": "IT", "content_b64": b64(base.encode())}); idle()
+da = next(d for d in server.rag_view()["docs"] if d["id"] == ja)
+ok(EMBEDS and all(b.get("options") == {"num_gpu": 0} for b in EMBEDS) and da["reused"] == 0, "calcul sur le processeur demandé à Ollama (num_gpu 0) pour chaque lot ; rien à reprendre au premier dépôt")
+n1 = sum(len(b["input"]) for b in EMBEDS); EMBEDS.clear()
+jb = server.rag_upload({"name": "manuel-b.txt", "collection": "IT", "content_b64": b64((base + "\n\nAnnexe : une seule phrase nouvelle ajoutée à la fin.").encode())}); idle()
+db = next(d for d in server.rag_view()["docs"] if d["id"] == jb)
+n2 = sum(len(b["input"]) for b in EMBEDS)
+ok(db["reused"] > 0 and n2 == db["chunks"] - db["reused"] and n2 < n1 + 1, "version modifiée d'un document : les extraits identiques reprennent leur vecteur (%d repris sur %d), seuls les nouveaux sont calculés" % (db["reused"], db["chunks"]))
+server.rag_save({"min_score": 0.0}); r = server.rag_search({"question": "manuel interne section mot3"}); server.rag_save({"min_score": 0.2})
+ok(r["sources"] and r["sources"][0]["name"].startswith("manuel-"), "recherche avec le classement hybride activé")
+server.rag_save({"embed_cpu": False}); EMBEDS.clear()
+jc = server.rag_upload({"name": "manuel-c.txt", "collection": "IT", "content_b64": b64((base + "\n\nAutre annexe : tout autre texte.").encode())}); idle()
+ok(EMBEDS and all("options" not in b for b in EMBEDS), "calcul sur le processeur désactivé : aucune option envoyée")
+for j in (ja, jb, jc): server.rag_delete(j)
+f = server.rag_fast_check()
+ok(f["ok"] is False and "trop petite" in f["reason"] and f["model"] == "bge-m3" and f["t"] > 0 and server.rag_view()["fast_check"] == f, "vérification de la recherche rapide sur une petite base : sans objet, raison donnée et résultat gardé pour l'écran")
+big_doc = "\n\n".join(("Rubrique %d. " % i) + ("contenu%d " % i) * 40 for i in range(260))
+jd = server.rag_upload({"name": "gros-manuel.txt", "collection": "IT", "content_b64": b64(big_doc.encode())}); idle()
+f = server.rag_fast_check()
+ok(f["ok"] is False and "trop courts" in f["reason"] and "64" in f["reason"], "grande base mais vecteurs courts (64 valeurs) : la recherche rapide ne s'applique pas, expliqué")
+server.rag_delete(jd); server.rag_save({"hybrid": False, "fast": False, "embed_cpu": False})
+
 # --- routes HTTP
 httpd = server.make_server(0, server.Handler); port = httpd.server_address[1]
 threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -154,6 +184,9 @@ st, _, d = req("POST", "/api/rag/upload", "", raw=big); ok(st in (0, 401), "gros
 st, _, d = req("POST", "/api/rag/upload", usr, raw=big); ok(st in (0, 403), "gros envoi par un simple utilisateur : refusé avant lecture")
 st, _, d = req("POST", "/api/rag/config", adm, {"embed_model": "nomic-embed-text"}); ok(st == 200 and d["config"]["embed_model"] == "nomic-embed-text", "POST /api/rag/config")
 st, _, d = req("POST", "/api/rag/config", adm, {"top_k": 0}); ok(st == 400, "réglage invalide : 400")
+st, _, d = req("POST", "/api/rag/fast-check", adm, {}); ok(st == 200 and d["ok"] is False and d["reason"] and d["model"], "POST /api/rag/fast-check")
+ok(req("POST", "/api/rag/fast-check", usr, {})[0] == 403 and req("POST", "/api/rag/fast-check", "", {})[0] == 401, "vérification réservée aux administrateurs")
+st, _, d = req("GET", "/api/rag", adm); ok(d["fast_check"] and d["fast_check"]["model"] == "nomic-embed-text", "…et son résultat figure dans l'écran des documents")
 req("POST", "/api/rag/reindex", adm, {}); idle()
 body = ("Procédure d'astreinte du serveur. " * 3000).encode()   # ~100 Ko
 st, _, d = req("POST", "/api/rag/upload", adm, {"name": "astreinte.txt", "collection": "IT", "content_b64": b64(body)}); ok(st == 200 and d["id"], "envoi de plus de 2 Mo (limite des autres routes) accepté pour un administrateur")

@@ -908,11 +908,11 @@ class Router(http.server.BaseHTTPRequestHandler):
             self.deny(403, "base de documents non autorisée pour « %s »" % who)
             return None
         try:
-            q = rag.embed(MAIN, cfg["embed_model"], [rag.prefixes(cfg["embed_model"])[1] + question], timeout=120)[0]
+            q = rag.embed_query(MAIN, cfg["embed_model"], rag.prefixes(cfg["embed_model"])[1] + question, cpu=cfg["embed_cpu"], timeout=120)
         except ValueError as e:
             self.json_reply(503, {"error": str(e)})
             return None
-        hits, stale = rag_store().search(q, colls, k, cfg["min_score"], cfg["embed_model"], allowed or None)
+        hits, stale = rag_store().search(q, colls, k, cfg["min_score"], cfg["embed_model"], allowed or None, question=question, hybrid=cfg["hybrid"], fast=cfg["fast"])
         cits = rag.citations(hits)
         if path == "/rag/search":
             self.json_reply(200, {"sources": cits, "passages": [{"n": i, "text": h["text"]} for i, h in enumerate(hits, 1)], "model": cfg["embed_model"], "stale_documents": stale})

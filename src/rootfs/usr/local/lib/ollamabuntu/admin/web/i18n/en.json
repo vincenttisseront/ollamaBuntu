@@ -260,6 +260,7 @@
 "Aucune réparation effectuée.": "No repair performed.",
 "Aucune sauvegarde : la première mise à jour en créera une.": "No backup: the first update will create one.",
 "Aucune statistique reçue du routeur : il n'a pas encore servi de demande depuis le dernier démarrage, ou il est arrêté.": "No statistics received from the router: it has not served a request since it last started, or it is stopped.",
+"Aucune version GGUF trouvée automatiquement : cherchez le nom du modèle dans la recherche Hugging Face de la page Modèles.": "No GGUF version found automatically: search for the model name in the Hugging Face search of the Models page.",
 "Aucune version publiée dans ce dépôt.": "No version published in this repository.",
 "Audio (synthèse, transcription)": "Audio (speech, transcription)",
 "Audit": "Audit",
@@ -302,6 +303,7 @@
 "Caches du routeur": "Router caches",
 "Calcul": "Compute",
 "Calcul GPU": "GPU compute",
+"Calculer les embeddings sur le processeur (le modèle de conversation reste en mémoire vidéo)": "Compute embeddings on the processor (the chat model stays in video memory)",
 "Calculé d'après le journal des requêtes conservé sur ce serveur (métadonnées seulement). Une période plus longue que la conservation réglée dans l'onglet Requêtes est tronquée.": "Computed from the request log kept on this server (metadata only). A period longer than the retention set in the Requests tab is truncated.",
 "Caler la carte sur cette mesure": "Calibrate the card on this measurement",
 "Caractères autorisés : a-z, 0-9 et « - » (63 caractères au plus par partie,": "Allowed characters: a-z, 0-9 and “-” (63 characters at most per part,",
@@ -321,6 +323,7 @@
 "Cause habituelle : proxy d'entreprise qui inspecte le HTTPS (Zscaler, Netskope...).": "Usual cause: a corporate proxy inspecting HTTPS (Zscaler, Netskope...).",
 "Ce compte existe déjà.": "This account already exists.",
 "Ce compte ne peut pas être utilisé : un compte local porte déjà ce nom.": "This account cannot be used: a local account already has this name.",
+"Ce dépôt contient les poids d'origine (safetensors) : Ollama et llama.cpp ne lisent que le format GGUF, que des tiers publient à part.": "This repository holds the original weights (safetensors): Ollama and llama.cpp only read the GGUF format, which third parties publish separately.",
 "Ce fichier est trop gros pour la mémoire de ce serveur.": "This file is too big for this server's memory.",
 "Ce modèle est une version sans censure.": "This model is an uncensored version.",
 "Ce modèle n'est pas à experts : le débordement par couches ralentit d'autant plus que la part en mémoire système est grande. Une quantification plus légère (Q4_K_M au lieu de Q5 ou Q6) ou un modèle plus petit vaut souvent mieux.": "This model is not mixture-of-experts: spilling layer by layer slows it down more the larger the share in system memory. A lighter quantization (Q4_K_M instead of Q5 or Q6) or a smaller model is often better.",
@@ -381,6 +384,7 @@
 "Chute de débit": "Throughput drop",
 "Chute de débit avec réglage suggéré": "Throughput drop with suggested setting",
 "Chute signalée sous": "Drop reported below",
+"Classement hybride : les mots de la question départagent les extraits proches": "Hybrid ranking: the words of the question break ties between close excerpts",
 "Client": "Client",
 "Cliquez sur « Vérifier maintenant » pour interroger les registres.": "Click “Check now” to query the registries.",
 "Clé": "Key",
@@ -874,6 +878,9 @@
 "La phrase doit contenir au moins 12 caractères.": "The passphrase must contain at least 12 characters.",
 "La phrase n'a pas pu être enregistrée (voir /var/log/ollamabuntu-crypt.log).": "The passphrase could not be saved (see /var/log/ollamabuntu-crypt.log).",
 "La plus ancienne attend depuis au moins (secondes)": "The oldest has been waiting for at least (seconds)",
+"La recherche rapide ne perd presque rien sur cette base : vous pouvez l'activer.": "The fast search loses almost nothing on this base: you can turn it on.",
+"La recherche rapide perd trop de résultats avec ce modèle : laissez-la désactivée.": "The fast search loses too many results with this model: leave it off.",
+"La recherche rapide perd une petite part des meilleurs résultats : à activer seulement si la lenteur de la recherche exacte vous gêne.": "The fast search loses a small share of the best results: turn it on only if the slowness of the exact search bothers you.",
 "La refuser (erreur 403, rien n'est envoyé au modèle)": "Refuse it (error 403, nothing is sent to the model)",
 "La référence 8B, très largement prise en charge.": "The reference 8B, very widely supported.",
 "La répartition n'est pas activée pour ce serveur : utilisez « Activer la répartition de charge » sur sa carte (onglet Parc).": "Load balancing is not enabled for this server: use “Enable load balancing” on its card (Fleet tab).",
@@ -961,7 +968,9 @@
 "Mesure continue": "Continuous measurement",
 "Mesure continue du débit": "Continuous throughput measurement",
 "Mesure de débit": "Throughput benchmark",
+"Mesure en cours (20 secondes au plus)...": "Measuring (20 seconds at most)...",
 "Mesure en cours...": "Measuring...",
+"Mesure impossible": "Measurement impossible",
 "Mesure lancée (elle attend que le serveur soit au repos).": "Measurement started (it waits for the server to be idle).",
 "Mesure terminée.": "Measurement complete.",
 "Mesurer": "Measure",
@@ -1317,6 +1326,8 @@
 "Recherche du CD/ISO ou de la clé USB, puis application de la mise à jour.": "Looking for the CD/ISO or USB key, then applying the update.",
 "Recherche du système OllamaBuntu installé sur les disques...": "Looking for the installed OllamaBuntu system on the disks...",
 "Recherche en cours...": "Searching...",
+"Recherche rapide : premier tri sur le début des vecteurs (grandes bases)": "Fast search: first pass on the start of the vectors (large bases)",
+"Recherche rapide : sur une base d'au moins 200 extraits, le premier tri ne lit que le début de chaque vecteur, puis les meilleurs candidats sont départagés exactement. Ce n'est fiable que pour les modèles dont le début du vecteur suffit à classer : la vérification prend des extraits de votre base comme questions et mesure la part des meilleurs résultats exacts qu'elle retrouve. Classement hybride : à score proche, l'extrait qui contient les mots de la question passe devant (le score affiché reste celui des embeddings). Calcul sur le processeur : l'indexation est plus lente, mais le petit modèle d'embeddings ne prend plus de place sur la carte et ne chasse plus le modèle de conversation.": "Fast search: on a base of at least 200 excerpts, the first pass only reads the start of each vector, then the best candidates are ranked exactly. This is only reliable for models whose vector start is enough to rank: the check takes excerpts from your base as questions and measures the share of the best exact results it finds again. Hybrid ranking: when scores are close, the excerpt that contains the words of the question comes first (the displayed score remains the embeddings one). Compute on the processor: indexing is slower, but the small embeddings model no longer takes room on the card and no longer pushes the chat model out.",
 "Recherche sur Internet": "Internet search",
 "Rechercher": "Search",
 "Rechercher automatiquement une nouvelle version chaque jour": "Automatically check for a new version every day",
@@ -1672,6 +1683,7 @@
 "Version installée": "Installed version",
 "Version publiée": "Published version",
 "Version sans censure : les garde-fous du modèle d'origine sont retirés. Son usage reste soumis à la politique d'usage de l'IA de votre organisation.": "Uncensored version: the safeguards of the original model are removed. Its use remains subject to your organisation's AI usage policy.",
+"Versions GGUF du même modèle (les plus téléchargées) :": "GGUF versions of the same model (most downloaded):",
 "Versions proposées": "Offered versions",
 "Versions stables": "Stable versions",
 "Versions stables et préversions": "Stable versions and previews",
@@ -1707,6 +1719,7 @@
 "Vérifier": "Check",
 "Vérifier chaque serveur": "Check each server",
 "Vérifier et ajouter": "Check and add",
+"Vérifier la recherche rapide": "Check the fast search",
 "Vérifier le certificat": "Verify the certificate",
 "Vérifier maintenant": "Check now",
 "Vérifier un modèle avant de le télécharger": "Check a model before downloading it",
@@ -1748,6 +1761,7 @@
 "aucun (à télécharger depuis la console web)": "none (download them from the web console)",
 "aucun GPU restant, ces modèles tournent sur processeur": "no GPU left, these models run on CPU",
 "aucun canal : configurez un webhook ou un e-mail": "no channel: set up a webhook or an e-mail",
+"aucun document indexé avec ce modèle": "no document indexed with this model",
 "aucun jeu de tests au Laboratoire": "no test suite in the Lab",
 "aucun jeu de tests dans le Laboratoire : sans eux, la qualité des réponses ne peut pas être vérifiée avant et après (créez-en un ou appliquez sans vérification)": "no test suite in the Lab: without one, the quality of the answers cannot be checked before and after (create one or apply without verification)",
 "aucun modèle": "no model",
@@ -1775,6 +1789,7 @@
 "avance (minutes)": "lead time (minutes)",
 "baisse": "drop",
 "base de documents : 1 à 40 caractères (lettres, chiffres, espaces, . _ -)": "document base: 1 to 40 characters (letters, digits, spaces, . _ -)",
+"base trop petite (moins de 200 extraits) : la recherche exacte est déjà instantanée": "base too small (fewer than 200 excerpts): the exact search is already instant",
 "bases de documents : une liste est attendue": "document bases: a list is expected",
 "basse": "low",
 "bibliothèque absente": "library missing",
@@ -2035,6 +2050,7 @@
 "mesure avant la mise à jour": "measuring before the update",
 "mesure continue": "continuous measurement",
 "mesure en cours": "measurement in progress",
+"mesure impossible": "measurement impossible",
 "mise en veille : aucune, veille (suspend) ou extinction": "sleep: none, sleep (suspend) or shutdown",
 "mise en veille à distance : refuser, veille (suspend) ou extinction": "remote sleep: refuse, sleep (suspend) or shutdown",
 "mise à jour de md5sum.txt": "updating md5sum.txt",
@@ -3124,6 +3140,18 @@
 "low priority: {1} on average"
 ],
 [
+"Résultats exacts retrouvés : (\\d+) % des (\\d+) premiers \\((\\d+) questions prises dans la base de (\\d+) extraits\\)\\.",
+"Exact results found again: {1} % of the first {2} ({3} questions taken from the base of {4} excerpts)."
+],
+[
+"Temps moyen d\\'une recherche : (\\d+) ms en exacte, (\\d+) ms en rapide \\(premier tri sur (\\d+) valeurs sur (\\d+)\\)\\.",
+"Average time of a search: {1} ms exact, {2} ms fast (first pass on {3} values out of {4})."
+],
+[
+"vecteurs trop courts \\((\\d+) valeurs\\) : la recherche rapide ne s\\'applique pas",
+"vectors too short ({1} values): the fast search does not apply"
+],
+[
 "Documents : (.+)",
 "Documents: {1}"
 ],
@@ -3938,6 +3966,10 @@
 [
 "(.+) \\(introuvable\\)",
 "{1} (not found)"
+],
+[
+"(.+) téléchargements",
+"{1} downloads"
 ],
 [
 "(\\d+) modèle\\(s\\), les plus téléchargés d'abord\\.",

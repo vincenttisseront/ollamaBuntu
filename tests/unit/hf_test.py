@@ -14,11 +14,15 @@ INFO = {"id": "bart/Llama-3.2-3B-GGUF", "tags": ["gguf"], "siblings": [
     {"rfilename": "Llama-3.2-3B-Q4_K_M.gguf", "size": 2000}, {"rfilename": "Llama-3.2-3B-Q8_0.gguf", "size": 3400},
     {"rfilename": "Llama-3.2-3B-IQ3_XS.gguf", "size": 1300}, {"rfilename": "mmproj-F16.gguf", "size": 5}, {"rfilename": "README.md", "size": 1},
     {"rfilename": "big-Q6_K-00001-of-00002.gguf", "size": 10}, {"rfilename": "big-Q6_K-00002-of-00002.gguf", "size": 7}]}
+ST = {"id": "Org/Llama-3.2-3B", "tags": ["safetensors"], "siblings": [{"rfilename": "model-00001-of-00002.safetensors", "size": 4000}, {"rfilename": "config.json", "size": 1}]}
+EMPTY = {"id": "Org/Zzz-Modele", "tags": [], "siblings": [{"rfilename": "README.md", "size": 1}]}
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
         if self.path.startswith("/api/models?"): body, code = LIST, 200
         elif self.path.startswith("/api/models/bart/Llama-3.2-3B-GGUF"): body, code = INFO, 200
+        elif self.path.startswith("/api/models/Org/Llama-3.2-3B"): body, code = ST, 200
+        elif self.path.startswith("/api/models/Org/Zzz-Modele"): body, code = EMPTY, 200
         else: body, code = {}, 404
         raw = json.dumps(body).encode(); self.send_response(code); self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
 srv = http.server.HTTPServer(("127.0.0.1", 0), H); threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -38,5 +42,10 @@ ok([x["size"] for x in f["quants"]] == sorted(x["size"] for x in f["quants"]), "
 for bad in ("../etc/passwd", "a/b/c", "x", ""):
     try: server.hf_files(bad); ok(False, "nom invalide refusé : %r" % bad)
     except ValueError: ok(True, "nom invalide refusé : %r" % bad)
+f = server.hf_files("Org/Llama-3.2-3B")
+ok(f["quants"] == [] and f["safetensors"] is True and [a["id"] for a in f["alternatives"]] == ["bart/Llama-3.2-3B-GGUF"] and f["alternatives"][0]["downloads"] == 900, "dépôt d'origine (safetensors) sans GGUF : signalé, avec les versions GGUF du même modèle proposées")
+f = server.hf_files("Org/Zzz-Modele"); ok(f["quants"] == [] and f["safetensors"] is False and f["alternatives"] == [], "dépôt sans GGUF ni poids reconnus : aucune proposition inventée")
+ok("alternatives" not in server.hf_files("bart/Llama-3.2-3B-GGUF"), "dépôt GGUF : pas de proposition")
+ok(server.hf_gguf_alternatives("bart/Llama-3.2-3B-GGUF") == [] and server.hf_gguf_alternatives("o/ab") == [], "le dépôt lui-même n'est jamais proposé ; nom trop court : rien")
 try: server.hf_files("nobody/none"); ok(False, "dépôt inconnu")
 except ValueError as e: ok("introuvable" in str(e), "dépôt inconnu : message clair")

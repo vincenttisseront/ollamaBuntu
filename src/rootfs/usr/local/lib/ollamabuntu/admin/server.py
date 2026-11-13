@@ -1094,7 +1094,19 @@ def rag_view():
     stale = sum(1 for d in docs if d.get("model") != cfg["embed_model"])
     return {"settings": cfg, "docs": docs, "jobs": sorted(jobs, key=lambda j: -j["started"]), "collections": store.collections(), "chunks": sum(d.get("chunks", 0) for d in docs),
             "max_chunks": rag.MAX_CHUNKS, "embed_models": models, "model_ok": rag_plain(cfg["embed_model"]) in models, "stale": stale,
-            "pdf": bool(shutil.which("pdftotext")), "max_upload": rag.MAX_UPLOAD}
+            "pdf": bool(shutil.which("pdftotext")), "max_upload": rag.MAX_UPLOAD, "fast_check": _rag_fast["result"]}
+
+
+_rag_fast = {"result": None}
+
+
+def rag_fast_check():
+    """Mesure la perte de la recherche rapide sur cette base (extraits pris comme questions) ; le résultat est gardé pour l'écran."""
+    cfg = rag_config()
+    r = rag_store().recall_check(cfg["embed_model"])
+    r = dict(r, model=cfg["embed_model"], t=int(time.time()))
+    _rag_fast["result"] = r
+    return r
 
 
 def rag_job(jid, **kw):
@@ -1103,14 +1115,19 @@ def rag_job(jid, **kw):
             _rag_jobs[jid].update(kw)
 
 
-def rag_embed_chunks(jid, model, texts):
-    """Vecteurs des extraits, avec progression."""
+def rag_embed_chunks(jid, model, texts, cpu=False, store=None):
+    """Vecteurs des extraits, avec progression. Un extrait dont le texte est identique à un extrait déjà indexé (même modèle) reprend son vecteur sans calcul.
+    Retourne (vecteurs, nombre de vecteurs repris)."""
     doc_prefix = rag.prefixes(model)[0]
-    out = []
-    for i in range(0, len(texts), 16):
-        out.extend(rag.embed(main_addr(), model, [doc_prefix + t for t in texts[i:i + 16]], timeout=600))
-        rag_job(jid, done=len(out))
-    return out
+    known = store.reusable(model, texts) if store else [None] * len(texts)
+    out, todo = list(known), [i for i, v in enumerate(known) if v is None]
+    rag_job(jid, done=len(texts) - len(todo))
+    for j in range(0, len(todo), 16):
+        idx = todo[j:j + 16]
+        for i, v in zip(idx, rag.embed(main_addr(), model, [doc_prefix + texts[i] for i in idx], timeout=600, cpu=cpu)):
+            out[i] = v
+        rag_job(jid, done=len(texts) - len(todo) + j + len(idx))
+    return out, len(texts) - len(todo)
 
 
 def rag_index(jid, name, data, collection, sha, cfg):
@@ -1126,9 +1143,9 @@ def rag_index(jid, name, data, collection, sha, cfg):
             if store.chunk_count() + len(chunks) > rag.MAX_CHUNKS:
                 raise ValueError("la base atteindrait plus de %d extraits ; supprimez des documents" % rag.MAX_CHUNKS)
             rag_job(jid, state="embed", total=len(chunks), done=0)
-            vecs = rag_embed_chunks(jid, cfg["embed_model"], [c["t"] for c in chunks])
+            vecs, reused = rag_embed_chunks(jid, cfg["embed_model"], [c["t"] for c in chunks], cpu=cfg["embed_cpu"], store=store)
             meta = {"id": jid, "name": name, "collection": collection, "model": cfg["embed_model"], "dim": len(vecs[0]), "chunks": len(chunks), "size": len(data),
-                    "sha": sha, "added": int(time.time())}
+                    "sha": sha, "added": int(time.time()), "reused": reused}
             store.save(meta, chunks, vecs)
         with _rag_lock:
             _rag_jobs.pop(jid, None)
@@ -1145,8 +1162,8 @@ def rag_reindex_doc(jid, did, cfg):
             if not c:
                 raise ValueError("document introuvable ou illisible")
             rag_job(jid, state="embed", total=len(c["chunks"]), done=0)
-            vecs = rag_embed_chunks(jid, cfg["embed_model"], [x["t"] for x in c["chunks"]])
-            store.save(dict(c["meta"], model=cfg["embed_model"], dim=len(vecs[0])), c["chunks"], vecs)
+            vecs, reused = rag_embed_chunks(jid, cfg["embed_model"], [x["t"] for x in c["chunks"]], cpu=cfg["embed_cpu"], store=store)
+            store.save(dict(c["meta"], model=cfg["embed_model"], dim=len(vecs[0]), reused=reused), c["chunks"], vecs)
         with _rag_lock:
             _rag_jobs.pop(jid, None)
     except (ValueError, OSError, MemoryError) as e:
@@ -1225,9 +1242,10 @@ def rag_search(data, allowed=None):
         k = max(1, min(int(data.get("k") or cfg["top_k"]), 12))
     except (TypeError, ValueError):
         k = cfg["top_k"]
-    q = rag.embed(main_addr(), cfg["embed_model"], [rag.prefixes(cfg["embed_model"])[1] + question], timeout=120)[0]
-    hits, stale = store.search(q, colls, k, cfg["min_score"], cfg["embed_model"], allowed)
-    return {"system": rag.build_system(hits), "sources": rag.citations(hits), "stale": stale, "model": cfg["embed_model"]}
+    q = rag.embed_query(main_addr(), cfg["embed_model"], rag.prefixes(cfg["embed_model"])[1] + question, cpu=cfg["embed_cpu"], timeout=120)
+    stats = {}
+    hits, stale = store.search(q, colls, k, cfg["min_score"], cfg["embed_model"], allowed, question=question, hybrid=cfg["hybrid"], fast=cfg["fast"], stats=stats)
+    return {"system": rag.build_system(hits), "sources": rag.citations(hits), "stale": stale, "model": cfg["embed_model"], "stats": stats}
 
 
 # ------------------------------------------------ réveil et mise en veille des serveurs du parc ---
@@ -6599,9 +6617,26 @@ def hf_files(repo):
         q["size"] += int(f.get("size") or 0)
         q["files"] += 1
     gg = info.get("gguf") if isinstance(info.get("gguf"), dict) else {}
-    return {"id": repo, "uncensored": hf_is_uncensored(repo, info.get("tags") or []), "quants": sorted(quants.values(), key=lambda x: x["size"]),
-            "arch": str(gg.get("architecture") or "")[:40], "ctx": gg.get("context_length") if isinstance(gg.get("context_length"), int) else None,
-            "tags": [str(t)[:40] for t in (info.get("tags") or [])[:30]]}
+    out = {"id": repo, "uncensored": hf_is_uncensored(repo, info.get("tags") or []), "quants": sorted(quants.values(), key=lambda x: x["size"]),
+           "arch": str(gg.get("architecture") or "")[:40], "ctx": gg.get("context_length") if isinstance(gg.get("context_length"), int) else None,
+           "tags": [str(t)[:40] for t in (info.get("tags") or [])[:30]]}
+    if not out["quants"]:
+        # dépôt d'origine du modèle (safetensors) : Ollama et llama.cpp ne lisent que le GGUF, publié à part par des tiers
+        out["safetensors"] = any(str(f.get("rfilename") or "").lower().endswith((".safetensors", ".bin")) for f in info.get("siblings") or [])
+        out["alternatives"] = hf_gguf_alternatives(repo)
+    return out
+
+
+def hf_gguf_alternatives(repo, limit=5):
+    """Dépôts GGUF portant le même nom de modèle (les plus téléchargés), pour un dépôt qui n'en contient pas. Liste vide si Hugging Face ne répond pas."""
+    name = re.sub(r"(?i)[-_.]?gguf$", "", str(repo).split("/", 1)[-1])
+    if len(name) < 3:
+        return []
+    try:
+        found = hf_search(name, "standard")["models"]
+    except (ValueError, OSError):
+        return []
+    return [{"id": m["id"], "downloads": m["downloads"]} for m in found if m["id"].lower() != str(repo).lower()][:limit]
 
 
 def ubuntu_scores(obj, out):
@@ -7449,6 +7484,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, {"ok": True, "ids": rag_reindex(data.get("id"))})
             if path == "/api/rag/config":
                 return self.send_json(200, {"ok": True, "config": rag_save(data)})
+            if path == "/api/rag/fast-check":
+                return self.send_json(200, rag_fast_check())
             if path == "/api/models/pull":
                 name = str(data.get("name", "")).strip()
                 if not MODEL_RE.match(name):

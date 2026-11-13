@@ -354,8 +354,14 @@
           <label>Chevauchement (caractères)<input name="overlap" type="number" min="0" max="1000" step="10" required></label>
           <label>Extraits donnés au modèle<input name="top_k" type="number" min="1" max="12" required></label>
           <label>Score minimal (0 à 1)<input name="min_score" type="number" min="0" max="1" step="0.01" required></label>
+          <label class="check"><input type="checkbox" name="hybrid"> Classement hybride : les mots de la question départagent les extraits proches</label>
+          <label class="check"><input type="checkbox" name="fast"> Recherche rapide : premier tri sur le début des vecteurs (grandes bases)</label>
+          <label class="check"><input type="checkbox" name="embed_cpu"> Calculer les embeddings sur le processeur (le modèle de conversation reste en mémoire vidéo)</label>
           <div class="row"><button class="btn primary" type="submit">Enregistrer</button><button id="rag-reindex" class="btn hidden" type="button">Réindexer les documents</button><span id="rag-cfg-msg" class="small" aria-live="polite"></span></div>
         </form>
+        <div class="row"><button id="rag-fast-check" class="btn" type="button">Vérifier la recherche rapide</button><span id="rag-fast-msg" class="small" aria-live="polite"></span></div>
+        <div id="rag-fast-result" class="small"></div>
+        <p class="muted small">Recherche rapide : sur une base d'au moins 200 extraits, le premier tri ne lit que le début de chaque vecteur, puis les meilleurs candidats sont départagés exactement. Ce n'est fiable que pour les modèles dont le début du vecteur suffit à classer : la vérification prend des extraits de votre base comme questions et mesure la part des meilleurs résultats exacts qu'elle retrouve. Classement hybride : à score proche, l'extrait qui contient les mots de la question passe devant (le score affiché reste celui des embeddings). Calcul sur le processeur : l'indexation est plus lente, mais le petit modèle d'embeddings ne prend plus de place sur la carte et ne chasse plus le modèle de conversation.</p>
         <p class="muted small">Changer le modèle d'embeddings ou la taille des extraits ne touche pas les documents déjà indexés : seul le modèle oblige à les réindexer (le texte découpé est conservé, pas besoin de les redéposer). Un modèle d'embeddings s'installe comme les autres (Modèles), par exemple nomic-embed-text.</p>
       </div>
     </section>

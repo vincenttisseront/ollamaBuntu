@@ -4,10 +4,13 @@ Bibliothèque standard de Python uniquement (l'appliance n'installe aucune dépe
 
 Principes :
 - Les documents restent sur ce serveur : le texte découpé et les vecteurs sont dans /var/lib/ollamabuntu/rag (un couple <id>.json / <id>.vec par document).
-- La recherche est un calcul exact (produit scalaire sur des vecteurs normalisés), sans index approché : simple et vérifiable, jusqu'à MAX_CHUNKS extraits.
+- La recherche est par défaut un calcul exact (produit scalaire sur des vecteurs normalisés) : simple et vérifiable, jusqu'à MAX_CHUNKS extraits.
+  Deux options l'accélèrent ou l'affinent, sans dépendance : « rapide » (un premier tri sur le début des vecteurs, puis le calcul exact sur les meilleurs candidats ;
+  fiable seulement pour les modèles dont le début du vecteur suffit à classer, ce que `Store.recall_check` mesure) et « hybride » (les mots de la question départagent les extraits proches).
 - Le texte retrouvé est fourni au modèle comme DONNÉES, pas comme instructions ; la réponse doit citer ses sources [n] ou dire qu'elle n'a pas trouvé."""
 import array
 import base64
+import collections
 import hashlib
 import heapq
 import html.parser
@@ -22,6 +25,8 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
+import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -30,7 +35,7 @@ MAX_DOC_CHUNKS = 3000
 MAX_UPLOAD = 25 * 1024 * 1024
 MAX_TEXT = 8 * 1024 * 1024  # texte extrait d'un document
 MAX_UNZIPPED = 60 * 1024 * 1024
-DEFAULTS = {"embed_model": "nomic-embed-text", "chunk_chars": 900, "overlap": 120, "top_k": 5, "min_score": 0.35}
+DEFAULTS = {"embed_model": "nomic-embed-text", "chunk_chars": 900, "overlap": 120, "top_k": 5, "min_score": 0.35, "hybrid": False, "fast": False, "embed_cpu": False}
 NAME_RE = re.compile(r"^[^\x00-\x1f<>\"/\\]{1,120}$")
 COLL_RE = re.compile(r"^[A-Za-z0-9À-ÿ][A-Za-z0-9À-ÿ _.-]{0,39}$")
 TEXT_EXT = {".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv", ".json", ".yaml", ".yml", ".xml", ".ini", ".conf", ".cfg", ".tex"}
@@ -64,6 +69,11 @@ def config_clean(data, cur=None):
         if not 0 <= v <= 1 or v != v:
             raise ValueError("score minimal : 0 à 1")
         out["min_score"] = round(v, 3)
+    for k in ("hybrid", "fast", "embed_cpu"):
+        if k in data:
+            out[k] = data[k] is True
+        else:
+            out.setdefault(k, False)
     if out["overlap"] > out["chunk_chars"] // 2:
         raise ValueError("chevauchement : au plus la moitié de la taille des extraits")
     return out
@@ -325,14 +335,18 @@ def pack(vectors):
     return a.tobytes()
 
 
-def embed(addr, model, texts, timeout=300, batch=16):
-    """Vecteurs normalisés de `texts` (Ollama /api/embed). ValueError si le modèle est absent ou répond mal."""
+def embed(addr, model, texts, timeout=300, batch=16, cpu=False):
+    """Vecteurs normalisés de `texts` (Ollama /api/embed). ValueError si le modèle est absent ou répond mal.
+    cpu : calcul sur le processeur (num_gpu 0) : le petit modèle d'embeddings ne prend plus de place sur la carte et ne chasse plus le modèle de conversation."""
     out = []
     host, _, port = addr.rpartition(":")
     for i in range(0, len(texts), batch):
         conn = http.client.HTTPConnection(host, int(port), timeout=timeout)
         try:
-            conn.request("POST", "/api/embed", body=json.dumps({"model": model, "input": texts[i:i + batch]}), headers={"Content-Type": "application/json"})
+            req = {"model": model, "input": texts[i:i + batch]}
+            if cpu:
+                req["options"] = {"num_gpu": 0}
+            conn.request("POST", "/api/embed", body=json.dumps(req), headers={"Content-Type": "application/json"})
             r = conn.getresponse()
             raw = r.read()
         except OSError as e:
@@ -353,6 +367,71 @@ def embed(addr, model, texts, timeout=300, batch=16):
     if len(dims) > 1:
         raise ValueError("embeddings de tailles différentes")
     return out
+
+
+_qcache = collections.OrderedDict()   # (adresse, modèle, cpu, texte) -> (échéance, vecteur) : la même question n'est calculée qu'une fois
+_qlock = threading.Lock()
+QCACHE_MAX, QCACHE_TTL = 128, 600
+
+
+def embed_query(addr, model, text, cpu=False, timeout=120, now=None):
+    """Vecteur d'une question, mémorisé quelques minutes (reposer la même question ne sollicite plus le modèle d'embeddings)."""
+    now = time.time() if now is None else now
+    key = (addr, model, bool(cpu), text)
+    with _qlock:
+        e = _qcache.get(key)
+        if e and e[0] > now:
+            _qcache.move_to_end(key)
+            return list(e[1])
+    vec = embed(addr, model, [text], timeout=timeout, cpu=cpu)[0]
+    with _qlock:
+        _qcache[key] = (now + QCACHE_TTL, vec)
+        while len(_qcache) > QCACHE_MAX:
+            _qcache.popitem(last=False)
+    return list(vec)
+
+
+# ------------------------------------------------------------------ mots de la question (classement hybride)
+STOPWORDS = frozenset("""le la les un une des du de d l et ou en au aux pour par sur dans avec sans est sont que qui quoi dont comment pourquoi quand quel quelle quels quelles ce cet cette ces
+mon ma mes ton ta tes son sa ses notre nos votre vos leur leurs ne pas plus the and for with from that this these those what which who whom how why when where does are was were has have
+been can could should would about into your you our their there""".split())
+
+
+def _fold(text):
+    return unicodedata.normalize("NFD", str(text).lower()).encode("ascii", "ignore").decode()
+
+
+def query_terms(question):
+    """Mots utiles d'une question (sans accents, sans mots vides), chacun réduit à ses 5 premières lettres pour tolérer pluriels et conjugaisons."""
+    seen, out = set(), []
+    for w in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", _fold(question)):
+        if w in STOPWORDS:
+            continue
+        st = w[:5]
+        if st not in seen:
+            seen.add(st)
+            out.append(st)
+    return out[:24]
+
+
+def lexical_scores(question, texts):
+    """Part (0 à 1) des mots de la question retrouvés dans chaque texte ; un mot présent dans peu de textes pèse plus qu'un mot présent partout."""
+    terms = query_terms(question)
+    if not terms or not texts:
+        return [0.0] * len(texts)
+    stems = [{w[:5] for w in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", _fold(t))} for t in texts]
+    df = {t: sum(1 for s in stems if t in s) for t in terms}
+    weight = {t: math.log(1.0 + len(texts) / (1.0 + df[t])) for t in terms}
+    total = sum(weight.values()) or 1.0
+    return [sum(weight[t] for t in terms if t in s) / total for s in stems]
+
+
+LEX_WEIGHT = 0.2
+
+
+def coarse_dims(dim):
+    """Longueur du début de vecteur utilisé pour le premier tri (0 : vecteurs trop courts, la recherche reste exacte)."""
+    return 0 if dim < 256 else max(64, (dim // 6) // 8 * 8)
 
 
 # ------------------------------------------------------------------ magasin
@@ -447,11 +526,19 @@ class Store:
             a["chunks"] += m.get("chunks", 0)
         return sorted(acc.values(), key=lambda x: x["name"].lower())
 
-    def search(self, qvec, collections, k, min_score, model, allowed=None):
+    def search(self, qvec, collections, k, min_score, model, allowed=None, question="", hybrid=False, fast=False, stats=None):
         """Les k extraits les plus proches (produit scalaire de vecteurs normalisés = cosinus). Seuls les documents indexés avec le même modèle comptent.
-        collections : liste de noms ; vide = toutes (dans la limite de `allowed`). Retourne (résultats, nombre de documents d'un autre modèle ignorés)."""
-        dim, stale, heap, seq = len(qvec), 0, [], 0
+        collections : liste de noms ; vide = toutes (dans la limite de `allowed`). Retourne (résultats, nombre de documents d'un autre modèle ignorés).
+        fast : premier tri sur le début des vecteurs, calcul exact sur les meilleurs candidats seulement.
+        hybrid : les mots de la question départagent les extraits proches (le score affiché reste le cosinus).
+        stats : dictionnaire rempli avec le mode, le nombre d'extraits parcourus et le temps."""
+        t0 = time.time()
+        dim, stale, seq = len(qvec), 0, 0
+        cd = coarse_dims(dim) if fast else 0
+        pool = max(k * 6, 30) if (hybrid and question) else k
+        scan = max(pool * 10, 200)
         wanted = set(collections or ())
+        exact, coarse, scanned = [], [], 0
         for m in self.docs():
             if (wanted and m["collection"] not in wanted) or (allowed and m["collection"] not in allowed):
                 continue
@@ -462,23 +549,107 @@ class Store:
             if not c:
                 continue
             vec, d = c["vec"], m["dim"]
-            for i in range(len(c["chunks"])):
-                s = sum(map(operator.mul, qvec, vec[i * d:(i + 1) * d]))
-                if s >= min_score:
+            n = len(c["chunks"])
+            scanned += n
+            if cd:
+                qc = qvec[:cd]
+                for i in range(n):
+                    s = sum(map(operator.mul, qc, vec[i * d:i * d + cd]))
                     seq += 1
-                    if len(heap) < k:
-                        heapq.heappush(heap, (s, -seq, m["id"], i))
-                    elif s > heap[0][0]:
-                        heapq.heapreplace(heap, (s, -seq, m["id"], i))
+                    if len(coarse) < scan:
+                        heapq.heappush(coarse, (s, -seq, m["id"], i))
+                    elif s > coarse[0][0]:
+                        heapq.heapreplace(coarse, (s, -seq, m["id"], i))
+            else:
+                for i in range(n):
+                    s = sum(map(operator.mul, qvec, vec[i * d:(i + 1) * d]))
+                    if s >= min_score:
+                        seq += 1
+                        if len(exact) < pool:
+                            heapq.heappush(exact, (s, -seq, m["id"], i))
+                        elif s > exact[0][0]:
+                            heapq.heapreplace(exact, (s, -seq, m["id"], i))
+        if cd:
+            for _s, nseq, did, i in coarse:
+                c = self._load(did)
+                if not c:
+                    continue
+                d = c["meta"]["dim"]
+                s = sum(map(operator.mul, qvec, c["vec"][i * d:(i + 1) * d]))
+                if s >= min_score:
+                    if len(exact) < pool:
+                        heapq.heappush(exact, (s, nseq, did, i))
+                    elif s > exact[0][0]:
+                        heapq.heapreplace(exact, (s, nseq, did, i))
         out = []
-        for s, _, did, i in sorted(heap, reverse=True):
+        for s, _, did, i in sorted(exact, reverse=True):
             c = self._load(did)
             if not c:
                 continue
             ch = c["chunks"][i]
             out.append({"doc": did, "name": c["meta"]["name"], "collection": c["meta"]["collection"], "chunk": i, "page": ch.get("p"), "heading": ch.get("h") or "",
                         "score": round(s, 4), "text": ch["t"]})
-        return out, stale
+        if hybrid and question and len(out) > 1:
+            lex = lexical_scores(question, [h["text"] for h in out])
+            order = sorted(range(len(out)), key=lambda j: -(out[j]["score"] + LEX_WEIGHT * lex[j]))
+            out = [dict(out[j], lex=round(lex[j], 3)) for j in order]
+        if stats is not None:
+            stats.update(mode="rapide" if cd else "exact", hybrid=bool(hybrid and question), coarse_dims=cd, chunks=scanned, candidates=len(coarse) if cd else scanned, ms=round((time.time() - t0) * 1000))
+        return out[:k], stale
+
+    def reusable(self, model, texts):
+        """Vecteurs déjà calculés pour des textes identiques (même modèle) : liste alignée sur `texts`, None quand il faut calculer.
+        Un document déposé de nouveau avec quelques changements ne refait que les extraits modifiés."""
+        want = {hashlib.sha1(t.encode("utf-8", "replace")).hexdigest() for t in texts}
+        found = {}
+        for m in self.docs():
+            if m.get("model") != model or not want - set(found):
+                continue
+            c = self._load(m["id"])
+            if not c:
+                continue
+            d = m["dim"]
+            for i, ch in enumerate(c["chunks"]):
+                h = hashlib.sha1(ch["t"].encode("utf-8", "replace")).hexdigest()
+                if h in want and h not in found:
+                    found[h] = list(c["vec"][i * d:(i + 1) * d])
+        return [found.get(hashlib.sha1(t.encode("utf-8", "replace")).hexdigest()) for t in texts]
+
+    def recall_check(self, model, k=5, samples=10, budget=20.0, clock=time.time):
+        """Mesure ce que la recherche rapide perd : pour des extraits pris comme questions (eux-mêmes exclus), part des k meilleurs résultats exacts
+        retrouvés par la recherche rapide, et temps moyen des deux. Retourne un dictionnaire (« ok » faux avec une « reason » si la mesure n'a pas de sens)."""
+        refs = [(m["id"], i) for m in self.docs() if m.get("model") == model for i in range(m.get("chunks", 0))]
+        dims = {m.get("dim") for m in self.docs() if m.get("model") == model}
+        if len(refs) < 200:
+            return {"ok": False, "reason": "base trop petite (moins de 200 extraits) : la recherche exacte est déjà instantanée", "chunks": len(refs)}
+        if len(dims) != 1:
+            return {"ok": False, "reason": "aucun document indexé avec ce modèle", "chunks": len(refs)}
+        dim = dims.pop()
+        cd = coarse_dims(dim)
+        if not cd:
+            return {"ok": False, "reason": "vecteurs trop courts (%d valeurs) : la recherche rapide ne s'applique pas" % dim, "chunks": len(refs)}
+        t_start, hits, tot, n, t_exact, t_fast = clock(), 0, 0, 0, 0.0, 0.0
+        for j in range(samples):
+            did, i = refs[int(j * len(refs) / samples)]
+            c = self._load(did)
+            if not c:
+                continue
+            q = list(c["vec"][i * dim:(i + 1) * dim])
+            a0 = clock()
+            ex, _ = self.search(q, [], k + 1, 0.0, model)
+            a1 = clock()
+            fa, _ = self.search(q, [], k + 1, 0.0, model, fast=True)
+            a2 = clock()
+            t_exact, t_fast = t_exact + (a1 - a0), t_fast + (a2 - a1)
+            ex = [(h["doc"], h["chunk"]) for h in ex if (h["doc"], h["chunk"]) != (did, i)][:k]
+            fa = {(h["doc"], h["chunk"]) for h in fa if (h["doc"], h["chunk"]) != (did, i)}
+            hits, tot, n = hits + sum(1 for x in ex if x in fa), tot + len(ex), n + 1
+            if clock() - t_start > budget:
+                break
+        if not n or not tot:
+            return {"ok": False, "reason": "mesure impossible", "chunks": len(refs)}
+        return {"ok": True, "recall": round(hits / tot, 3), "samples": n, "k": k, "chunks": len(refs), "dim": dim, "coarse_dims": cd,
+                "exact_ms": round(1000 * t_exact / n), "fast_ms": round(1000 * t_fast / n)}
 
 
 # ------------------------------------------------------------------ invite et citations

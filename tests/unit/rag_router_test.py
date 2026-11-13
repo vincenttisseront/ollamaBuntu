@@ -91,7 +91,7 @@ st, d, _ = call("/rag/ask", {"question": "congés"}); ok(st == 400 and "model" i
 CHAT.clear(); KEY["collections"] = ["Finance"]
 st, d, _ = call("/rag/ask", {"model": "m", "question": "congés payés vingt cinq", "collection": "RH"}); ok(st == 403 and not CHAT, "base interdite : refusée avant tout appel au modèle")
 KEY["collections"] = []
-MISSING[0] = True; CHAT.clear(); st, d, _ = call("/rag/ask", {"model": "m", "question": "congés"})
+MISSING[0] = True; CHAT.clear(); st, d, _ = call("/rag/ask", {"model": "m", "question": "congés exceptionnels"})
 ok(st == 503 and "nomic-embed-text" in d["error"] and "absent" in d["error"] and not CHAT, "modèle d'embeddings absent : 503 qui dit quoi installer, aucun appel au modèle de conversation")
 MISSING[0] = False
 
