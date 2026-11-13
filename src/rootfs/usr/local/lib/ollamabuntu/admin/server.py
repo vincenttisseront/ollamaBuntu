@@ -717,7 +717,7 @@ def engine_save(data):
         model = str(data.get("model") or (cur or {}).get("model") or "")
         if not MODEL_RE.match(model):
             raise ValueError("nom de modèle invalide")
-        _, err = llamacpp.find_gguf(MODELS_DIR, model)
+        mpath, err = llamacpp.find_gguf(MODELS_DIR, model)
         if err:
             raise ValueError(err)
         if any(e.get("model") == model and e is not cur and e.get("id") != (cur or {}).get("id") for e in engines):
@@ -733,6 +733,22 @@ def engine_save(data):
                         d[k] = sug[k]
             d["port"], d["backend_port"] = llamacpp.free_ports(engines)
         cfg = llamacpp.config_clean(d, cur)
+        cfg["draft_bytes"] = 0
+        if cfg["spec"] == "draft":
+            dpath, derr = llamacpp.find_gguf(MODELS_DIR, cfg["draft_model"])
+            if derr:
+                raise ValueError("modèle brouillon : " + derr)
+            try:
+                cfg["draft_bytes"] = os.path.getsize(dpath)
+            except OSError:
+                raise ValueError("modèle brouillon : fichier illisible")
+            try:
+                main_size = os.path.getsize(mpath)
+            except OSError:
+                main_size = 0
+            go = lambda b: ("%.1f" % (b / 2 ** 30)).replace(".", ",") + " Go"
+            if main_size and cfg["draft_bytes"] > main_size * 0.5:
+                raise ValueError("le modèle brouillon (%s) doit être bien plus petit que le modèle principal (%s) : sinon il ralentit au lieu d'accélérer" % (go(cfg["draft_bytes"]), go(main_size)))
         cfg["cpu_bytes"] = engine_cpu_bytes(model, cfg.get("n_cpu_moe"), cfg["ctx"], cfg["kv"], cfg["parallel"])
         new = [cfg if e.get("id") == cfg["id"] else e for e in engines] if cur is not None else engines + [cfg]
         engines_store(new, exclusive)

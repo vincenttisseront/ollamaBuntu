@@ -118,6 +118,7 @@ class Engine:
         self.last_used = time.time()
         self.inflight = 0
         self.requests = 0
+        self.spec_drafted = self.spec_accepted = 0   # jetons proposés / acceptés par le brouillon depuis le démarrage de llama-server
         self.failures = 0
         self.cancel = False
         self.start_gen = 0          # numéro du démarrage en cours (ou du dernier)
@@ -224,7 +225,13 @@ class Engine:
                 unload_ollama()
             self.stop_others()
             caps = self.caps_for(binary)
-            args, warns = L.build_args(cfg, caps, binary, gguf)
+            draft = None
+            if cfg.get("spec") == "draft":
+                draft, derr = L.find_gguf(MODELS_DIR, cfg.get("draft_model") or "")
+                if derr or not os.path.isfile(draft or ""):
+                    raise EngineError("modèle brouillon : %s" % (derr or "fichier introuvable : réinstallez-le dans Ollama"))
+            args, warns = L.build_args(cfg, caps, binary, gguf, draft_gguf=draft)
+            self.spec_drafted = self.spec_accepted = 0
             self.args, self.warnings, self.gguf, self.binary = args, warns, gguf, binary
             for w in warns:
                 say("avertissement : " + w)
@@ -339,7 +346,7 @@ class Engine:
             running = self.state == "ready" and self.proc is not None and self.proc.poll() is None
             return {"id": self.id, "state": self.state, "pid": self.proc.pid if running else None, "uptime": int(time.time() - self.started) if running and self.started else 0,
                     "idle": int(time.time() - self.last_used), "inflight": self.inflight, "requests": self.requests, "failures": self.failures, "error": self.error,
-                    "start_seconds": round(self.start_s, 1), "gguf": self.gguf, "binary": self.binary, "args": self.args[1:] if self.args else [], "warnings": self.warnings,
+                    "start_seconds": round(self.start_s, 1), "spec": {"drafted": self.spec_drafted, "accepted": self.spec_accepted}, "gguf": self.gguf, "binary": self.binary, "args": self.args[1:] if self.args else [], "warnings": self.warnings,
                     "caps": self.caps, "tail": list(self.tail)[-25:]}
 
     def enter(self):
@@ -347,6 +354,14 @@ class Engine:
             self.inflight += 1
             self.requests += 1
             self.last_used = time.time()
+
+    def note_spec(self, timings):
+        """Compte les jetons proposés et acceptés par le brouillon (ce que llama-server indique dans les durées d'une réponse)."""
+        n, ok = L.spec_counts(timings)
+        if n:
+            with self.cond:
+                self.spec_drafted += n
+                self.spec_accepted += ok
 
     def leave(self):
         with self.cond:
@@ -505,7 +520,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if r.status != 200:
                     return self.backend_error(r)
                 if not stream:
-                    return self.reply(200, L.response_to_ollama(kind, model, json.loads(r.read() or b"{}"), t0, time.time(), load))
+                    resp = json.loads(r.read() or b"{}")
+                    ENGINE.note_spec(resp.get("timings") if isinstance(resp, dict) else None)
+                    return self.reply(200, L.response_to_ollama(kind, model, resp, t0, time.time(), load))
                 self.send_response(200)
                 self.send_header("Content-Type", "application/x-ndjson")
                 self.end_headers()
@@ -520,6 +537,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 for out in tr.close():
                     self.wfile.write(out)
                     self.wfile.flush()
+                ENGINE.note_spec(tr.timings)
             except (BrokenPipeError, ConnectionResetError):
                 pass   # le client est parti : fermer la connexion à llama-server interrompt la génération
             except OSError as e:

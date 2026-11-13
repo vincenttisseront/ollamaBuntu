@@ -2117,8 +2117,12 @@ async function loadEngines() {
       return el('tr', {}, el('td', { class: 'name', text: e.model }, st.error ? el('div', { class: 'error small', text: st.error }) : null, ...(st.warnings || []).map((w) => el('div', { class: 'error small', text: w }))),
         el('td', {}, pill(S[0], S[1]), st.state === 'ready' && st.uptime ? el('div', { class: 'muted small', text: 'depuis ' + Math.round(st.uptime / 60) + ' min' }) : null),
         el('td', { class: 'small' }, el('div', { text: e.n_cpu_moe ? 'Experts de ' + e.n_cpu_moe + ' couche(s) en mémoire système' : 'Aucun expert déplacé' }), el('div', { text: 'Contexte ' + e.ctx + ' - cache ' + e.kv + (e.parallel > 1 ? ' - ' + e.parallel + ' requêtes' : '') }),
-          el('div', { text: e.idle_min ? 'Arrêt après ' + e.idle_min + ' min d\'inactivité' : 'Jamais arrêté pour inactivité' })),
-        el('td', { class: 'small' }, el('div', { text: st.requests + ' requête(s)' }), st.inflight ? el('div', { text: st.inflight + ' en cours' }) : null),
+          el('div', { text: e.idle_min ? 'Arrêt après ' + e.idle_min + ' min d\'inactivité' : 'Jamais arrêté pour inactivité' }),
+          e.cache_reuse ? el('div', { text: 'Réutilisation du cache d\'invites : ' + e.cache_reuse + ' jetons' }) : null,
+          e.mlock ? el('div', { text: 'Modèle verrouillé en mémoire' }) : null,
+          e.spec === 'draft' ? el('div', { text: 'Décodage spéculatif : brouillon ' + e.draft_model + ' (' + fmtBytes(e.draft_bytes || 0) + ')' }) : e.spec === 'ngram' ? el('div', { text: 'Décodage spéculatif : motifs répétés' }) : null),
+        el('td', { class: 'small' }, el('div', { text: st.requests + ' requête(s)' }), st.inflight ? el('div', { text: st.inflight + ' en cours' }) : null,
+          e.spec && st.spec && st.spec.drafted ? el('div', { text: 'Brouillon : ' + Math.round(100 * st.spec.accepted / st.spec.drafted) + ' % acceptés (' + st.spec.accepted + ' sur ' + st.spec.drafted + ' jetons)' }) : null),
         el('td', {}, el('div', { class: 'row' },
           st.state === 'ready' ? el('button', { class: 'btn sm', type: 'button', text: 'Arrêter', onclick: () => engAct(e, 'stop') }) : el('button', { class: 'btn sm', type: 'button', text: 'Démarrer', disabled: !b.installed, onclick: () => engAct(e, 'start') }),
           st.state === 'ready' ? el('button', { class: 'btn sm', type: 'button', text: 'Redémarrer', onclick: () => engAct(e, 'restart') }) : null,
@@ -2152,13 +2156,29 @@ async function engEdit(e) {
   const un = el('input', { type: 'checkbox', 'aria-label': 'Décharger Ollama avant le démarrage' }); un.checked = e.unload_ollama !== false;
   const th = num(e.threads, 'Fils de calcul (0 = automatique)', 0, 256), idle = num(e.idle_min, 'Arrêt après inactivité (minutes, 0 = jamais)', 0, 1440), to = num(e.start_timeout, 'Délai de démarrage (secondes)', 30, 1800);
   const extra = el('input', { type: 'text', value: e.extra || '', maxlength: '300', placeholder: 'ex. --no-mmap', 'aria-label': 'Options supplémentaires de llama-server' });
+  const cr = num(e.cache_reuse || 0, 'Réutilisation du cache d\'invites (jetons, 0 = désactivée)', 0, 8192), cram = num(e.cache_ram, 'Mémoire du cache d\'invites (Mo, vide = réglage de llama-server)', 0, 262144);
+  const ml = el('input', { type: 'checkbox', 'aria-label': 'Verrouiller le modèle en mémoire' }); ml.checked = !!e.mlock;
+  const spec = el('select', { 'aria-label': 'Décodage spéculatif' }, el('option', { value: '', text: 'Désactivé' }), el('option', { value: 'draft', text: 'Avec un modèle brouillon' }), el('option', { value: 'ngram', text: 'Par motifs répétés (sans second modèle)' }));
+  spec.value = e.spec || '';
+  const drafts = [...new Set([e.draft_model || ''].concat(eng.data.all_models.filter((n) => n !== e.model)))];
+  const dm = el('select', { 'aria-label': 'Modèle brouillon' }, ...drafts.map((n) => el('option', { value: n, text: n || 'Choisir un modèle' })));
+  dm.value = e.draft_model || '';
+  const dmax = num(e.draft_max || 16, 'Jetons proposés à chaque étape (1 à 64)', 1, 64);
+  const dml = el('label', {}, 'Modèle brouillon (petit, de la même famille) ', dm), dxl = el('label', {}, 'Jetons proposés à chaque étape (1 à 64) ', dmax);
+  const sync = () => { dml.classList.toggle('hidden', spec.value !== 'draft'); dxl.classList.toggle('hidden', !spec.value); };
+  spec.addEventListener('change', sync); sync();
   const ok = await modal({ title: 'Moteur de « ' + e.model + ' »', message: 'Les réglages s\'appliquent au prochain démarrage de llama-server (le service est relancé).',
     body: el('div', { class: 'row' }, el('label', {}, 'Contexte par requête (jetons) ', ctx), el('label', {}, 'Requêtes parallèles ', par), el('label', {}, 'Couches dont les experts vont en mémoire système (vide = aucune) ', moe),
       el('label', {}, 'Cache de contexte ', kv), el('label', { class: 'check' }, fa, ' Flash attention (nécessaire au cache quantifié)'), el('label', {}, 'Fils de calcul (0 = automatique) ', th),
       el('label', {}, 'Arrêt après inactivité (minutes, 0 = jamais) ', idle), el('label', {}, 'Délai de démarrage (secondes) ', to), el('label', { class: 'check' }, un, ' Décharger les modèles d\'Ollama avant le démarrage'),
-      el('label', {}, 'Options supplémentaires de llama-server ', extra)), ok: 'Enregistrer' });
+      el('label', {}, 'Options supplémentaires de llama-server ', extra),
+      el('label', {}, 'Réutilisation du cache d\'invites (jetons, 0 = désactivée) ', cr), el('label', {}, 'Mémoire du cache d\'invites (Mo, vide = réglage de llama-server) ', cram),
+      el('label', { class: 'check' }, ml, ' Verrouiller le modèle en mémoire (évite qu\'il soit déplacé sur le disque ; demande assez de mémoire libre)'),
+      el('label', {}, 'Décodage spéculatif ', spec), dml, dxl,
+      el('p', { class: 'muted small' }, 'Réutilisation du cache : quand une invite ne diffère d\'une précédente que par un passage au milieu, llama-server réutilise ce qu\'il a déjà calculé après ce passage. Décodage spéculatif : un petit modèle propose plusieurs jetons que le grand modèle vérifie d\'un coup ; la réponse est la même, souvent plus vite (surtout en code et en reformulation). Le brouillon doit partager le vocabulaire du modèle principal et occupe de la mémoire vidéo en plus ; le taux d\'acceptation mesuré s\'affiche dans la liste des moteurs.')), ok: 'Enregistrer' });
   if (!ok) return;
-  try { await api('/api/llama/save', { json: { id: e.id, ctx: ctx.value, parallel: par.value, n_cpu_moe: moe.value, kv: kv.value, flash: fa.checked, threads: th.value, idle_min: idle.value, start_timeout: to.value, unload_ollama: un.checked, extra: extra.value } }); } catch (x) { fail(x.message); }
+  try { await api('/api/llama/save', { json: { id: e.id, ctx: ctx.value, parallel: par.value, n_cpu_moe: moe.value, kv: kv.value, flash: fa.checked, threads: th.value, idle_min: idle.value, start_timeout: to.value, unload_ollama: un.checked, extra: extra.value,
+      cache_reuse: cr.value, cache_ram: cram.value, mlock: ml.checked, spec: spec.value, draft_model: dm.value, draft_max: dmax.value } }); } catch (x) { fail(x.message); }
   loadEngines();
 }
 $('#eng-refresh').addEventListener('click', loadEngines);

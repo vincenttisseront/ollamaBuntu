@@ -17,6 +17,8 @@ Environment="HOME=/usr/share/ollama"
 Environment="XDG_CACHE_HOME=/var/cache/ollamabuntu-llama"
 CacheDirectory=ollamabuntu-llama
 NoNewPrivileges=yes
+# Verrouillage de la mémoire (option « mlock » d'un moteur) : sans cette limite levée, llama-server ne peut pas verrouiller les poids
+LimitMEMLOCK=infinity
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes

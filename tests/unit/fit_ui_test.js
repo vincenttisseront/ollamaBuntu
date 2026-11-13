@@ -24,8 +24,8 @@ function reset() {
     binary: { installed: true, path: '/var/lib/ollamabuntu/llama/b7001-vulkan/build/bin/llama-server', tag: 'b7001', backend: 'vulkan', asset: 'x.zip', sha256: 'abcdef0123456789abcdef', installed_at: 1790000000, repo: 'ggml-org/llama.cpp' },
     install: { state: 'idle', log: [], error: '', t: 0 }, vulkan: { loader: true, icd: ['radeon_icd.x86_64.json'] },
     engines: [
-      { id: 'qwen3-30b-a3b', model: 'qwen3:30b-a3b', port: 11600, backend_port: 11700, ctx: 8192, parallel: 1, ngl: 999, n_cpu_moe: 11, kv: 'q8_0', flash: true, threads: 0, idle_min: 15, start_timeout: 300, unload_ollama: true, extra: '',
-        status: { state: 'ready', pid: 42, uptime: 600, inflight: 1, requests: 7, error: '', warnings: [], tail: [] } },
+      { id: 'qwen3-30b-a3b', model: 'qwen3:30b-a3b', port: 11600, backend_port: 11700, ctx: 8192, parallel: 1, ngl: 999, n_cpu_moe: 11, kv: 'q8_0', flash: true, threads: 0, idle_min: 15, start_timeout: 300, unload_ollama: true, extra: '', cache_reuse: 256, cache_ram: null, mlock: true, spec: 'draft', draft_model: 'gemma4:12b', draft_max: 12, draft_bytes: 400 * 1048576,
+        status: { state: 'ready', pid: 42, uptime: 600, inflight: 1, requests: 7, error: '', warnings: [], tail: [], spec: { drafted: 200, accepted: 150 } } },
       { id: 'gemma', model: 'gemma4:12b', port: 11601, backend_port: 11701, ctx: 4096, parallel: 2, ngl: 999, n_cpu_moe: null, kv: 'f16', flash: false, threads: 0, idle_min: 0, start_timeout: 300, unload_ollama: false, extra: '',
         status: { state: 'error', error: 'llama-server s\'est arrêté au démarrage (code 3) : boom', warnings: ['--n-cpu-moe inconnue de cette version : remplacée par --override-tensor'], requests: 0, inflight: 0, tail: [] } },
     ], candidates: [{ name: 'qwen3:30b-a3b', verdict: 'moe', label: 'Experts en mémoire système', n_cpu_moe: 11, weights: 17.3 * GIB, tps: 52.7 }], pollInstall: 0 });
@@ -179,16 +179,31 @@ async function scenario(lang) {
   calls.length = 0; btn($$('#eng-list tbody tr')[0], L('Journal', 'Log')).click();
   ok(await until(() => !$('#modal').classList.contains('hidden') && T('#modal').includes('moteur : prêt')) && calls.some((c) => c[1] === '/api/llama/logs?id=qwen3-30b-a3b'), L('journal du moteur affiché', 'EN: engine log'));
   $('#modal-ok').click(); await until(() => $('#modal').classList.contains('hidden'));
+  // accélération : lignes de la liste
+  const r0 = $$('#eng-list tbody tr')[0].textContent;
+  ok(r0.includes(L('Réutilisation du cache d\'invites : 256 jetons', 'Prompt cache reuse: 256 tokens')) && r0.includes(L('Modèle verrouillé en mémoire', 'Model locked in memory')), L('liste : réutilisation du cache et mémoire verrouillée', 'EN: list cache and lock'));
+  ok(r0.includes(L('Décodage spéculatif : brouillon gemma4:12b (400,0 Mo)', 'Speculative decoding: draft gemma4:12b (400.0 MB)')) && r0.includes(L('Brouillon : 75 % acceptés (150 sur 200 jetons)', 'Draft: 75 % accepted (150 of 200 tokens)')), L('liste : brouillon et taux d\'acceptation mesuré', 'EN: list draft and acceptance'));
+  ok(!$$('#eng-list tbody tr')[1].textContent.includes(L('Décodage spéculatif', 'Speculative decoding')) && !$$('#eng-list tbody tr')[1].textContent.includes(L('verrouillé', 'locked')), L('moteur sans accélération : aucune ligne en plus', 'EN: plain engine'));
   // modification
   calls.length = 0; btn($$('#eng-list tbody tr')[0], L('Modifier', 'Edit')).click();
   ok(await until(() => !$('#modal').classList.contains('hidden') && $$('#modal input').length >= 8), L('fenêtre de modification', 'EN: edit window'));
   const mi = (label) => $$('#modal input, #modal select').find((i) => (i.getAttribute('aria-label') || '') === label);
   const ctx = mi(L('Contexte par requête (jetons)', 'Context per request (tokens)')), moe = mi(L('Couches dont les experts vont en mémoire système', 'Layers whose experts go to system memory')), kv = mi(L('Cache de contexte', 'Context cache')), idle = mi(L('Arrêt après inactivité (minutes, 0 = jamais)', 'Stop after inactivity (minutes, 0 = never)'));
   ok(ctx && moe && kv && idle && ctx.value === '8192' && moe.value === '11' && kv.value === 'q8_0' && idle.value === '15', L('valeurs actuelles préremplies', 'EN: current values'));
+  const cr = mi(L('Réutilisation du cache d\'invites (jetons, 0 = désactivée)', 'Prompt cache reuse (tokens, 0 = disabled)')), ml = mi(L('Verrouiller le modèle en mémoire', 'Lock the model in memory')), sp = mi(L('Décodage spéculatif', 'Speculative decoding')), dm = mi(L('Modèle brouillon', 'Draft model')), dx = mi(L('Jetons proposés à chaque étape (1 à 64)', 'Tokens proposed at each step (1 to 64)'));
+  ok(cr && ml && sp && dm && dx && cr.value === '256' && ml.checked && sp.value === 'draft' && dm.value === 'gemma4:12b' && dx.value === '12', L('accélération : valeurs actuelles préremplies', 'EN: acceleration values'));
+  ok([...dm.options].map((o) => o.value).join() === 'gemma4:12b,dense30:latest' && !dm.closest('label').classList.contains('hidden') && !dx.closest('label').classList.contains('hidden'), L('brouillon : le modèle du moteur lui-même n\'est pas proposé ; champs visibles avec un brouillon', 'EN: draft choices'));
+  sp.value = ''; sp.dispatchEvent(new w.Event('change'));
+  ok(dm.closest('label').classList.contains('hidden') && dx.closest('label').classList.contains('hidden'), L('décodage désactivé : champs du brouillon masqués', 'EN: draft fields hidden'));
+  sp.value = 'ngram'; sp.dispatchEvent(new w.Event('change'));
+  ok(dm.closest('label').classList.contains('hidden') && !dx.closest('label').classList.contains('hidden'), L('motifs répétés : pas de modèle brouillon, nombre de jetons proposé visible', 'EN: ngram fields'));
+  ok(T('#modal').includes(L('Le brouillon doit partager le vocabulaire', 'The draft must share the main model\'s vocabulary')), L('explication affichée', 'EN: explanation'));
+  cr.value = '512'; ml.checked = false;
   ctx.value = '16384'; moe.value = '14'; idle.value = '0'; $('#modal-ok').click();
   ok(await until(() => calls.some((c) => c[1] === '/api/llama/save')), L('modification envoyée', 'EN: edit sent'));
   const ed = calls.find((c) => c[1] === '/api/llama/save')[2];
   ok(ed.id === 'qwen3-30b-a3b' && ed.ctx === '16384' && ed.n_cpu_moe === '14' && ed.idle_min === '0' && ed.kv === 'q8_0' && ed.flash === true && ed.unload_ollama === true && ed.extra === '' && !('model' in ed), L('contenu : identifiant et réglages (le modèle ne change pas)', 'EN: edit payload'));
+  ok(ed.cache_reuse === '512' && ed.mlock === false && ed.spec === 'ngram' && ed.draft_model === 'gemma4:12b' && ed.draft_max === '12' && ed.cache_ram === '', L('contenu : accélération (réutilisation, verrouillage, décodage)', 'EN: acceleration payload'));
   // suppression
   calls.length = 0; btn($$('#eng-list tbody tr')[1], L('Supprimer', 'Delete')).click();
   ok(await until(() => !$('#modal').classList.contains('hidden')) && T('#modal').includes('gemma4:12b') && !calls.some((c) => c[1] === '/api/llama/delete'), L('suppression : confirmation d\'abord', 'EN: delete confirmation'));

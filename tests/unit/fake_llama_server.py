@@ -11,7 +11,14 @@ HELP = """-fa, --flash-attn [on|off|auto]  Flash Attention
 --cache-type-k TYPE
 --jinja
 --no-webui
--t, --threads N"""
+-t, --threads N
+--cache-reuse N
+--cache-ram N
+--mlock
+-md, --model-draft FNAME
+--draft-max N
+-ngld, --n-gpu-layers-draft N
+--spec-type TYPE"""
 LOG = os.environ.get("FAKE_LOG", "")
 MODE = os.environ.get("FAKE_MODE", "")
 def log(kind, **kw):
@@ -45,6 +52,7 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_response(200); self.send_header("Content-Type", "text/event-stream"); self.end_headers()
             self.wfile.write(b'data: {"choices":[{"delta":{"content":"par"}}]}\n\n'); self.wfile.flush(); time.sleep(0.1); os._exit(1)
         timings = {"prompt_n": 7, "prompt_ms": 12.5, "predicted_n": 2, "predicted_ms": 25.0}
+        if "--model-draft" in args: timings.update(draft_n=10, draft_n_accepted=7)   # comptes du décodage spéculatif
         if not body.get("stream"):
             raw = json.dumps({"choices": [{"message": {"role": "assistant", "content": "Bonjour"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 7, "completion_tokens": 2}, "timings": timings}).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw); return

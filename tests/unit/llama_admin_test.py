@@ -146,6 +146,20 @@ ok(e3["ctx"] == 16384 and e3["idle_min"] == 5 and e3["model"] == "qwen3:30b-a3b"
 ok(raises(server.engine_save, {"id": "qwen3-30b-a3b", "ctx": 10}) and raises(server.engine_save, {"id": "qwen3-30b-a3b", "extra": "--host 0.0.0.0"}) and len(server.engines_load()[0]) == 2, "réglage invalide ou option dangereuse : refusé, rien n'est écrit")
 e4 = server.engine_save({"id": "qwen3-30b-a3b", "n_cpu_moe": 14}); ok(e4["n_cpu_moe"] == 14 and e4["cpu_bytes"] > e["cpu_bytes"], "plus de couches d'experts en RAM : octets en mémoire système recalculés")
 
+# --- accélération : brouillon, cache d'invites, mémoire verrouillée
+install_model("qwen3:0.6b", "f" * 64)
+ok("bien plus petit" in (raises(server.engine_save, {"id": "qwen3-30b-a3b", "spec": "draft", "draft_model": "qwen3:0.6b"}) or ""), "brouillon aussi gros que la moitié du modèle principal : refusé (il ralentirait)")
+open(os.path.join(server.MODELS_DIR, "blobs", "sha256-" + "f" * 64), "wb").write(b"D" * 10)
+ok("non installé" in (raises(server.engine_save, {"id": "qwen3-30b-a3b", "spec": "draft", "draft_model": "absent:1b"}) or "") and "brouillon" in (raises(server.engine_save, {"id": "qwen3-30b-a3b", "spec": "draft", "draft_model": "absent:1b"}) or ""), "brouillon absent d'Ollama : refusé, modèle nommé")
+RUN.clear(); e5 = server.engine_save({"id": "qwen3-30b-a3b", "spec": "draft", "draft_model": "qwen3:0.6b", "draft_max": 8, "cache_reuse": 256, "cache_ram": 4096, "mlock": True})
+ok(e5["spec"] == "draft" and e5["draft_model"] == "qwen3:0.6b" and e5["draft_bytes"] == 10 and e5["draft_max"] == 8 and e5["cache_reuse"] == 256 and e5["cache_ram"] == 4096 and e5["mlock"] is True and e5["n_cpu_moe"] == 14, "réglages enregistrés avec la taille du brouillon ; les autres réglages sont conservés")
+ok(["systemctl", "restart", "ollamabuntu-llama@qwen3-30b-a3b.service"] in RUN and json.load(open(server.ENGINES_FILE))["engines"][0]["draft_model"] == "qwen3:0.6b", "moteur relancé, table mise à jour")
+e6 = server.engine_save({"id": "qwen3-30b-a3b", "spec": "ngram"})
+ok(e6["spec"] == "ngram" and e6["draft_bytes"] == 0 and e6["draft_model"] == "qwen3:0.6b", "motifs répétés : plus de modèle brouillon chargé (taille 0)")
+e7 = server.engine_save({"id": "qwen3-30b-a3b", "spec": "", "mlock": False, "cache_ram": ""})
+ok(e7["spec"] == "" and e7["mlock"] is False and e7["cache_ram"] is None and e7["draft_bytes"] == 0, "décodage spéculatif désactivé, mémoire non verrouillée, cache d'invites au réglage de llama-server")
+ok("décodage spéculatif" in (raises(server.engine_save, {"id": "qwen3-30b-a3b", "spec": "x"}) or "") and server.engines_load()[0][0]["spec"] == "", "valeur invalide : refusée, rien n'est écrit")
+
 # --- états et actions
 ENGINE_STATE[11600] = {"state": "ready", "pid": 42, "inflight": 1, "requests": 7, "tail": ["x"], "error": ""}
 st = server.engine_status(e)

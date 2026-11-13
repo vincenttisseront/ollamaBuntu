@@ -235,6 +235,36 @@ ps = json.loads(raw)["models"]
 ok(any(m.get("engine") == "llama.cpp" and m["name"] == MODEL for m in ps), "/api/ps du routeur : le modèle servi par le moteur apparaît avec ceux d'Ollama")
 code, raw = rreq("POST", "/api/chat", {"model": MODEL, "stream": False, "messages": [{"role": "user", "content": "x"}], "images": []})
 ok(code == 200 and json.loads(raw)["message"]["content"] == "Bonjour", "réponse JSON complète par le routeur")
+# --- accélération : débuts d'invite réutilisés, mémoire verrouillée, décodage spéculatif avec un modèle brouillon
+D2 = "e" * 64
+json.dump({"layers": [{"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:" + D2}]}, open(os.path.join(MODELS, "manifests", "registry.ollama.ai", "library", "qwen3", "0.6b"), "w"))
+DRAFT = os.path.join(MODELS, "blobs", "sha256-" + D2); open(DRAFT, "wb").write(b"D" * 512)
+req("POST", "/engine/stop"); ok(wait(lambda: status()["state"] == "stopped"), "arrêt avant d'essayer les réglages d'accélération")
+write_cfg(cache_reuse=256, cache_ram=2048, mlock=True, spec="draft", draft_model="qwen3:0.6b", draft_max=12, draft_ngl=999)
+n0 = len(starts()); L0 = len([l for l in log_lines() if l["kind"] == "request"])
+code, _, raw = req("POST", "/api/chat", {"model": MODEL, "messages": [{"role": "user", "content": "avec brouillon"}]})
+ok(code == 200 and len(starts()) == n0 + 1, "démarrage avec les réglages d'accélération")
+a = starts()[n0]["args"]
+ok(a[a.index("--cache-reuse") + 1] == "256" and a[a.index("--cache-ram") + 1] == "2048" and "--mlock" in a, "ligne de commande : réutilisation du cache (256 jetons), mémoire du cache d'invites, mémoire verrouillée")
+ok(a[a.index("--model-draft") + 1] == DRAFT and a[a.index("--draft-max") + 1] == "12" and a[a.index("--n-gpu-layers-draft") + 1] == "999", "ligne de commande : le fichier du modèle brouillon d'Ollama, 12 jetons proposés, brouillon sur la carte")
+rb = [l for l in log_lines() if l["kind"] == "request"][L0]["body"]
+ok(rb.get("cache_prompt") is True, "chaque demande autorise la réutilisation du début de l'invite déjà calculé (cache_prompt)")
+st = status()
+ok(st["spec"] == {"drafted": 10, "accepted": 7}, "état : jetons proposés et acceptés par le brouillon comptés (flux)")
+code, _, raw = req("POST", "/api/chat", {"model": MODEL, "stream": False, "messages": [{"role": "user", "content": "encore"}]})
+ok(status()["spec"] == {"drafted": 20, "accepted": 14}, "…et en réponse non diffusée")
+req("POST", "/engine/stop"); ok(wait(lambda: status()["state"] == "stopped"), "arrêt")
+write_cfg(spec="ngram", draft_max=8)
+n0 = len(starts()); code, _, raw = req("POST", "/api/chat", {"model": MODEL, "messages": [{"role": "user", "content": "motifs"}]})
+a = starts()[n0]["args"]
+ok(code == 200 and a[a.index("--spec-type") + 1] == "ngram-simple" and "--model-draft" not in a and "--cache-reuse" not in a and "--mlock" not in a, "motifs répétés : --spec-type ngram-simple sans second modèle ; options non demandées absentes")
+ok(status()["spec"] == {"drafted": 0, "accepted": 0}, "compteurs remis à zéro à chaque démarrage de llama-server")
+req("POST", "/engine/stop"); ok(wait(lambda: status()["state"] == "stopped"), "arrêt")
+write_cfg(spec="draft", draft_model="absent:1b")
+code, _, raw = req("POST", "/api/chat", {"model": MODEL, "messages": [{"role": "user", "content": "brouillon absent"}]})
+ok(code >= 500 and "modèle brouillon" in json.loads(raw)["error"] and "absent:1b" in json.loads(raw)["error"], "modèle brouillon absent d'Ollama : échec clair, llama-server n'est pas lancé")
+write_cfg()
+
 json.dump({"engines": []}, open(os.path.join(ETC, "engines.json"), "w")); os.utime(os.path.join(ETC, "engines.json"), (time.time() + 5, time.time() + 5))
 code, raw = rreq("POST", "/api/chat", {"model": MODEL, "stream": False, "messages": [{"role": "user", "content": "x"}]})
 ok(json.loads(raw).get("relayed") == "/api/chat", "moteur retiré de la table : le modèle retourne à Ollama, sans redémarrer le routeur")
