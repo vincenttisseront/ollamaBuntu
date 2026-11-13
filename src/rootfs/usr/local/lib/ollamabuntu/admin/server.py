@@ -5291,7 +5291,8 @@ def redirects_load():
 
 
 def redirects_save(data):
-    """Règles « les demandes pour X sont servies par Y » (une seule étape : pas d'enchaînement). `percent` < 100 : essai sur une partie du trafic."""
+    """Règles « les demandes pour X sont servies par Y » (une seule étape : pas d'enchaînement). `percent` < 100 : essai sur une partie du trafic.
+    Cascade : `short_chars`, `no_tools`, `no_images` limitent la règle à certaines demandes ; `fallback` : si Y échoue, la demande repart avec X."""
     rules = data.get("rules") if isinstance(data, dict) else None
     if not isinstance(rules, list) or len(rules) > 50:
         raise ValueError("règles invalides (50 au maximum)")
@@ -5313,7 +5314,21 @@ def redirects_save(data):
             raise ValueError("pourcentage invalide pour « %s »" % src)
         if not 1 <= pct <= 100:
             raise ValueError("pourcentage de « %s » : 1 à 100" % src)
-        out.append({"from": src, "to": dst, "percent": pct, "enabled": r.get("enabled") is not False})
+        rule = {"from": src, "to": dst, "percent": pct, "enabled": r.get("enabled") is not False}
+        # cascade : conditions facultatives (la règle ne s'applique qu'aux demandes qui les remplissent) et repli sur le modèle demandé
+        sc = r.get("short_chars")
+        if sc not in (None, "", 0, "0"):
+            try:
+                sc = int(sc)
+            except (TypeError, ValueError):
+                raise ValueError("taille maximale de la demande de « %s » : nombre de caractères" % src)
+            if not 1 <= sc <= 1_000_000:
+                raise ValueError("taille maximale de la demande de « %s » : 1 à 1 000 000 caractères" % src)
+            rule["short_chars"] = sc
+        for k in ("no_tools", "no_images", "fallback"):
+            if r.get(k) is True:
+                rule[k] = True
+        out.append(rule)
     # Une règle dont le modèle servi est lui-même redirigé ne serait pas suivie : on le dit plutôt que de laisser croire à un enchaînement.
     active = {router_norm(r["from"]) for r in out if r["enabled"]}
     for r in out:

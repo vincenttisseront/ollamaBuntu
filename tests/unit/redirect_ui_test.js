@@ -58,23 +58,28 @@ async function scenario(lang) {
   ok(keys.indexOf('redirect') === keys.indexOf('engine') + 1, L('onglet placé après « Moteur MoE »', 'EN: tab order'));
   ok($('#view-models > .subtabs a[data-key=redirect]').textContent.trim() === L('Redirections', 'Redirects'), L('libellé de l\'onglet', 'EN: tab label'));
   let ins = $$('#rd-body tbody tr:first-child input');
-  ok(ins[0].value === 'gemma4:12b' && ins[1].value === 'qwen3:14b' && ins[2].value === '100' && ins[3].checked, L('règle existante affichée', 'EN: existing rule shown'));
+  ok(ins[0].value === 'gemma4:12b' && ins[1].value === 'qwen3:14b' && ins[2].value === '100' && ins[7].checked, L('règle existante affichée', 'EN: existing rule shown'));
   ok($$('#rd-models option').map((o) => o.value).join() === 'gemma4:12b,qwen3:14b' && ins[0].getAttribute('list') === 'rd-models', L('liste des modèles installés proposée pour la saisie', 'EN: model suggestions'));
   ok(T('#rd-body').includes(L('Non installé sur ce serveur', 'Not installed on this server')), L('cible non installée signalée', 'EN: not installed hint'));
   ok(!/null|undefined/.test(T('#rd-body')), L('aucun « null » affiché', 'EN: no null'));
+  ok(ins.length === 8 && ins[3].value === '' && !ins[4].checked && !ins[5].checked && !ins[6].checked, L('conditions de la règle existante : aucune', 'EN: no conditions on the existing rule'));
+  ok(T('#rd-body').includes(L('Seulement si (facultatif)', 'Only if (optional)')) && T('#rd-body').includes(L('Sans outils', 'Without tools')) && T('#rd-body').includes(L('Si ce modèle échoue, reprendre avec le modèle demandé', 'If this model fails, retry with the requested model')) && T('#rd-body').includes(L('Moins de', 'Fewer than')), L('colonne des conditions affichée', 'EN: conditions column'));
   $('#rd-add').click();
   ok(await until(() => $$('#rd-body tbody tr').length === 2), L('« Ajouter une règle » ajoute une ligne', 'EN: add row'));
   ins = $$('#rd-body tbody tr:nth-child(2) input');
   ins[0].value = 'llama3.2:3b'; ins[0].dispatchEvent(new w.Event('input'));
   ins[1].value = 'qwen3:14b'; ins[1].dispatchEvent(new w.Event('input'));
   ins[2].value = '30'; ins[2].dispatchEvent(new w.Event('input'));
-  const first = $$('#rd-body tbody tr:first-child input')[3]; first.checked = false; first.dispatchEvent(new w.Event('change'));
+  ins[3].value = '2000'; ins[3].dispatchEvent(new w.Event('input'));
+  for (const k of [4, 6]) { ins[k].checked = true; ins[k].dispatchEvent(new w.Event('change')); }
+  const first = $$('#rd-body tbody tr:first-child input')[7]; first.checked = false; first.dispatchEvent(new w.Event('change'));
   $('#rd-save').click();
   ok(await until(() => calls.some((c) => c[1] === '/api/redirects/config')), L('enregistrement envoyé', 'EN: save sent'));
   const sent = calls.find((c) => c[1] === '/api/redirects/config')[2].rules;
-  ok(sent.length === 2 && sent[0].enabled === false && sent[1].from === 'llama3.2:3b' && sent[1].to === 'qwen3:14b' && sent[1].percent === 30 && sent[1].enabled === true && !('to_installed' in sent[0]),
-    L('règles envoyées : désactivation, nouvelle règle à 30 %', 'EN: rules sent'));
+  ok(sent.length === 2 && sent[0].enabled === false && sent[1].from === 'llama3.2:3b' && sent[1].to === 'qwen3:14b' && sent[1].percent === 30 && sent[1].enabled === true && !('to_installed' in sent[0]) && sent[1].short_chars === 2000 && sent[1].no_tools === true && sent[1].no_images === false && sent[1].fallback === true && sent[0].short_chars === 0 && sent[0].fallback === false,
+    L('règles envoyées : désactivation, nouvelle règle à 30 % avec ses conditions et son repli', 'EN: rules sent'));
   ok(await until(() => T('#rd-msg') === L('Enregistré : appliqué aux prochaines demandes.', 'Saved: applies to the next requests.')), L('confirmation affichée', 'EN: saved message'));
+  ok(await until(() => { const i2 = $$('#rd-body tbody tr:nth-child(2) input'); return i2.length === 8 && i2[3].value === '2000' && i2[4].checked && !i2[5].checked && i2[6].checked; }), L('après rechargement : conditions et repli de la règle toujours affichés', 'EN: conditions kept after reload'));
   fail = L('« a » : le modèle servi est le même que le modèle demandé', '"a": the serving model is the same as the requested model');
   $('#rd-save').click();
   ok(await until(() => T('#rd-msg').includes('a') && $('#rd-msg').classList.contains('error')), L('erreur du serveur affichée', 'EN: server error shown'));

@@ -39,7 +39,7 @@ def backend(name, tls):
         def do_POST(self):
             body = self.rfile.read(int(self.headers.get("Content-Length") or 0)); st["hits"] += 1
             st["last_model"] = (json.loads(body or b"{}") or {}).get("model")
-            mode = st["mode"]
+            mode = "503" if st["last_model"] in st.get("fail", ()) else st["mode"]   # « fail » : modèles que ce serveur ne sait pas servir
             if mode == "close":
                 self.close_connection = True; self.connection.close(); return
             if mode in ("500", "503", "404"):
@@ -142,6 +142,25 @@ FL["servers"] = [remote(1, r1)]
 s1["mode"] = "ok"; s1["hits"] = 0
 st, body, inst = ask()
 ok(st == 200 and s1["hits"] == 1, "seul candidat : utilisé même disjoncteur ouvert (mieux vaut essayer que refuser)")
+
+# --- 9. cascade : le modèle choisi par la règle est indisponible sur tout le parc, la demande repart avec le modèle demandé
+CONF = os.path.join(ETC, "redirects.json")
+open(CONF, "w").write(json.dumps({"rules": [{"from": "big:1b", "to": "m:1b", "percent": 100, "enabled": True, "fallback": True}]})); os.utime(CONF, (time.time() + 50, time.time() + 50))
+FL["servers"] = [dict(remote(1, r1), models=[{"name": "m:1b"}, {"name": "big:1b"}]), dict(remote(2, r2), models=[{"name": "m:1b"}, {"name": "big:1b"}])]
+reset(); clear_log(); s1["fail"] = s2["fail"] = {"m:1b"}
+st, body, inst = ask("big:1b")
+e = log()[-1]
+ok(st == 200 and s1["last_model"] == "big:1b" and "ok de s1" in body and e["model"] == "big:1b" and e["escalated_from"] == "m:1b" and e["escalated"] == "aucun serveur disponible" and [x.split(" : ")[0] for x in e["retried"]] == ["Srv1", "Srv2"], "cascade sur le parc : le petit modèle est en échec partout, le client reçoit la réponse du modèle demandé (tracé au journal, échecs des serveurs conservés)")
+reset(); clear_log(); s1["fail"] = s2["fail"] = set()
+st, body, inst = ask("big:1b")
+ok(st == 200 and s1["last_model"] == "m:1b" and "escalated" not in log()[-1], "petit modèle disponible : servi par lui, aucune reprise")
+open(CONF, "w").write(json.dumps({"rules": [{"from": "big:1b", "to": "m:1b", "percent": 100, "enabled": True}]})); os.utime(CONF, (time.time() + 80, time.time() + 80))
+reset(); clear_log(); s1["fail"] = s2["fail"] = {"m:1b"}
+st, body, inst = ask("big:1b")
+ok(st == 503 and "aucun serveur disponible" in body, "sans repli demandé : l'échec est rendu tel quel")
+s1["fail"] = s2["fail"] = set()
+os.remove(CONF); FL["servers"] = [remote(1, r1), remote(2, r2)]
+time.sleep(0.05)
 
 # --- côté console : requêtes sauvées et échecs par serveur (24 h)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src", "rootfs", "usr", "local", "lib", "ollamabuntu", "admin"))

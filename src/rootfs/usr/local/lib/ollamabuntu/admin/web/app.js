@@ -2354,26 +2354,32 @@ function renderRedirects() {
     const on = el('input', { type: 'checkbox', 'aria-label': 'Règle active' }); on.checked = r.enabled !== false;
     src.addEventListener('input', () => { r.from = src.value.trim(); }); dst.addEventListener('input', () => { r.to = dst.value.trim(); });
     pct.addEventListener('input', () => { r.percent = Number(pct.value) || 0; }); on.addEventListener('change', () => { r.enabled = on.checked; });
+    const sc = el('input', { type: 'number', min: 1, max: 1000000, value: r.short_chars || '', placeholder: 'toutes', class: 'w80', 'aria-label': 'Seulement les demandes de moins de N caractères (vide = toutes les tailles)' });
+    const chk = (key, label) => { const c = el('input', { type: 'checkbox', 'aria-label': label }); c.checked = r[key] === true; c.addEventListener('change', () => { r[key] = c.checked; }); return c; };
+    sc.addEventListener('input', () => { r.short_chars = Number(sc.value) || 0; });
+    const nt = chk('no_tools', 'Seulement les demandes sans outils'), ni = chk('no_images', 'Seulement les demandes sans images'), fb = chk('fallback', 'En cas d\'échec, reprendre avec le modèle demandé');
+    const cond = el('td', { class: 'small' }, el('label', {}, 'Moins de ', sc, ' caractères'), el('label', { class: 'check' }, nt, ' Sans outils'), el('label', { class: 'check' }, ni, ' Sans images'),
+      el('label', { class: 'check' }, fb, ' Si ce modèle échoue, reprendre avec le modèle demandé'));
     const del = el('button', { class: 'btn small', type: 'button', text: 'Retirer', onclick: () => { rd.rules.splice(i, 1); renderRedirects(); } });
     return el('tr', {}, el('td', {}, src), el('td', {}, dst, r.to && r.to_installed === false ? el('div', { class: 'small muted', text: 'Non installé sur ce serveur (utile seulement si un serveur du parc le possède).' }) : null),
-      el('td', {}, pct, ' %'), el('td', {}, on), el('td', {}, del));
+      el('td', {}, pct, ' %'), cond, el('td', {}, on), el('td', {}, del));
   });
   $('#rd-body').replaceChildren(rows.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
-    el('thead', {}, el('tr', {}, ...['Quand on demande', 'C\'est ce modèle qui répond', 'Part des demandes', 'Active', ''].map((c) => el('th', { text: c })))),
+    el('thead', {}, el('tr', {}, ...['Quand on demande', 'C\'est ce modèle qui répond', 'Part des demandes', 'Seulement si (facultatif)', 'Active', ''].map((c) => el('th', { text: c })))),
     el('tbody', {}, ...rows))) : el('p', { class: 'muted small', text: 'Aucune redirection : chaque application reçoit le modèle qu\'elle demande.' }));
 }
 async function loadRedirects() {
   let d;
   try { d = await api('/api/redirects'); } catch (e) { $('#rd-body').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
-  rd.rules = d.rules.map((r) => ({ from: r.from, to: r.to, percent: r.percent, enabled: r.enabled !== false, to_installed: r.to_installed }));
+  rd.rules = d.rules.map((r) => ({ from: r.from, to: r.to, percent: r.percent, enabled: r.enabled !== false, to_installed: r.to_installed, short_chars: r.short_chars || 0, no_tools: r.no_tools === true, no_images: r.no_images === true, fallback: r.fallback === true }));
   $('#rd-models').replaceChildren(...d.models.map((m) => el('option', { value: m })));
   renderRedirects();
 }
-$('#rd-add').addEventListener('click', () => { rd.rules.push({ from: '', to: '', percent: 100, enabled: true }); renderRedirects(); });
+$('#rd-add').addEventListener('click', () => { rd.rules.push({ from: '', to: '', percent: 100, enabled: true, short_chars: 0, no_tools: false, no_images: false, fallback: false }); renderRedirects(); });
 $('#rd-save').addEventListener('click', async () => {
   const msg = $('#rd-msg'); msg.className = 'small'; msg.textContent = '';
   try {
-    const r = await api('/api/redirects/config', { json: { rules: rd.rules.map(({ from, to, percent, enabled }) => ({ from, to, percent, enabled })) } });
+    const r = await api('/api/redirects/config', { json: { rules: rd.rules.map(({ from, to, percent, enabled, short_chars, no_tools, no_images, fallback }) => ({ from, to, percent, enabled, short_chars, no_tools, no_images, fallback })) } });
     msg.className = 'small okmsg'; msg.textContent = 'Enregistré : appliqué aux prochaines demandes.'; await loadRedirects(); return r;
   } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
 });
@@ -2708,7 +2714,8 @@ for (const b of $$('#perf-range button')) b.addEventListener('click', () => {
 /* ------------------------------------------------ requêtes vers les modèles */
 const fmtMs = (v) => (v == null ? '-' : v >= 10000 ? DEC((v / 1000).toFixed(1)) + ' s' : v + ' ms');
 const reqWhere = (r) => ((r.instance || '').startsWith('serveur:') ? r.instance.slice(8) : r.instance === '-' ? '-' : 'Ce serveur');
-const whereCell = (r) => el('td', {}, reqWhere(r), ...((r.retried || []).length ? [' ', el('span', { class: 'pill warn', title: r.retried.join('\n'), text: 'repris' })] : []));
+const whereCell = (r) => el('td', {}, reqWhere(r), ...((r.retried || []).length ? [' ', el('span', { class: 'pill warn', title: r.retried.join('\n'), text: 'repris' })] : []),
+  ...(r.escalated_from ? [' ', el('span', { class: 'pill info', title: 'Modèle « ' + r.escalated_from + ' » en échec (' + r.escalated + ') : reprise avec le modèle demandé', text: 'cascade' })] : []));
 function reqTable(list, compact) {
   if (!list.length) return el('p', { class: 'muted small', text: 'Aucune requête enregistrée pour le moment.' });
   const cols = compact ? ['Heure', 'Modèle', 'Client', 'Serveur', 'Demande', 'Durée', 't/s'] : ['Heure', 'Client', 'Modèle', 'Demande', 'Serveur', 'Point d\'API', 'Statut', 'Durée', '1er jeton', 'Jetons (entrée / sortie)', 't/s'];

@@ -208,6 +208,7 @@
       <div class="card wide" data-admin data-panel="redirect" data-label="Redirections">
         <h2>Redirection de modèles</h2>
         <p class="muted small">Quand une application demande un modèle par son nom, la console peut le faire répondre par un autre : l'application n'a rien à changer. Exemple : toutes les demandes pour « gemma4:12b » servies par « Qwen3 ». Avec un pourcentage inférieur à 100, seule une partie des demandes est redirigée, pour comparer deux modèles en situation réelle. Les droits des clés d'accès s'appliquent au modèle demandé. Une règle ne s'enchaîne pas avec une autre.</p>
+        <p class="muted small">Routage en cascade : la colonne « Seulement si » limite la règle à certaines demandes. Exemple : « gemma4:12b » demandé, un petit modèle répond aux demandes de moins de 2 000 caractères sans outils ni images, les autres restent sur « gemma4:12b ». Avec « Si ce modèle échoue, reprendre avec le modèle demandé », une panne, un modèle absent ou une erreur du petit modèle est rattrapée sans que l'application s'en aperçoive (une seule reprise ; la réponse n'est pas jugée sur sa qualité). Le journal des requêtes indique la reprise.</p>
         <div id="rd-body"></div>
         <datalist id="rd-models"></datalist>
         <div class="row">

@@ -135,7 +135,8 @@ _rdc = {"mtime": None, "data": {}}
 
 
 def redirect_rules():
-    """Règles actives, sous forme [(modèle demandé normalisé, modèle servi, pourcentage)]."""
+    """Règles actives : [(modèle demandé normalisé, modèle servi, pourcentage, conditions, repli)].
+    Conditions facultatives (cascade) : short_chars (la demande ne dépasse pas N caractères), no_tools, no_images ; repli : si le modèle servi échoue, la demande repart avec le modèle demandé."""
     out = []
     for r in (hot_json(REDIRECT_CONF, _rdc).get("rules") or [])[:50]:
         if not isinstance(r, dict) or r.get("enabled") is False or not r.get("from") or not r.get("to"):
@@ -144,30 +145,88 @@ def redirect_rules():
             pct = max(1, min(100, int(r.get("percent", 100))))
         except (TypeError, ValueError):
             pct = 100
-        out.append((norm(r["from"]), str(r["to"]), pct))
+        cond = {}
+        try:
+            sc = int(r.get("short_chars") or 0)
+        except (TypeError, ValueError):
+            sc = 0
+        if sc > 0:
+            cond["short_chars"] = min(sc, 10_000_000)
+        for k in ("no_tools", "no_images"):
+            if r.get(k) is True:
+                cond[k] = True
+        out.append((norm(r["from"]), str(r["to"]), pct, cond, r.get("fallback") is True))
     return out
 
 
-def apply_redirect(body, rules=None, rnd=None):
+def _text_of(c):
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return " ".join(str(p.get("text", "")) for p in c if isinstance(p, dict))
+    return ""
+
+
+def prompt_chars(d):
+    """Taille du texte envoyé au modèle (messages, consigne système, invite), en caractères."""
+    n = 0
+    if isinstance(d.get("messages"), list):
+        n += sum(len(_text_of(m.get("content"))) for m in d["messages"] if isinstance(m, dict))
+    for k in ("prompt", "system"):
+        if isinstance(d.get(k), str):
+            n += len(d[k])
+    return n
+
+
+def has_images(d):
+    if d.get("images"):
+        return True
+    for m in d.get("messages") or []:
+        if isinstance(m, dict) and (m.get("images") or (isinstance(m.get("content"), list) and any(isinstance(p, dict) and p.get("type") in ("image_url", "image", "input_image") for p in m["content"]))):
+            return True
+    return False
+
+
+def redirect_applies(d, cond):
+    """La demande remplit-elle les conditions de la règle ? (sans condition : toujours)."""
+    if cond.get("no_tools") and (d.get("tools") or d.get("functions")):
+        return False
+    if cond.get("no_images") and has_images(d):
+        return False
+    if cond.get("short_chars") and prompt_chars(d) > cond["short_chars"]:
+        return False
+    return True
+
+
+def apply_redirect_ex(body, rules=None, rnd=None):
     """Remplace le modèle d'une requête d'inférence selon les règles (une seule étape, pas d'enchaînement).
-    Retourne (corps, modèle demandé, modèle servi) ; le corps est inchangé si aucune règle ne s'applique."""
+    Retourne (corps, modèle demandé, modèle servi, repli) ; le corps est inchangé si aucune règle ne s'applique."""
     rules = redirect_rules() if rules is None else rules
     if not rules or not body:
-        return body, None, None
+        return body, None, None, False
     try:
         d = json.loads(body)
     except ValueError:
-        return body, None, None
+        return body, None, None, False
     if not isinstance(d, dict) or not d.get("model"):
-        return body, None, None
+        return body, None, None, False
     asked = str(d["model"])
-    for src, dst, pct in rules:
+    for rule in rules:
+        src, dst, pct = rule[:3]
+        cond = rule[3] if len(rule) > 3 else {}
         if norm(asked) == src and norm(dst) != src:
+            if cond and not redirect_applies(d, cond):
+                return body, None, None, False
             if pct < 100 and (rnd or random.random)() * 100 >= pct:
-                return body, None, None
+                return body, None, None, False
             d["model"] = dst
-            return json.dumps(d, ensure_ascii=False).encode(), asked, dst
-    return body, None, None
+            return json.dumps(d, ensure_ascii=False).encode(), asked, dst, bool(rule[4]) if len(rule) > 4 else False
+    return body, None, None, False
+
+
+def apply_redirect(body, rules=None, rnd=None):
+    """Comme apply_redirect_ex, sans l'indication de repli : (corps, modèle demandé, modèle servi)."""
+    return apply_redirect_ex(body, rules, rnd)[:3]
 
 
 def balance_strategy():
@@ -670,7 +729,7 @@ class Router(http.server.BaseHTTPRequestHandler):
                 _inflight[k] = _inflight.get(k, 0) + 1
         return ordered
 
-    def balanced(self, method, path, body, cands, model):
+    def balanced(self, method, path, body, cands, model, esc=None, allowed=None):
         """Envoie la requête au premier serveur capable ; en cas d'échec avant le premier octet envoyé au client (connexion refusée, erreur 5xx,
         réponse vide ou coupée), la même requête est rejouée sur le serveur suivant. Les échecs sont mémorisés (disjoncteur) et journalisés."""
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP and k.lower() not in ("content-length", "authorization", "x-api-key")}
@@ -744,6 +803,10 @@ class Router(http.server.BaseHTTPRequestHandler):
                 _health.ok(ikey)
             self._inflight_key = ikey
             return self.stream_back(resp, conn, label, first, ttft0)
+        if esc:
+            done = self._escalate(method, path, body, allowed, esc, "aucun serveur disponible")
+            if done is not None:
+                return done
         if self.req_meta is not None:
             log_request(dict(self.req_meta, ts=round(self.t0, 3), instance="-", status=503, aborted=False, ms=round((time.time() - self.t0) * 1000), ttft_ms=None,
                              retried=list(self._retried)))
@@ -1138,10 +1201,12 @@ class Router(http.server.BaseHTTPRequestHandler):
                 why = _tokens.exceeded(kid, key.get("quota_day"), key.get("quota_month"))
                 if why:
                     return self.deny(429, "%s pour « %s »" % (why, who))
+        esc = None
         if path in INFERENCE and body:   # redirection de modèle (réglage de la console) : après les droits de la clé, qui portent sur le modèle demandé
-            body, asked, served = apply_redirect(body)
+            body, asked, served, fallback = apply_redirect_ex(body)
             if served and self.req_meta is not None:
                 self.req_meta["model"], self.req_meta["redirected_from"] = served, asked
+            esc = asked if (served and fallback) else None   # cascade : en cas d'échec du modèle servi, la demande repart avec le modèle demandé
         if path in INFERENCE and body:   # confidentialité : détection, anonymisation, termes interdits (globaux + ceux de la clé)
             pc = privacy_conf()
             kwords = list((self._key or {}).get("words") or []) if r is not None else []
@@ -1182,6 +1247,26 @@ class Router(http.server.BaseHTTPRequestHandler):
         self._clamped = []
         if r is not None and self._key and (self._key.get("max_ctx") or self._key.get("max_output")) and path in INFERENCE:
             body, self._clamped = limits.apply_caps(path, body, self._key.get("max_ctx"), self._key.get("max_output"))
+        return self._forward(method, path, body, allowed, esc)
+
+    def _escalate(self, method, path, body, allowed, asked, why):
+        """Repli d'une règle de cascade : la demande, déjà préparée (confidentialité, contexte), repart une seule fois avec le modèle demandé à l'origine."""
+        try:
+            d = json.loads(body)
+            served = str(d.get("model"))
+            d["model"] = asked
+            nb = json.dumps(d, ensure_ascii=False).encode()
+        except (ValueError, TypeError, AttributeError):
+            return None
+        print("cascade : « %s » en échec (%s), reprise avec « %s »" % (served, why, asked), flush=True)
+        if self.req_meta is not None:   # la réponse vient du modèle demandé : la trace dit seulement que le modèle choisi par la règle a échoué
+            self.req_meta.pop("redirected_from", None)
+            self.req_meta["model"], self.req_meta["escalated_from"], self.req_meta["escalated"] = asked, served, why
+        self._cache_store = None   # une réponse du modèle demandé ne se range pas sous la clé de la demande redirigée
+        return self._forward(method, path, nb, allowed, None)
+
+    def _forward(self, method, path, body, allowed, esc=None):
+        """Envoi au serveur (ou au parc). esc : modèle d'origine d'une règle de cascade avec repli ; un échec du modèle servi relance la demande avec lui."""
         fl = fleet()
         if fl.get("servers") and method == "GET" and path in ("/api/tags", "/v1/models"):
             return self.merged_models(path, allowed, fl)
@@ -1194,7 +1279,15 @@ class Router(http.server.BaseHTTPRequestHandler):
             if model:
                 cands = self.candidates(norm(model), fl, getattr(self, "_kid", None), limits.session_key(self.headers, body, getattr(self, "_kid", None), norm(model)))
                 if not cands and fl.get("rules"):
+                    if esc:
+                        done = self._escalate(method, path, body, allowed, esc, "aucun serveur autorisé")
+                        if done is not None:
+                            return done
                     return self.json_reply(503, {"error": "aucun serveur autorisé par les règles de routage pour « %s »" % model})
+                if not cands and esc:   # le modèle servi n'est nulle part (pas installé, pas autorisé) : on reprend avec le modèle demandé
+                    done = self._escalate(method, path, body, allowed, esc, "modèle indisponible")
+                    if done is not None:
+                        return done
                 if not cands:   # seul un serveur endormi possède ce modèle : on le signale à la console (qui le réveille) et le client réessaiera
                     sl = sleeping_for(norm(model), fl)
                     if sl is not None:
@@ -1206,7 +1299,7 @@ class Router(http.server.BaseHTTPRequestHandler):
                         return self.json_reply(503, {"error": "le serveur « %s » est en veille : réveil demandé pour le modèle « %s », réessayez dans une minute" % (sl.get("name"), model)},
                                                {"Retry-After": "60"})
                 if any(c[0] == "remote" for c in cands):
-                    return self.balanced(method, path, body, cands, model)
+                    return self.balanced(method, path, body, cands, model, esc, allowed)
         target = self.target_for(method, path, body)
         if self.req_meta is not None:   # requête en cours sur ce serveur, comptée dès l'envoi
             inflight_add("local", 1)
@@ -1220,7 +1313,22 @@ class Router(http.server.BaseHTTPRequestHandler):
             resp = conn.getresponse()
         except OSError as e:
             self.release_inflight()
+            if esc:
+                done = self._escalate(method, path, body, allowed, esc, "injoignable")
+                if done is not None:
+                    return done
             return self.json_reply(502, {"error": "instance Ollama %s injoignable : %s" % (target, e)})
+        if esc and (resp.status == 404 or resp.status >= 500):
+            try:
+                resp.read()
+            except (OSError, http.client.HTTPException):
+                pass
+            conn.close()
+            self.release_inflight()
+            done = self._escalate(method, path, body, allowed, esc, "erreur %d" % resp.status)
+            if done is not None:
+                return done
+            return self.json_reply(502, {"error": "le modèle servi a répondu %d" % resp.status})
         return self.stream_back(resp, conn, target)
 
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = relay

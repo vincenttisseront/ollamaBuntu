@@ -1,5 +1,23 @@
 # Redirection de modèles (Modèles > Redirections)
 E = {
+"Seulement si (facultatif)": "Only if (optional)",
+"Seulement les demandes de moins de N caractères (vide = toutes les tailles)": "Only requests shorter than N characters (empty = all sizes)",
+"Seulement les demandes sans outils": "Only requests without tools",
+"Seulement les demandes sans images": "Only requests without images",
+"En cas d'échec, reprendre avec le modèle demandé": "On failure, retry with the requested model",
+"Moins de": "Fewer than",
+"caractères": "characters",
+"toutes": "all",
+"Sans outils": "Without tools",
+"Sans images": "Without images",
+"Si ce modèle échoue, reprendre avec le modèle demandé": "If this model fails, retry with the requested model",
+"cascade": "cascade",
+"Routage en cascade : la colonne « Seulement si » limite la règle à certaines demandes. Exemple : « gemma4:12b » demandé, un petit modèle répond aux demandes de moins de 2 000 caractères sans outils ni images, les autres restent sur « gemma4:12b ». Avec « Si ce modèle échoue, reprendre avec le modèle demandé », une panne, un modèle absent ou une erreur du petit modèle est rattrapée sans que l'application s'en aperçoive (une seule reprise ; la réponse n'est pas jugée sur sa qualité). Le journal des requêtes indique la reprise.":
+  "Cascade routing: the “Only if” column limits the rule to certain requests. Example: “gemma4:12b” requested, a small model answers requests shorter than 2,000 characters without tools or images, the others stay on “gemma4:12b”. With “If this model fails, retry with the requested model”, an outage, a missing model or an error from the small model is made up for without the application noticing (a single retry; the answer is not judged on its quality). The request log shows the retry.",
+"injoignable": "unreachable",
+"aucun serveur disponible": "no server available",
+"modèle indisponible": "model unavailable",
+"aucun serveur autorisé": "no server allowed",
 "Redirections": "Redirects", "Redirection de modèles": "Model redirects",
 "Quand une application demande un modèle par son nom, la console peut le faire répondre par un autre : l'application n'a rien à changer. Exemple : toutes les demandes pour « gemma4:12b » servies par « Qwen3 ». Avec un pourcentage inférieur à 100, seule une partie des demandes est redirigée, pour comparer deux modèles en situation réelle. Les droits des clés d'accès s'appliquent au modèle demandé. Une règle ne s'enchaîne pas avec une autre.":
     "When an application asks for a model by name, the console can have another one answer: the application does not need to change. Example: all requests for \"gemma4:12b\" served by \"Qwen3\". With a percentage below 100, only part of the requests is redirected, so you can compare two models in real use. Access-key rights apply to the requested model. A rule is never chained with another one.",
@@ -16,6 +34,10 @@ E = {
 "règles invalides (50 au maximum)": "invalid rules (50 at most)", "règle invalide": "invalid rule",
 }
 P = [
+(r'Modèle « (.+) » en échec \((.+)\) : reprise avec le modèle demandé', "Model “{1}” failed ({2}): retried with the requested model"),
+(r'erreur (\d+)', "error {1}"),
+(r'taille maximale de la demande de « (.+) » : nombre de caractères', "maximum request size for “{1}”: number of characters"),
+(r'taille maximale de la demande de « (.+) » : 1 à 1 000 000 caractères', "maximum request size for “{1}”: 1 to 1,000,000 characters"),
 (r"« (.+) » : le modèle servi est le même que le modèle demandé", "\"{1}\": the serving model is the same as the requested model"),
 (r"« (.+) » apparaît deux fois : une seule règle par modèle demandé", "\"{1}\" appears twice: only one rule per requested model"),
 (r"pourcentage invalide pour « (.+) »", "invalid percentage for \"{1}\""),

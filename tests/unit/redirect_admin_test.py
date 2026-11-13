@@ -33,6 +33,16 @@ ok(raises(server.redirects_save, {"rules": [{"from": "", "to": "b"}]}) is not No
 ok(raises(server.redirects_save, {"rules": [{"from": "a", "to": "b", "percent": 0}]}) and raises(server.redirects_save, {"rules": [{"from": "a", "to": "b", "percent": 101}]}) and raises(server.redirects_save, {"rules": [{"from": "a", "to": "b", "percent": "x"}]}), "pourcentage hors 1 à 100 ou illisible : refusé")
 ok(raises(server.redirects_save, {"rules": "x"}) and raises(server.redirects_save, {"rules": [{"from": "a", "to": "b"}] * 51}), "liste invalide ou de plus de 50 règles : refusé")
 ok(raises(server.redirects_save, {"rules": [{"from": "a\nb", "to": "c"}]}) is not None, "saut de ligne dans un nom : refusé")
+# cascade : conditions et repli
+out = server.redirects_save({"rules": [{"from": "g:1b", "to": "p:1b", "short_chars": "2000", "no_tools": True, "no_images": True, "fallback": True}]})
+ok(out == [{"from": "g:1b", "to": "p:1b", "percent": 100, "enabled": True, "short_chars": 2000, "no_tools": True, "no_images": True, "fallback": True}] and server.redirects_load() == out, "cascade : taille maximale, sans outils, sans images et repli enregistrés")
+out = server.redirects_save({"rules": [{"from": "g:1b", "to": "p:1b", "short_chars": "", "no_tools": "oui", "fallback": False}]})
+ok(out == [{"from": "g:1b", "to": "p:1b", "percent": 100, "enabled": True}], "conditions vides ou non booléennes : rien n'est enregistré (simple redirection)")
+ok("caractères" in (raises(server.redirects_save, {"rules": [{"from": "a", "to": "b", "short_chars": "beaucoup"}]}) or "") and "1 à 1 000 000" in (raises(server.redirects_save, {"rules": [{"from": "a", "to": "b", "short_chars": 2_000_000}]}) or "") and raises(server.redirects_save, {"rules": [{"from": "a", "to": "b", "short_chars": -5}]}), "taille maximale invalide : refusée")
+import router as _r
+server.redirects_save({"rules": [{"from": "g:1b", "to": "p:1b", "short_chars": 300, "no_images": True, "fallback": True}]})
+_r.REDIRECT_CONF = server.REDIRECT_CONF; _r._rdc.update(mtime=None, data={})
+ok(_r.redirect_rules() == [(_r.norm("g:1b"), "p:1b", 100, {"short_chars": 300, "no_images": True}, True)], "ce que la console écrit est exactement ce que le routeur lit")
 server.redirects_save({"rules": [{"from": "gemma4:12b", "to": "qwen3:14b", "percent": 25, "enabled": False}]})
 v = server.redirects_view()
 ok(v["models"] == ["gemma4:12b", "hf.co/unsloth/Qwen3-14B-GGUF:Q4_K_M"] and v["rules"][0]["to_installed"] is False and v["rules"][0]["percent"] == 25 and v["rules"][0]["enabled"] is False, "vue : modèles installés pour les listes, cible non installée signalée")
