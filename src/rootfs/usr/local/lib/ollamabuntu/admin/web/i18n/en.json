@@ -2414,8 +2414,12 @@
 "model file not found ({1}): reinstall the model in Ollama"
 ],
 [
-"aucun fichier Ubuntu « (.+) » dans la version (.+) : essayez un autre moteur de calcul",
-"no Ubuntu \"{1}\" file in version {2}: try another compute backend"
+"aucun fichier Ubuntu « (.+) » dans les (\\d+) dernières versions de llama\\.cpp : essayez un autre moteur de calcul",
+"no Ubuntu \"{1}\" file in the last {2} llama.cpp releases: try another compute backend"
+],
+[
+"GitHub ne publie pas la somme SHA-256 de ce fichier \\(version (.+)\\) : installation refusée \\(elle ne pourrait pas être vérifiée\\)",
+"GitHub does not publish this file's SHA-256 sum (version {1}): installation refused (it could not be verified)"
 ],
 [
 "llama-server ne démarre pas sur ce serveur : (.+)",

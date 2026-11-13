@@ -873,17 +873,19 @@ def _llama_extract(archive, name, dest):
 def _llama_install(backend):
     try:
         _llama_log("Recherche de la dernière version de %s..." % LLAMA_REPO)
-        with updater._open("%s/repos/%s/releases/latest" % (updater.API, LLAMA_REPO), timeout=30) as r:
-            rel = json.loads(updater._read_limited(r, 5 << 20))
+        with updater._open("%s/repos/%s/releases?per_page=30" % (updater.API, LLAMA_REPO), timeout=30) as r:
+            releases = json.loads(updater._read_limited(r, 40 << 20))
+        if not isinstance(releases, list):
+            raise ValueError("réponse inattendue de GitHub")
+        rel, asset, why = llamacpp.pick_release(releases, backend)
+        if rel is None:
+            if why.startswith("nosum:"):
+                raise ValueError("GitHub ne publie pas la somme SHA-256 de ce fichier (version %s) : installation refusée (elle ne pourrait pas être vérifiée)" % why[6:])
+            raise ValueError("aucun fichier Ubuntu « %s » dans les %d dernières versions de llama.cpp : essayez un autre moteur de calcul" % (backend, len(releases)))
         tag = str(rel.get("tag_name") or "")
         if not re.fullmatch(r"[A-Za-z0-9._-]{1,40}", tag):
             raise ValueError("version illisible dans la réponse de GitHub")
-        asset = llamacpp.pick_asset(rel.get("assets"), backend)
-        if asset is None:
-            raise ValueError("aucun fichier Ubuntu « %s » dans la version %s : essayez un autre moteur de calcul" % (backend, tag))
         sha = llamacpp.digest_sha256(asset)
-        if not sha:
-            raise ValueError("GitHub ne publie pas la somme SHA-256 de ce fichier : installation refusée (elle ne pourrait pas être vérifiée)")
         name = str(asset["name"])
         _llama_log("Version %s, fichier %s (%d Mo)" % (tag, name, int(asset.get("size") or 0) >> 20))
         os.makedirs(LLAMA_ROOT, mode=0o755, exist_ok=True)

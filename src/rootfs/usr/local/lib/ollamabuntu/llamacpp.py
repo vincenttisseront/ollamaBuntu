@@ -499,8 +499,8 @@ def pick_asset(assets, backend="vulkan", arch="x64"):
     best = None
     for a in assets or []:
         name = str(a.get("name") or "").lower()
-        if not re.search(r"\.(zip|tar\.gz|tgz)$", name) or "ubuntu" not in name or arch not in name or "llama-" not in name:
-            continue
+        if not re.search(r"\.(zip|tar\.gz|tgz)$", name) or "ubuntu" not in name or arch not in name or "llama-" not in name or name.startswith("cudart"):
+            continue   # « cudart-… » : bibliothèques d'exécution CUDA seules, sans llama-server
         toks = set(re.split(r"[^a-z0-9]+", name))
         if want:
             if not any(w in toks for w in want):
@@ -515,6 +515,25 @@ def pick_asset(assets, backend="vulkan", arch="x64"):
         if best is None or (score, name) < (best[0], best[1]):
             best = (score, name, a)
     return best[2] if best else None
+
+
+def pick_release(releases, backend="vulkan", arch="x64"):
+    """Première version publiée (la plus récente d'abord) qui a un fichier Ubuntu pour ce moteur de calcul ET sa somme SHA-256.
+    On ne se fie pas à « la dernière version » de GitHub : llama.cpp marque ses versions de compilation comme « pré-versions », et une version
+    sans binaires (v1.0.0 : un simple fichier texte) a déjà été désignée « dernière ». Retourne (version, fichier, None), ou (None, None, raison)
+    avec raison « nofile » (aucun fichier pour ce moteur) ou « nosum:<étiquette> » (fichier trouvé mais somme SHA-256 non publiée)."""
+    nosum = None
+    for rel in releases or []:
+        if not isinstance(rel, dict) or rel.get("draft"):
+            continue
+        asset = pick_asset(rel.get("assets"), backend, arch)
+        if asset is None:
+            continue
+        if digest_sha256(asset) is None:
+            nosum = nosum or str(rel.get("tag_name") or "")
+            continue
+        return rel, asset, None
+    return None, None, ("nosum:" + nosum) if nosum else "nofile"
 
 
 def digest_sha256(asset):

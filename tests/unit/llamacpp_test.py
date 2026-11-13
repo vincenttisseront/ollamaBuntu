@@ -154,4 +154,20 @@ ok(L.pick_asset(assets, "cuda") is None and L.pick_asset([], "vulkan") is None a
 ok(L.pick_asset(A("llama-b8000-bin-ubuntu-vulkan-x64.tar.gz"), "vulkan")["name"].endswith(".tar.gz") and L.pick_asset(A("llama-b8000-bin-ubuntu-vulkan-x64.exe"), "vulkan") is None, "archives .zip et .tar.gz acceptées, pas les exécutables")
 ok(L.digest_sha256({"digest": "sha256:" + "A" * 64}) == "a" * 64 and L.digest_sha256({"digest": "md5:abc"}) is None and L.digest_sha256({}) is None and L.digest_sha256({"digest": "sha256:zz"}) is None, "somme SHA-256 publiée : lue ou absente")
 ok(L.server_in_listing(["build/bin/libggml.so", "build/bin/llama-server", "x/llama-server-old", "build/llama-server"]) == "build/llama-server" and L.server_in_listing(["a/b"]) is None and L.server_in_listing(["dir/llama-server/"]) is None, "llama-server repéré dans une archive")
+# --- noms réels de la version b12360 (13/11/2026) et version « v1.0.0 » sans binaires désignée « dernière » par GitHub
+REAL = A("cudart-llama-b12360-bin-ubuntu-cuda-12.8-x64.tar.gz", "cudart-llama-b12360-bin-ubuntu-cuda-13.5-x64.tar.gz", "llama-b12360-bin-ubuntu-cuda-12.8-x64.tar.gz", "llama-b12360-bin-ubuntu-cuda-13.5-x64.tar.gz",
+         "llama-b12360-bin-ubuntu-rocm-10.0-x64.tar.gz", "llama-b12360-bin-ubuntu-vulkan-x64.tar.gz", "llama-b12360-bin-ubuntu-vulkan-arm64.tar.gz", "llama-b12360-bin-ubuntu-x64.tar.gz",
+         "llama-b12360-bin-ubuntu-arm64.tar.gz", "llama-b12360-bin-ubuntu-openvino-2026.4.1-x64.tar.gz", "llama-b12360-bin-ubuntu-sycl-fp16-x64.tar.gz", "llama-b12360-bin-ubuntu-zdnn-s390x.tar.gz",
+         "llama-b12360-bin-ubuntu-26.04-s390x.tar.gz", "llama-b12360-ui.tar.gz", "llama-b12360-bin-win-rocm-10.0-x64.zip")
+ok([L.pick_asset(REAL, b)["name"] for b in ("vulkan", "rocm", "cpu", "cuda")] == ["llama-b12360-bin-ubuntu-vulkan-x64.tar.gz", "llama-b12360-bin-ubuntu-rocm-10.0-x64.tar.gz", "llama-b12360-bin-ubuntu-x64.tar.gz", "llama-b12360-bin-ubuntu-cuda-12.8-x64.tar.gz"],
+   "noms réels : Vulkan, ROCm, processeur et CUDA (jamais le « cudart » seul, ni l'ARM, ni le Windows)")
+STUB = {"tag_name": "v1.0.0", "prerelease": False, "assets": A("nightly-tag.txt")}
+BUILD = {"tag_name": "b12360", "prerelease": True, "assets": REAL}
+rel, asset, why = L.pick_release([STUB, BUILD], "rocm")
+ok(rel["tag_name"] == "b12360" and asset["name"].endswith("rocm-10.0-x64.tar.gz") and why is None, "version sans binaires désignée « dernière » : ignorée, la première version qui a le fichier est prise (échec du 13/11/2026)")
+ok(L.pick_release([STUB, {"tag_name": "b12361", "assets": A("llama-b12361-bin-ubuntu-vulkan-x64.tar.gz")[:0]}, BUILD], "vulkan")[0]["tag_name"] == "b12360", "version en cours de publication (sans fichier) : sautée")
+ok(L.pick_release([dict(BUILD, draft=True)], "vulkan") == (None, None, "nofile") and L.pick_release([STUB], "vulkan") == (None, None, "nofile") and L.pick_release([], "vulkan") == (None, None, "nofile") and L.pick_release(None, "vulkan")[2] == "nofile", "brouillon, version sans binaires, liste vide : « nofile »")
+NOSUM = {"tag_name": "b12362", "assets": [{"name": "llama-b12362-bin-ubuntu-vulkan-x64.tar.gz", "size": 5}]}
+ok(L.pick_release([NOSUM, BUILD], "vulkan")[0]["tag_name"] == "b12360", "fichier sans somme SHA-256 publiée (envoi en cours) : on prend la version précédente, vérifiable")
+ok(L.pick_release([NOSUM], "vulkan") == (None, None, "nosum:b12362") and L.pick_release(["x", 3, None], "vulkan")[2] == "nofile", "aucune version vérifiable : « nosum », éléments illisibles ignorés")
 print("\n%d vérifications réussies" % n)

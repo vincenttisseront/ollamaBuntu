@@ -177,11 +177,14 @@ class GH(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
     def log_message(self, *a): pass
     def do_GET(self):
-        if self.path.endswith("/releases/latest"):
+        if self.path.split("?")[0].endswith("/releases"):
             if STATE["fail_release"]: self.send_response(404); self.end_headers(); return
             zb = STATE["zip"]; base = "http://127.0.0.1:%d" % gh.server_address[1]
             a = lambda name: dict(name=name, size=len(zb), browser_download_url=base + "/dl/" + name, **({"digest": "sha256:" + hashlib.sha256(zb).hexdigest()} if STATE["digest"] else {}))
-            body = json.dumps({"tag_name": "b7001", "assets": STATE["assets"] or [a("llama-b7001-bin-ubuntu-vulkan-x64.zip"), a("llama-b7001-bin-ubuntu-x64.zip"), a("llama-b7001-bin-win-cuda-12.4-x64.zip")]}).encode()
+            # comme GitHub le 13/11/2026 : la « dernière » version (v1.0.0) n'a qu'un fichier texte, les vraies compilations sont des pré-versions plus bas ou plus haut
+            stub = {"tag_name": "v1.0.0", "prerelease": False, "assets": [{"name": "nightly-tag.txt", "size": 7, "digest": "sha256:" + "e" * 64, "browser_download_url": base + "/dl/nightly-tag.txt"}]}
+            build = {"tag_name": "b7001", "prerelease": True, "assets": STATE["assets"] or [a("llama-b7001-bin-ubuntu-vulkan-x64.zip"), a("llama-b7001-bin-ubuntu-x64.zip"), a("llama-b7001-bin-win-cuda-12.4-x64.zip")]}
+            body = json.dumps([stub, {"tag_name": "b7002", "prerelease": True, "draft": True, "assets": [a("llama-b7002-bin-ubuntu-vulkan-x64.zip")]}, {"tag_name": "b7003", "prerelease": True, "assets": []}, build]).encode()
         elif self.path.startswith("/dl/"):
             body = STATE["zip"]
         else:
