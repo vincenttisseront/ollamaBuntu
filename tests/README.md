@@ -34,12 +34,16 @@ python3 tests/unit/privacy_test.py               # confidentialité : motifs (IB
 python3 tests/unit/privacy_admin_test.py         # confidentialité côté console : réglages, statistiques, essai, termes par clé, routes, audit
 python3 tests/unit/rag_test.py                   # base de documents : extraction (texte, HTML, Word, OpenDocument, PDF), découpage, vecteurs, recherche exacte, citations, stockage
 python3 tests/unit/rag_router_test.py            # base de documents par l'API : /rag/search et /rag/ask, droits, bases autorisées par clé, en-tête des sources (Ollama simulé)
+python3 tests/unit/rag_fast_test.py              # recherche rapide des documents : classement hybride, premier tri sur le début des vecteurs, mesure du rappel, vecteurs repris, cache des questions
 python3 tests/unit/rag_admin_test.py             # base de documents côté console : dépôt, indexation en arrière-plan, réindexation, suppression, routes, audit
 python3 tests/unit/power_test.py                 # réveil et veille du parc : paquet magique (envoi UDP réel sur la boucle locale), réglages, décisions de réveil et de mise en veille, cartes réseau
 python3 tests/unit/power_admin_test.py           # réveil et veille côté console : réveil manuel et automatique, mise en veille à distance et autorisation du serveur, journal, routes, audit (parc simulé)
 python3 tests/unit/power_router_test.py          # routeur : modèle que seul un serveur endormi possède (503 + Retry-After, signal lu par la console)
 python3 tests/unit/redirect_router_test.py       # routeur : redirection de modèles (règles à chaud, pourcentage, OpenAI, pas d'enchaînement, journal)
 python3 tests/unit/redirect_admin_test.py        # console : validation des règles, routes HTTP, droits, audit, sauvegarde
+python3 tests/unit/rcache_test.py                # caches du routeur : réponses exactes (température 0), embeddings, empreintes de débuts d'invite (bornes, durée, réponses tronquées jamais gardées)
+python3 tests/unit/perf2_test.py                # accélération (parties pures) : préchauffage prédictif, mesure continue et régression, parallélisme adaptatif, contrôles de la machine
+python3 tests/unit/accel_admin_test.py          # accélération côté console : routes, caches, préchauffage, mesure de nuit, cache de contexte vérifié avec retour automatique, audit, sauvegarde
 python3 tests/unit/fit_test.py                 # ajustement : mémoire du modèle (poids, cache de contexte, fenêtre glissante), scénarios (mémoire vidéo, experts en mémoire système, couches), vitesse estimée, calibrage, Hugging Face
 python3 tests/unit/llamacpp_test.py            # moteur llama.cpp : nom du fichier du modèle, arguments de llama-server, options détectées, traduction Ollama <-> OpenAI (flux, outils, durées), choix de l'archive
 python3 tests/unit/llama_engine_test.py        # service du moteur : démarrage à la demande (faux llama-server), arrêt sur inactivité, un moteur à la fois, annulation, erreurs, flux
@@ -59,6 +63,7 @@ node tests/unit/costs_ui_test.js             # console : Journaux > Coûts (mois
 node tests/unit/modelupdate_ui_test.js      # console : Modèles > Mises à jour (réglages, vérification, retour arrière, historique) en jsdom, FR et EN
 node tests/unit/lab_ui_test.js              # console : Laboratoire (comparateur, jeux de tests de non-régression) en jsdom, FR et EN
 node tests/unit/modelmap_ui_test.js         # console : modèles de remplacement par listes déroulantes, proposition automatique (jsdom, FR et EN)
+node tests/unit/accel_ui_test.js            # console : Performance > Caches, Préchauffage prédictif, Mesure continue, Cache de contexte vérifié, Parallélisme, Journal d'accélération (français et anglais)
 python3 tests/unit/hf_test.py            # recherche Hugging Face (faux serveur local)
 python3 tests/unit/gpu_auto_test.py
 bash    tests/unit/crypt_engine_test.sh      # nécessite : cryptsetup, swtpm, tpm2-tools, clevis
