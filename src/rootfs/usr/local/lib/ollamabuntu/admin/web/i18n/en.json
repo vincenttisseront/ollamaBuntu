@@ -2422,6 +2422,18 @@
 "GitHub does not publish this file's SHA-256 sum (version {1}): installation refused (it could not be verified)"
 ],
 [
+"(\\d+) versions récentes lues \\((\\d+) Ko en (.+) s\\)\\.",
+"{1} recent releases read ({2} KB in {3} s)."
+],
+[
+"Lecture interrompue \\((.*)\\), nouvel essai \\((\\d) sur 3\\)\\.\\.\\.",
+"Read interrupted ({1}), trying again ({2} of 3)..."
+],
+[
+"lecture de la liste des versions interrompue : (.+)",
+"reading the list of releases was interrupted: {1}"
+],
+[
 "llama-server ne démarre pas sur ce serveur : (.+)",
 "llama-server does not start on this server: {1}"
 ],

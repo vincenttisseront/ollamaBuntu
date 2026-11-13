@@ -870,14 +870,33 @@ def _llama_extract(archive, name, dest):
     return listing
 
 
+def _llama_releases(count):
+    """Les `count` versions les plus récentes de llama.cpp (JSON de GitHub), avec trois essais si la lecture est interrompue."""
+    for attempt in (1, 2, 3):
+        t0 = time.time()
+        try:
+            with updater._open("%s/repos/%s/releases?per_page=%d" % (updater.API, LLAMA_REPO, count), timeout=30) as r:
+                raw = updater._read_limited(r, 20 << 20)
+            releases = json.loads(raw)
+            _llama_log("%d versions récentes lues (%d Ko en %.1f s)." % (len(releases) if isinstance(releases, list) else 0, len(raw) >> 10, time.time() - t0))
+            if not isinstance(releases, list):
+                raise ValueError("réponse inattendue de GitHub")
+            return releases
+        except (OSError, http.client.HTTPException, json.JSONDecodeError) as e:   # lecture coupée en route (IncompleteRead n'est pas une OSError)
+            if attempt == 3:
+                raise ValueError("lecture de la liste des versions interrompue : %s" % (str(e) or e.__class__.__name__))
+            _llama_log("Lecture interrompue (%s), nouvel essai (%d sur 3)..." % (str(e)[:80] or e.__class__.__name__, attempt + 1))
+            time.sleep(2)
+
+
 def _llama_install(backend):
     try:
         _llama_log("Recherche de la dernière version de %s..." % LLAMA_REPO)
-        with updater._open("%s/repos/%s/releases?per_page=30" % (updater.API, LLAMA_REPO), timeout=30) as r:
-            releases = json.loads(updater._read_limited(r, 40 << 20))
-        if not isinstance(releases, list):
-            raise ValueError("réponse inattendue de GitHub")
+        releases = _llama_releases(5)   # peu de versions d'abord : la liste de 30 pèse 2,5 Mo, ce que certains proxys d'entreprise laissent traîner
         rel, asset, why = llamacpp.pick_release(releases, backend)
+        if rel is None:
+            releases = _llama_releases(30)
+            rel, asset, why = llamacpp.pick_release(releases, backend)
         if rel is None:
             if why.startswith("nosum:"):
                 raise ValueError("GitHub ne publie pas la somme SHA-256 de ce fichier (version %s) : installation refusée (elle ne pourrait pas être vérifiée)" % why[6:])
@@ -928,8 +947,10 @@ def _llama_install(backend):
         _llama_log("Installation terminée.")
         with _llama_lock:
             _llama_inst.update(state="done", error="", t=time.time())
-    except (ValueError, OSError, updater.UpdateError, subprocess.SubprocessError, json.JSONDecodeError) as e:
+    except Exception as e:   # noqa: BLE001 - quoi qu'il arrive, l'installation ne doit pas rester « en cours »
         msg = str(e) or e.__class__.__name__
+        if not isinstance(e, (ValueError, OSError, updater.UpdateError, subprocess.SubprocessError)):
+            msg = "%s : %s" % (e.__class__.__name__, msg)
         sys.stderr.write("installation de llama.cpp : %s\n" % msg)
         _llama_log("Échec : " + msg)
         with _llama_lock:
@@ -940,7 +961,7 @@ def llama_install(backend):
     if backend not in ("vulkan", "rocm", "cpu"):
         raise ValueError("moteur de calcul : vulkan, rocm ou cpu")
     with _llama_lock:
-        if _llama_inst["state"] == "running":
+        if _llama_inst["state"] == "running" and time.time() - _llama_inst["t"] < 1800:
             raise ValueError("une installation est déjà en cours")
         _llama_inst.update(state="running", log=[], error="", t=time.time())
     threading.Thread(target=_llama_install, args=(backend,), daemon=True).start()

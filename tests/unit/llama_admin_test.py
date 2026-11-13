@@ -172,7 +172,7 @@ def make_zip(server_script=b"#!/bin/sh\ncase \"$1\" in --help) echo '--ctx-size 
         for name, data in extra:
             zi = zipfile.ZipInfo(name); zi.external_attr = 0o644 << 16; z.writestr(zi, data)
     return b.getvalue()
-STATE = {"zip": make_zip(), "digest": True, "assets": None, "fail_release": False}
+STATE = {"zip": make_zip(), "digest": True, "assets": None, "fail_release": False, "truncate": 0}
 class GH(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
     def log_message(self, *a): pass
@@ -189,6 +189,9 @@ class GH(http.server.BaseHTTPRequestHandler):
             body = STATE["zip"]
         else:
             self.send_response(404); self.end_headers(); return
+        if STATE["truncate"] and self.path.split("?")[0].endswith("/releases"):   # connexion coupée avant la fin du corps (IncompleteRead, qui n'est pas une OSError)
+            STATE["truncate"] -= 1
+            self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body[:len(body) // 2]); return
         self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 gh = http.server.ThreadingHTTPServer(("127.0.0.1", 0), GH); threading.Thread(target=gh.serve_forever, daemon=True).start()
 updater.API = "http://127.0.0.1:%d" % gh.server_address[1]
@@ -226,6 +229,16 @@ STATE["zip"] = bz.getvalue(); i = install("vulkan"); ok(i["state"] == "error" an
 STATE["zip"] = make_zip(b"#!/bin/sh\necho 'no such flag' >&2\nexit 2\n"); i = install("vulkan"); ok(i["state"] == "error" and "ne démarre pas" in i["error"], "binaire qui ne démarre pas sur ce serveur : refusé avant d'être installé")
 ok(server.llama_binary()["path"] == b["path"] and os.access(b["path"], os.X_OK), "…l'installation précédente reste en place après chaque échec")
 STATE["zip"] = good; STATE["fail_release"] = True; i = install("vulkan"); ok(i["state"] == "error" and "introuvable" in i["error"], "GitHub sans réponse : message clair"); STATE["fail_release"] = False
+STATE["zip"] = good; STATE["truncate"] = 1; i = install("vulkan")
+ok(i["state"] == "done" and any("nouvel essai (2 sur 3)" in x for x in i["log"]) and any("versions récentes lues" in x for x in i["log"]), "liste des versions coupée en cours de route : nouvel essai, puis installation (avant : l'état restait « en cours » pour toujours)")
+STATE["truncate"] = 9; i = install("vulkan")
+ok(i["state"] == "error" and "interrompue" in i["error"] and any(x.startswith("Échec") for x in i["log"]), "coupée à chaque fois : échec clair après 3 essais, pas de blocage"); STATE["truncate"] = 0
+_orig = server.llamacpp.pick_release
+def _boom(*a, **k): raise KeyError("inattendu")
+server.llamacpp.pick_release = _boom; i = install("vulkan"); server.llamacpp.pick_release = _orig
+ok(i["state"] == "error" and "KeyError" in i["error"], "exception imprévue : l'installation passe en erreur au lieu de rester « en cours »")
+server._llama_inst.update(state="running", t=time.time()); ok("déjà en cours" in (raises(server.llama_install, "vulkan") or ""), "installation récente en cours : une seconde est refusée")
+server._llama_inst.update(state="running", t=time.time() - 4000); i = install("vulkan"); ok(i["state"] == "done", "installation « en cours » depuis plus de 30 minutes (thread perdu) : une nouvelle est acceptée")
 tgz = io.BytesIO()
 import tarfile
 with tarfile.open(fileobj=tgz, mode="w:gz") as t:
