@@ -23,9 +23,10 @@ EVENTS = {
     "raid": "Grappe RAID dégradée",
     "gpu_xid": "Erreur matérielle de la carte graphique (Xid)",
     "perf_fix": "Chute de débit avec réglage suggéré",
+    "perf_regress": "Débit en baisse constatée par la mesure continue",
 }
 DEFAULTS = {"enabled": False, "webhook": {"url": ""}, "smtp": {"host": "", "port": 587, "user": "", "from": "", "to": [], "starttls": True},
-            "events": ["offload", "service", "disk", "gpu_temp", "tps_low", "server_offline", "key_expiry", "gpu_guard", "hw_disk", "raid", "gpu_xid", "perf_fix"], "disk_pct": 90, "gpu_temp": 85, "tps_min": 0}
+            "events": ["offload", "service", "disk", "gpu_temp", "tps_low", "server_offline", "key_expiry", "gpu_guard", "hw_disk", "raid", "gpu_xid", "perf_fix", "perf_regress"], "disk_pct": 90, "gpu_temp": 85, "tps_min": 0}
 
 
 def offload(running, has_gpu=True):
@@ -101,6 +102,9 @@ def evaluate(snap, cfg):
     pf = snap.get("perf")
     if "perf_fix" in on and pf:
         out["perf_fix"] = {"severity": "warning", "text": pf.get("text", "")}
+    if "perf_regress" in on:
+        for r in snap.get("regress") or []:
+            out["perf_regress:%s" % r.get("model")] = {"severity": "warning", "text": "Débit en baisse : " + str(r.get("text", ""))}
     for i in snap.get("hw") or []:
         kind = str(i.get("key", "")).split(":")[0]
         ev = {"hw_disk": "hw_disk", "raid": "raid", "gpu_xid": "gpu_xid"}.get(kind)

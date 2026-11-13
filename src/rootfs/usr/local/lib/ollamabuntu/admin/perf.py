@@ -132,6 +132,40 @@ def sys_checks(s):
         out.append({"id": "zram", "state": "ok", "fix": "", "text": "Swap compressé (zram) actif."})
     if mem and swap > mem and not s.get("zram"):
         out.append({"id": "swap_big", "state": "info", "fix": "", "text": "Le swap (%d Go) dépasse la mémoire vive : un modèle qui y déborde deviendrait inutilisable (quelques jetons/s)." % round(swap / 1024 ** 3)})
+    for g in s.get("gpu_power") or []:
+        lvl = str(g.get("level") or "")
+        who = g.get("name") or g.get("card") or "carte"
+        if lvl == "low":
+            out.append({"id": "gpu_power:" + str(g.get("card")), "state": "warn", "fix": "amd_power",
+                        "text": "%s est bridée (niveau de puissance « low ») : les fréquences restent basses et le débit s'effondre. « high » fixe les fréquences maximales." % who})
+        elif lvl == "auto":
+            out.append({"id": "gpu_power:" + str(g.get("card")), "state": "info", "fix": "amd_power",
+                        "text": "%s gère ses fréquences automatiquement : elle met un instant à monter en puissance au premier jeton après une pause. « high » les fixe au maximum (plus de bruit et de consommation au repos)." % who})
+        elif lvl == "high":
+            out.append({"id": "gpu_power:" + str(g.get("card")), "state": "ok", "fix": "", "text": "%s : fréquences maximales fixées." % who})
+    rb = s.get("rebar")
+    if rb and rb.get("checked"):
+        if rb.get("enabled"):
+            out.append({"id": "rebar", "state": "ok", "fix": "", "text": "Resizable BAR actif (fenêtre de %s Go sur la carte)." % rb.get("bar_gb")})
+        else:
+            out.append({"id": "rebar", "state": "info", "fix": "",
+                        "text": "Resizable BAR semble désactivé (fenêtre de %s Go pour %s Go de mémoire vidéo). À activer dans le BIOS (« Above 4G Decoding » puis « Resizable BAR ») : "
+                                "chargement des modèles et échanges avec la mémoire système plus rapides." % (rb.get("bar_gb"), rb.get("vram_gb"))})
+    mm = s.get("memory")
+    if mm and mm.get("dimms"):
+        if mm["dimms"] == 1:
+            out.append({"id": "mem_channels", "state": "warn", "fix": "",
+                        "text": "Une seule barrette de mémoire : canal simple, soit environ la moitié du débit d'un double canal. C'est ce débit qui limite un modèle débordé ou ses experts en mémoire système."})
+        rated, conf = mm.get("rated"), mm.get("configured")
+        if rated and conf and conf < rated * 0.9:
+            out.append({"id": "mem_speed", "state": "warn", "fix": "",
+                        "text": "La mémoire tourne à %d MT/s alors que ses barrettes sont prévues pour %d MT/s : profil XMP / EXPO désactivé dans le BIOS. Le débit de la mémoire système en dépend directement." % (conf, rated)})
+        elif rated and conf:
+            out.append({"id": "mem_speed", "state": "ok", "fix": "", "text": "Mémoire à %d MT/s (%d barrette(s))." % (conf, mm["dimms"])})
+    for l in s.get("pcie") or []:
+        if l.get("width") and l.get("max_width") and l["width"] < l["max_width"]:
+            out.append({"id": "pcie:" + str(l.get("card")), "state": "warn", "fix": "",
+                        "text": "%s est en PCIe x%d alors que x%d est possible : fente partagée, riser ou câble limitant. Le chargement des modèles et le débordement en pâtissent." % (l.get("name") or l.get("card"), l["width"], l["max_width"])})
     w = s.get("webui") or {}
     if w.get("deployed"):
         if not w.get("limit_mb") and mem >= 4 * 1024 ** 3:
@@ -225,3 +259,206 @@ def perf_guard(samples, now, offload, env, drop_pct=50, min_requests=3):
     what = ("%s déborde sur le processeur" % offload[0]["name"]) if offload else "débit de %s jetons/s au lieu de %s d'habitude" % (cur, base)
     return {"kind": kind, "baseline": base, "current": cur, "ratio": round(cur / base, 2) if cur and base else None, "fix": fix,
             "text": "%s%s" % (what[0].upper() + what[1:], " — suggestion : " + fix["text"] if fix else " — aucun réglage simple à resserrer ; essayez un modèle plus petit")}
+
+
+# ------------------------------------------------------- préchauffage prédictif ---
+def hours_add(store, reqs, keep_days=28):
+    """Compte les requêtes par modèle, jour et heure locale : {modèle: {'AAAA-MM-JJ': [24 compteurs]}}. Seuls des compteurs sont gardés
+    (aucun texte, aucun client). `reqs` : lignes du journal des requêtes ({ts, model, status}). Les jours trop anciens sont retirés."""
+    for r in reqs:
+        ts, m = r.get("ts"), r.get("model")
+        if not ts or not m or (r.get("status") or 200) >= 400 or r.get("cached"):
+            continue
+        lt = time.localtime(ts)
+        day = "%04d-%02d-%02d" % (lt.tm_year, lt.tm_mon, lt.tm_mday)
+        store.setdefault(m, {}).setdefault(day, [0] * 24)[lt.tm_hour] += 1
+    cutoff = time.strftime("%Y-%m-%d", time.localtime(time.time() - keep_days * 86400))
+    for m in list(store):
+        for day in [d for d in store[m] if d < cutoff]:
+            del store[m][day]
+        if not store[m]:
+            del store[m]
+    return store
+
+
+def predict_clean(d):
+    d = d if isinstance(d, dict) else {}
+    out = {"enabled": d.get("enabled") is True, "lead": 10, "max_models": 2, "min_days": 3}
+    for k, lo, hi, label in (("lead", 2, 30, "avance (minutes)"), ("max_models", 1, 4, "nombre de modèles"), ("min_days", 2, 14, "jours minimum")):
+        if k in d:
+            try:
+                v = int(d[k])
+            except (TypeError, ValueError):
+                raise ValueError("valeur invalide : %s" % label)
+            if not lo <= v <= hi:
+                raise ValueError("%s hors limites (%d à %d)" % (label, lo, hi))
+            out[k] = v
+    return out
+
+
+def warm_predict(store, lt, loaded=(), cfg=None, window_days=14, min_ratio=0.5, preview=False):
+    """Modèles à charger maintenant parce qu'ils sont habituellement demandés dans l'heure qui vient.
+    On regarde, pour les jours du même type (semaine ou week-end) des `window_days` derniers jours où le serveur a servi des demandes,
+    ceux où le modèle a été utilisé pendant l'heure visée. lt : time.struct_time local. Retourne [{model, hits, days, hour}] (les plus réguliers d'abord)."""
+    cfg = predict_clean(cfg or {"enabled": True})
+    if lt.tm_min < 60 - cfg["lead"] and not preview:   # aperçu : l'heure suivante, quelle que soit la minute
+        return []
+    target_ts = time.mktime(lt) + 3600
+    tl = time.localtime(target_ts)
+    hour, weekend = tl.tm_hour, tl.tm_wday >= 5
+    tday = "%04d-%02d-%02d" % (tl.tm_year, tl.tm_mon, tl.tm_mday)
+    lo = time.strftime("%Y-%m-%d", time.localtime(target_ts - window_days * 86400))
+    kind = lambda day: time.strptime(day, "%Y-%m-%d").tm_wday >= 5
+    active = set()
+    for days in store.values():
+        for day, hrs in days.items():
+            if lo <= day < tday and kind(day) == weekend and sum(hrs):
+                active.add(day)
+    if len(active) < cfg["min_days"]:
+        return []
+    out = []
+    loaded = {str(x) for x in loaded}
+    for m, days in store.items():
+        if m in loaded:
+            continue
+        hits = sum(1 for day in active if (days.get(day) or [0] * 24)[hour] > 0)
+        if hits >= cfg["min_days"] and hits >= min_ratio * len(active):
+            out.append({"model": m, "hits": hits, "days": len(active), "hour": hour})
+    out.sort(key=lambda x: (-x["hits"], x["model"]))
+    return out[:cfg["max_models"]]
+
+
+# ------------------------------------------------------------ mesure continue ---
+def bench_auto_clean(d):
+    d = d if isinstance(d, dict) else {}
+    out = {"enabled": d.get("enabled") is True, "at": "03:30", "models": [], "tolerance": 15, "recalibrate": d.get("recalibrate", True) is not False}
+    if "at" in d:
+        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(d["at"])):
+            raise ValueError("heure invalide (HH:MM)")
+        out["at"] = str(d["at"])
+    if "tolerance" in d:
+        try:
+            t = int(d["tolerance"])
+        except (TypeError, ValueError):
+            raise ValueError("tolérance invalide")
+        if not 5 <= t <= 60:
+            raise ValueError("tolérance hors limites (5 à 60 %)")
+        out["tolerance"] = t
+    name = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+    out["models"] = [m for m in dict.fromkeys(str(x).strip() for x in (d.get("models") or [])) if name.match(m)][:4]
+    return out
+
+
+def bench_auto_due(cfg, lt, last):
+    """True quand l'heure programmée est atteinte (une fois par jour). last : {'AAAA-MM-JJ': True}, nettoyé au passage."""
+    if not cfg.get("enabled"):
+        return False
+    today = "%04d-%02d-%02d" % (lt.tm_year, lt.tm_mon, lt.tm_mday)
+    for k in [k for k in last if k != today]:
+        last.pop(k)
+    if cfg["at"] == "%02d:%02d" % (lt.tm_hour, lt.tm_min) and today not in last:
+        last[today] = True
+        return True
+    return False
+
+
+def _same_cfg(a, b):
+    return all((a.get("cfg") or {}).get(k) == (b.get("cfg") or {}).get(k) for k in ("kv", "fa", "parallel", "ctx"))
+
+
+def bench_baseline(history, entry, n=5):
+    """Débit habituel du modèle : médiane des `n` mesures précédentes faites avec les mêmes réglages (au moins 2), sinon None."""
+    xs = [h["tps"] for h in history if h.get("model") == entry["model"] and h.get("tps") and _same_cfg(h, entry)][-n:]
+    if len(xs) < 2:
+        return None
+    xs.sort()
+    return xs[len(xs) // 2]
+
+
+def bench_regression(history, entry, tolerance=15):
+    """Baisse de débit par rapport à l'habituel : None ou {baseline, current, pct}."""
+    base = bench_baseline(history, entry)
+    if not base or not entry.get("tps"):
+        return None
+    pct = round(100.0 * (entry["tps"] - base) / base, 1)
+    return {"baseline": base, "current": entry["tps"], "pct": pct} if pct <= -tolerance else None
+
+
+def diagnose(entry, prev):
+    """Causes probables d'une baisse de débit, d'après ce qui a changé depuis la mesure précédente. Liste de phrases (vide si rien de net)."""
+    hints = []
+    prev = prev or {}
+    vp, pv = entry.get("vram_pct"), prev.get("vram_pct")
+    if vp is not None and vp < 100 and (pv is None or vp < pv - 3):
+        hints.append("Le modèle est maintenant à %d %% en mémoire vidéo%s : une partie déborde sur le processeur (autre modèle chargé, cache de contexte plus grand, pilote qui réserve plus de mémoire)." %
+                     (vp, " (contre %d %%)" % pv if pv is not None else ""))
+    sysn, sysp_ = entry.get("sys") or {}, prev.get("sys") or {}
+    t = sysn.get("gpu_temp")
+    if t is not None and t >= 83:
+        hints.append("La carte graphique est à %d °C : bridage thermique probable (poussière, ventilation, boîtier)." % t)
+    for key, label in (("kernel", "Le noyau"), ("ollama", "Ollama"), ("driver", "Le pilote graphique")):
+        if sysn.get(key) and sysp_.get(key) and sysn[key] != sysp_[key]:
+            hints.append("%s a changé depuis la mesure précédente (%s -> %s)." % (label, sysp_[key], sysn[key]))
+    if prev and not _same_cfg(entry, prev):
+        hints.append("Les réglages d'Ollama ne sont plus les mêmes que lors de la mesure précédente.")
+    if entry.get("ram_total") and entry.get("ram_used") and entry["ram_used"] / entry["ram_total"] > 0.92:
+        hints.append("La mémoire vive est presque pleine (%d %%) : le système peut pousser des pages vers le disque." % round(100.0 * entry["ram_used"] / entry["ram_total"]))
+    if prev.get("ttft_ms") and entry.get("ttft_ms") and entry["ttft_ms"] > 1.5 * prev["ttft_ms"] and not (entry.get("load_ms") or 0) > 1000:
+        hints.append("Le délai avant le premier jeton a augmenté de %d %% sans rechargement du modèle." % round(100.0 * entry["ttft_ms"] / prev["ttft_ms"] - 100))
+    return hints
+
+
+# ---------------------------------------------------------- parallélisme adaptatif ---
+def concurrency_profile(rows, now, span=86400):
+    """Chevauchement des requêtes terminées dans la période : {requests, peak, overlap_pct, solo_ttft, busy_ttft}.
+    Une requête « chevauchée » en a croisé une autre. rows : lignes du journal ({ts, ms, ttft_ms, status, cached})."""
+    ev = [(r["ts"], r["ts"] + (r.get("ms") or 0) / 1000.0, r.get("ttft_ms")) for r in rows
+          if r.get("ts") and r["ts"] >= now - span and (r.get("status") or 200) < 400 and not r.get("cached") and r.get("ms") and r.get("instance") != "-"]
+    ev.sort()
+    if not ev:
+        return {"requests": 0, "peak": 0, "overlap_pct": 0, "solo_ttft": None, "busy_ttft": None}
+    points = sorted([(a, 1) for a, _b, _t in ev] + [(b, -1) for _a, b, _t in ev], key=lambda p: (p[0], p[1]))
+    cur = peak = 0
+    for _t, d in points:
+        cur += d
+        peak = max(peak, cur)
+    overlapped, solo, busy = 0, [], []
+    end = 0.0
+    for i, (a, b, t) in enumerate(ev):
+        nxt = ev[i + 1][0] if i + 1 < len(ev) else None
+        crossed = a < end or (nxt is not None and nxt < b)
+        end = max(end, b)
+        if crossed:
+            overlapped += 1
+            if t:
+                busy.append(t)
+        elif t:
+            solo.append(t)
+    med = lambda xs: sorted(xs)[len(xs) // 2] if xs else None
+    return {"requests": len(ev), "peak": peak, "overlap_pct": round(100.0 * overlapped / len(ev)), "solo_ttft": med(solo), "busy_ttft": med(busy)}
+
+
+def parallel_clean(d):
+    d = d if isinstance(d, dict) else {}
+    return {"mode": d.get("mode") if d.get("mode") in ("off", "suggest", "auto") else "suggest"}
+
+
+def parallel_advice(profile, parallel, headroom, slot_bytes, max_par=4, min_requests=20):
+    """Nombre de requêtes parallèles conseillé : None (rien à changer) ou {to, text, why}.
+    headroom : mémoire vidéo libre (octets) ; slot_bytes : cache de contexte d'une requête de plus (octets, estimé)."""
+    par = max(1, int(parallel or 1))
+    if profile["requests"] < min_requests:
+        return None
+    if profile["overlap_pct"] >= 15 and par < min(profile["peak"], max_par):
+        if slot_bytes and headroom is not None and headroom < slot_bytes * 1.25:
+            return {"to": None, "why": "memory", "text": "%d %% des demandes se chevauchent (jusqu'à %d à la fois) mais la mémoire vidéo libre (%.1f Go) ne permet pas un emplacement de plus (%.1f Go de cache)." %
+                    (profile["overlap_pct"], profile["peak"], headroom / 1024 ** 3, slot_bytes / 1024 ** 3)}
+        wait = ""
+        if profile.get("busy_ttft") and profile.get("solo_ttft") and profile["busy_ttft"] > 1.5 * profile["solo_ttft"]:
+            wait = " ; le délai avant le premier jeton est de %d ms quand elles se chevauchent contre %d ms seules" % (profile["busy_ttft"], profile["solo_ttft"])
+        return {"to": par + 1, "why": "overlap", "text": "%d %% des demandes se chevauchent (jusqu'à %d à la fois)%s : passer de %d à %d requêtes en parallèle." %
+                (profile["overlap_pct"], profile["peak"], wait, par, par + 1)}
+    if par > 1 and profile["peak"] <= 1:
+        return {"to": par - 1, "why": "unused", "text": "Aucune demande ne s'est chevauchée sur la période alors que %d emplacements sont réservés : en retirer un libère %.1f Go de mémoire vidéo." %
+                (par, (slot_bytes or 0) / 1024 ** 3)}
+    return None

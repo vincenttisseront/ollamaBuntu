@@ -249,7 +249,7 @@ function route() {
   if (v === 'models') { loadModels(); if (isAdmin()) { loadCustom(); loadContext(); loadRedirects(); if (currentTab('models') === 'fit') loadFit(); if (currentTab('models') === 'engine') loadEngines(); if (currentTab('models') === 'disk') loadModelsDisk(); if (currentTab('models') === 'updates') loadMu(); } }
   if (v === 'chat') { loadChatModels(); loadChatRag(); }
   if (v === 'gpu') loadGpu();
-  if (v === 'perf') loadPerformance();
+  if (v === 'perf') { loadPerformance(); loadAccel(); }
   if (v === 'lab') loadLab();
   if (v === 'rag') loadRag();
   if (v === 'system') { loadSystem(); loadProm(); loadPowerMember(); const tab = currentTab('system'); if (tab === 'hardware') loadHardware(); if (tab === 'audit') loadAudit(); if (tab === 'report') loadReport(); }
@@ -2539,7 +2539,7 @@ function renderMuHistory(d) {
     el('tbody', {}, ...d.history.map((h) => { const s = MU_STATUS[h.status] || [h.status, '']; return el('tr', {}, el('td', { class: 'small', text: fmtDate(h.t) }), el('td', { class: 'name', text: h.model }), el('td', {}, pill(s[0], s[1])),
       el('td', { class: 'small', text: h.detail + (h.tps_before && h.tps_after ? ' (débit ' + DEC(h.tps_before) + ' → ' + DEC(h.tps_after) + ' jetons/s)' : '') }), el('td', { class: 'small', text: h.who + ' (' + h.reason + ')' })); })))) : el('p', { class: 'muted small', text: 'Aucune mise à jour enregistrée.' }));
 }
-const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'fit', 'engine', 'redirect', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'costs', 'privacy', 'system'], fleet: ['fleet', 'balance', 'queue', 'power', 'rules', 'add'] };
+const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'fit', 'engine', 'redirect', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'predict', 'guard', 'autobench', 'kv', 'parallel', 'cache', 'tune', 'aclog'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'costs', 'privacy', 'system'], fleet: ['fleet', 'balance', 'queue', 'power', 'rules', 'add'] };
 function setupTabs() {
   for (const sec of $$('section.view')) {
     const items = [...sec.querySelectorAll('[data-panel]')];
@@ -3280,7 +3280,7 @@ $('#pf-guard-drop').addEventListener('change', saveGuardMode);
 const CHECK_KIND = { ok: 'ok', warn: 'warn', info: 'info' }, CHECK_WORD = { ok: 'OK', warn: 'À traiter', info: 'Conseil' };
 function renderPfChecks(d) {
   $('#pf-checks').replaceChildren(d.checks.length ? el('ul', { class: 'checks-list' }, ...d.checks.map((c) => el('li', {}, pill(CHECK_WORD[c.state], CHECK_KIND[c.state]), ' ', c.text, ' ',
-    c.fix ? el('button', { class: 'btn sm', type: 'button', text: 'Corriger', onclick: () => sysFix(c) }) : null))) : el('p', { class: 'muted small', text: 'Aucun contrôle disponible.' }));
+    c.fix ? el('button', { class: 'btn sm', type: 'button', text: c.fix === 'amd_power_auto' ? 'Rétablir' : 'Corriger', onclick: () => sysFix(c) }) : null))) : el('p', { class: 'muted small', text: 'Aucun contrôle disponible.' }));
 }
 async function sysFix(c) {
   let value;
@@ -3289,7 +3289,9 @@ async function sysFix(c) {
     sel.value = '2g';
     if (!(await modal({ title: 'Plafonner la mémoire d\'Open WebUI', message: 'Le conteneur sera limité sans être recréé ; il est tué par le système s\'il dépasse ce plafond.', body: sel, ok: 'Appliquer' }))) return;
     value = sel.value;
-  } else if (!(await ask(c.fix === 'governor' ? 'Passer tous les cœurs en mode « performance » ? La consommation au repos augmente légèrement.' : 'Régler vm.swappiness à 10 ?', { ok: 'Corriger' }))) return;
+  } else if (!(await ask(c.fix === 'governor' ? 'Passer tous les cœurs en mode « performance » ? La consommation au repos augmente légèrement.'
+    : c.fix === 'amd_power' ? 'Fixer les fréquences de la carte AMD au maximum ? Elle sera un peu plus bruyante et consommera davantage au repos ; le réglage survit au redémarrage.'
+    : c.fix === 'amd_power_auto' ? 'Rendre à la carte AMD la gestion automatique de ses fréquences ?' : 'Régler vm.swappiness à 10 ?', { ok: 'Corriger' }))) return;
   try { await api('/api/perf/fix', { json: { id: c.fix, value } }); loadPerformance(); } catch (e) { fail(e.message); }
 }
 async function loadPerformance() {
@@ -3315,6 +3317,147 @@ $('#pf-clear').addEventListener('click', async () => {
   if (!(await ask('Effacer tout l\'historique des mesures ?', { ok: 'Effacer', danger: true }))) return;
   try { await api('/api/bench/clear', { json: {} }); loadPerformance(); } catch (e) { fail(e.message); }
 });
+
+/* ------------------------------------------------ accélération : caches, préchauffage prédictif, mesure continue, cache de contexte, parallélisme */
+const ac = { data: null, models: [], timer: null };
+const acSay = (id, text, bad) => { const m = $(id); m.className = 'small ' + (bad ? 'error' : 'okmsg'); m.textContent = text; };
+const acFill = (form, vals) => {
+  for (const [k, v] of Object.entries(vals)) {
+    const f = form.elements[k];
+    if (!f || w_active() === f) continue;
+    if (f.type === 'checkbox') f.checked = !!v; else f.value = v == null ? '' : v;
+  }
+};
+const acNum = (n) => Number(n || 0).toLocaleString(LOCALE());
+const acDur = (ms) => { const s = Math.round((ms || 0) / 1000); return s >= 3600 ? DEC(s / 3600) + ' h' : s >= 60 ? Math.round(s / 60) + ' min' : s + ' s'; };
+function renderAcCache(d) {
+  const c = d.cache.config, st = d.cache.stats || {};
+  acFill($('#ac-cache-form'), { responses: c.responses, embeddings: c.embeddings, ttl: c.ttl, max_mb: c.max_mb, max_entry_kb: c.max_entry_kb });
+  if (!st.t) { $('#ac-cache-stats').replaceChildren(el('p', { class: 'muted small', text: 'Aucune statistique reçue du routeur : il n\'a pas encore servi de demande depuis le dernier démarrage, ou il est arrêté.' })); return; }
+  const rate = (x) => (x.hits + x.misses ? Math.round((100 * x.hits) / (x.hits + x.misses)) + ' %' : '-');
+  const line = (label, x) => el('tr', {}, el('td', { class: 'name', text: label }), el('td', { class: 'num', text: acNum(x.entries) }), el('td', { class: 'num', text: fmtBytes(x.bytes) }),
+    el('td', { class: 'num', text: acNum(x.hits) }), el('td', { class: 'num', text: acNum(x.misses) }), el('td', { class: 'num', text: rate(x) }), el('td', { class: 'num', text: acNum(x.evicted) }));
+  const px = st.prefixes || { distinct: 0, requests: 0, reused: 0, models: [] };
+  $('#ac-cache-stats').replaceChildren(
+    el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+      el('thead', {}, el('tr', {}, ...['Cache', 'Entrées', 'Taille', 'Servies', 'Non trouvées', 'Taux', 'Évincées'].map((h, i) => el('th', { class: i ? 'num' : '', text: h })))),
+      el('tbody', {}, line('Réponses exactes', st.responses), line('Embeddings', st.embeddings)))),
+    el('p', { class: 'small', text: 'Économisé depuis le démarrage du routeur : ' + acDur(st.saved_ms) + ' de génération et ' + acNum(st.saved_tokens) + ' jetons.' }),
+    el('h3', { text: 'Débuts d\'invite de la dernière heure' }),
+    px.distinct ? el('div', {}, el('p', { class: 'small', text: px.distinct + ' début(s) distinct(s) pour ' + px.requests + ' demande(s) ; ' + px.reused + ' demande(s) repartent d\'un début déjà vu (la consigne système est la même).' }),
+      el('ul', { class: 'small' }, ...px.models.map((m) => el('li', { text: m.model + ' : ' + m.distinct + ' début(s) distinct(s), ' + m.requests + ' demande(s), ' + m.frequent + ' revenant souvent' }))))
+      : el('p', { class: 'muted small', text: 'Aucune consigne système assez longue (200 caractères) vue pendant la dernière heure. Seules des empreintes sont gardées, jamais le texte.' }));
+}
+function renderAcPredict(d) {
+  const p = d.config.predict, pr = d.predict;
+  acFill($('#ac-predict-form'), { enabled: p.enabled, lead: p.lead, max_models: p.max_models, min_days: p.min_days });
+  $('#ac-predict-info').textContent = pr.models_seen ? 'Historique disponible : ' + pr.models_seen + ' modèle(s) sur ' + pr.days + ' jour(s).' : 'Pas encore d\'historique : les compteurs se remplissent au fil des demandes (14 jours sont regardés).';
+  $('#ac-predict-now').replaceChildren(
+    el('h3', { text: 'Dans l\'heure qui vient' }),
+    pr.candidates.length ? el('ul', {}, ...pr.candidates.map((c) => el('li', {}, el('strong', { text: c.model }), ' : habituellement demandé vers ' + String(c.hour).padStart(2, '0') + ' h (' + c.hits + ' jour(s) sur ' + c.days + ').'))) :
+      el('p', { class: 'muted small', text: 'Aucun modèle à précharger pour l\'heure qui vient (déjà en mémoire, ou pas assez d\'habitude).' }));
+}
+function renderAcBench(d) {
+  const b = d.config.bench_auto;
+  acFill($('#ac-bench-form'), { enabled: b.enabled, at: b.at, tolerance: b.tolerance, recalibrate: b.recalibrate });
+  if (!$('#ac-bench-form').contains(w_active())) {
+    const names = [...new Set([...ac.models, ...b.models])].sort();
+    $('#ac-bench-models').replaceChildren(...names.map((m) => el('label', {}, el('input', { type: 'checkbox', value: m, checked: b.models.includes(m) ? true : null }), ' ' + m)));
+    if (!names.length) $('#ac-bench-models').replaceChildren(el('span', { class: 'muted small', text: 'Aucun modèle installé.' }));
+  }
+  const reg = Object.entries(d.config.regress || {});
+  $('#ac-bench-state').replaceChildren(
+    d.bench_auto.running ? el('p', {}, pill('mesure en cours', 'info')) : null,
+    el('p', { class: 'small muted', text: d.bench_auto.models.length ? 'Sera mesuré : ' + d.bench_auto.models.join(', ') : 'Rien à mesurer pour le moment (aucune demande récente).' }),
+    reg.length ? el('div', {}, el('h3', { text: 'Baisses de débit constatées' }), ...reg.map(([, r]) => el('div', { class: 'card inner' }, pill('baisse', 'err'), ' ', el('span', { text: r.text }), ' ', el('span', { class: 'muted small', text: fmtDate(r.t) }),
+      r.hints && r.hints.length ? el('ul', { class: 'small' }, ...r.hints.map((h) => el('li', { text: h }))) : el('p', { class: 'small muted', text: 'Aucune cause nette trouvée : vérifiez les contrôles de la machine (onglet « Réglages système »).' })))) :
+      el('p', { class: 'small', text: 'Aucune baisse de débit en cours.' }));
+}
+function renderAcKv(d) {
+  const k = d.kv, mode = d.config.kv.mode;
+  if (w_active() !== $('#ac-kv-mode')) $('#ac-kv-mode').value = mode;
+  const job = k.job || {};
+  const nodes = [el('p', { class: 'small' }, 'Cache de contexte actuel : ', pill(k.current || 'f16', 'info'), ' ', k.suites ? el('span', { class: 'muted', text: k.suites + ' jeu(x) de tests du Laboratoire serviront de contrôle.' }) : pill('aucun jeu de tests au Laboratoire', 'warn'))];
+  if (job.running || job.step || job.error || job.result) {
+    nodes.push(el('div', { class: 'card inner' },
+      job.running ? pill('en cours', 'info') : job.result === 'valide' ? pill('validé', 'ok') : job.result === 'annule' ? pill('annulé : dégradation constatée', 'err') : job.error ? pill('échec', 'err') : null,
+      ' ', el('strong', { text: job.model ? job.model + ' → ' + job.kv : '' }),
+      job.error ? el('p', { class: 'error small', text: job.error }) : null,
+      el('ul', { class: 'small' }, ...(job.log || []).map((x) => el('li', { text: x })))));
+  }
+  if (!k.items.length) nodes.push(el('p', { class: 'muted small', text: k.current === 'f16' ? 'Aucun modèle installé ne gagnerait à passer le cache en quantifié avec les réglages actuels.' : 'Le cache est déjà quantifié.' }));
+  else nodes.push(el('ul', { class: 'items' }, ...k.items.map((it) => el('li', {}, el('span', { text: it.text }), ' ',
+    el('button', { class: 'btn sm primary', type: 'button', disabled: job.running ? true : null, text: 'Appliquer et vérifier', onclick: () => acKvApply(it) })))));
+  $('#ac-kv-body').replaceChildren(...nodes);
+}
+async function acKvApply(it) {
+  const noSuite = !ac.data.kv.suites;
+  if (!(await ask('Passer le cache de contexte en ' + it.kv + ' ?\nOllama redémarre (les modèles chargés sont déchargés quelques secondes). ' +
+    (noSuite ? 'Aucun jeu de tests n\'existe au Laboratoire : le changement serait appliqué SANS vérification de la qualité.' : 'Les jeux de tests du Laboratoire sont rejoués avant et après ; en cas de dégradation, le réglage précédent est rétabli seul.'), { ok: noSuite ? 'Appliquer sans vérification' : 'Appliquer et vérifier', danger: noSuite }))) return;
+  try { await api('/api/accel/kv/apply', { json: { model: it.model, kv: it.kv, force: noSuite } }); acSay('#ac-kv-msg', 'Lancé.'); await loadAccel(); } catch (e) { fail(e.message); }
+}
+function renderAcParallel(d) {
+  const p = d.parallel, mode = d.config.parallel.mode, pr = p.profile;
+  if (w_active() !== $('#ac-par-mode')) $('#ac-par-mode').value = mode;
+  const nodes = [el('p', { class: 'small' }, 'Réglage actuel : ', pill(p.parallel + ' requête(s) en parallèle', 'info'), ' ',
+    pr.requests ? el('span', { class: 'muted', text: 'Sur 24 h : ' + acNum(pr.requests) + ' demande(s), jusqu\'à ' + pr.peak + ' à la fois, ' + pr.overlap_pct + ' % se chevauchent' +
+      (pr.solo_ttft && pr.busy_ttft ? ' ; premier jeton après ' + acNum(Math.round(pr.solo_ttft)) + ' ms seule, ' + acNum(Math.round(pr.busy_ttft)) + ' ms en chevauchement.' : '.') }) : el('span', { class: 'muted', text: 'Pas assez de demandes sur 24 h pour conseiller quoi que ce soit.' }))];
+  if (p.advice) nodes.push(el('div', { class: 'card inner' }, pill(p.advice.to ? 'conseil' : 'à savoir', p.advice.to ? 'info' : 'warn'), ' ', p.advice.text, ' ',
+    p.advice.to ? el('button', { class: 'btn sm primary', type: 'button', text: 'Passer à ' + p.advice.to, onclick: () => acParApply(p.advice.to) }) : null));
+  else if (pr.requests) nodes.push(el('p', { class: 'small', text: 'Le réglage actuel convient à la charge observée.' }));
+  for (const n of d.parallel.notes || []) nodes.push(el('p', { class: 'small' }, pill('invites', 'warn'), ' ' + n));
+  $('#ac-par-body').replaceChildren(...nodes);
+}
+async function acParApply(to) {
+  if (!(await ask('Passer à ' + to + ' requête(s) en parallèle ? Ollama redémarre ; chaque emplacement de plus réserve du cache de contexte en mémoire vidéo.', { ok: 'Appliquer' }))) return;
+  try { await api('/api/accel/parallel/apply', { json: { to } }); acSay('#ac-par-msg', 'Appliqué.'); await loadAccel(); } catch (e) { fail(e.message); }
+}
+function renderAcEvents(d) {
+  $('#ac-events').replaceChildren(d.events.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Date', 'Origine', 'Événement'].map((c) => el('th', { text: c })))),
+    el('tbody', {}, ...d.events.map((e) => el('tr', {}, el('td', { class: 'small nowrap', text: fmtDate(e.t) }), el('td', { class: 'small', text: e.who }), el('td', { class: 'small', text: e.text })))))) :
+    el('p', { class: 'muted small', text: 'Rien pour le moment.' }));
+}
+async function loadAccel() {
+  let d;
+  try {
+    [d] = await Promise.all([api('/api/accel'), api('/api/models').then((m) => { ac.models = (m.models || []).map((x) => x.name).filter((n) => !n.endsWith('-cloud')).sort(); }).catch(() => {})]);
+  } catch (e) { $('#ac-events').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  ac.data = d;
+  renderAcCache(d); renderAcPredict(d); renderAcBench(d); renderAcKv(d); renderAcParallel(d); renderAcEvents(d);
+  clearInterval(ac.timer); ac.timer = null;
+  if ((d.kv.job && d.kv.job.running) || d.bench_auto.running) ac.timer = setInterval(async () => {
+    if (location.hash.split('/')[0] !== '#perf') { clearInterval(ac.timer); ac.timer = null; return; }
+    loadAccel();
+  }, 3000);
+}
+async function acSave(path, json, msgId) {
+  try { await api(path, { json }); acSay(msgId, 'Enregistré.'); await loadAccel(); acSay(msgId, 'Enregistré.'); } catch (e) { acSay(msgId, e.message, true); }
+}
+$('#ac-cache-form').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const f = ev.target.elements;
+  acSave('/api/accel/cache', { responses: f.responses.checked, embeddings: f.embeddings.checked, ttl: Number(f.ttl.value), max_mb: Number(f.max_mb.value), max_entry_kb: Number(f.max_entry_kb.value) }, '#ac-cache-msg');
+});
+$('#ac-cache-purge').addEventListener('click', async () => {
+  if (!(await ask('Vider les deux caches ? Les prochaines demandes seront de nouveau calculées par les modèles.', { ok: 'Vider' }))) return;
+  acSave('/api/accel/cache', { purge: true }, '#ac-cache-msg');
+});
+$('#ac-predict-form').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const f = ev.target.elements;
+  acSave('/api/accel/predict', { enabled: f.enabled.checked, lead: Number(f.lead.value), max_models: Number(f.max_models.value), min_days: Number(f.min_days.value) }, '#ac-predict-msg');
+});
+$('#ac-bench-form').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const f = ev.target.elements;
+  acSave('/api/accel/bench-auto', { enabled: f.enabled.checked, at: f.at.value, tolerance: Number(f.tolerance.value), recalibrate: f.recalibrate.checked, models: $$('#ac-bench-models input:checked').map((c) => c.value) }, '#ac-bench-msg');
+});
+$('#ac-bench-now').addEventListener('click', async () => {
+  try { await api('/api/accel/bench-auto/run', { json: {} }); acSay('#ac-bench-msg', 'Mesure lancée (elle attend que le serveur soit au repos).'); await loadAccel(); } catch (e) { acSay('#ac-bench-msg', e.message, true); }
+});
+$('#ac-kv-mode').addEventListener('change', () => acSave('/api/accel/kv', { mode: $('#ac-kv-mode').value }, '#ac-kv-msg'));
+$('#ac-par-mode').addEventListener('change', () => acSave('/api/accel/parallel', { mode: $('#ac-par-mode').value }, '#ac-par-msg'));
 
 /* ------------------------------------------------ santé du matériel */
 const HW_KIND = { ok: ['sain', 'ok'], warning: ['à surveiller', 'warn'], critical: ['défaillant', 'err'] };

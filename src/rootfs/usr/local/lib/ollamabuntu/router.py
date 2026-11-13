@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import limits  # noqa: E402
 import privacy  # noqa: E402
 import rag  # noqa: E402
+import rcache  # noqa: E402
 
 ETC = os.environ.get("OB_ETC", "/etc/ollamabuntu")
 POOLS_FILE = os.path.join(ETC, "pools.json")
@@ -204,6 +205,51 @@ def rag_store():
     if _rag_store["dir"] != RAG_DIR:
         _rag_store.update(s=rag.Store(RAG_DIR), dir=RAG_DIR)
     return _rag_store["s"]
+
+
+CACHE_CONF = os.path.join(ETC, "cache.json")   # écrit par la console : cache de réponses exactes et d'embeddings
+CACHE_STATS = os.environ.get("OB_ROUTER_CACHE_STATS", os.path.join(os.path.dirname(USAGE_FILE), "cache-stats.json"))
+_cac = {"mtime": None, "data": {}}
+_resp_cache, _emb_cache, _prefixes = rcache.Lru(), rcache.Lru(), rcache.Prefixes()
+_cache_state = {"purged": 0, "saved_ms": 0, "saved_tokens": 0, "dirty": threading.Event()}
+
+
+def cache_conf():
+    """Réglages des caches, relus à chaud ; applique la taille, la durée et une éventuelle purge demandée par la console."""
+    try:
+        c = rcache.clean_config(hot_json(CACHE_CONF, _cac))
+    except ValueError:
+        c = dict(rcache.DEFAULTS)
+    _resp_cache.configure(c["max_mb"] * (1 << 20) * 3 // 4, c["ttl"])
+    _emb_cache.configure(c["max_mb"] * (1 << 20) // 4, c["ttl"])
+    if c["purged"] > _cache_state["purged"]:
+        _cache_state["purged"] = c["purged"]
+        _resp_cache.clear()
+        _emb_cache.clear()
+    if not c["responses"] and _resp_cache.size:
+        _resp_cache.clear()
+    if not c["embeddings"] and _emb_cache.size:
+        _emb_cache.clear()
+    return c
+
+
+def cache_stats():
+    return {"t": int(time.time()), "responses": _resp_cache.snapshot(), "embeddings": _emb_cache.snapshot(), "saved_ms": _cache_state["saved_ms"],
+            "saved_tokens": _cache_state["saved_tokens"], "prefixes": _prefixes.snapshot()}
+
+
+def cache_writer():
+    """Statistiques des caches pour la console (écrites seulement quand elles changent)."""
+    last = None
+    while True:
+        _cache_state["dirty"].wait(timeout=15)
+        _cache_state["dirty"].clear()
+        snap = cache_stats()
+        key = json.dumps({k: v for k, v in snap.items() if k != "t"}, sort_keys=True)
+        if key != last:
+            last = key
+            limits.write_json(CACHE_STATS, snap)
+        time.sleep(5)
 
 
 PRIVACY_CONF = os.path.join(ETC, "privacy.json")   # écrit par la console : catégories masquées, anonymisation, termes interdits
@@ -712,12 +758,17 @@ class Router(http.server.BaseHTTPRequestHandler):
         """Relais en flux de la réponse ; pour les requêtes vers les modèles, mesure et journalisation.
         first : premier morceau déjà lu par balanced() (pour pouvoir changer de serveur tant que le client n'a rien reçu)."""
         ttft, tail, aborted = ttft0, b"", False
+        store = getattr(self, "_cache_store", None)
+        collect = bytearray() if store and resp.status == 200 else None
+        ctype = resp.getheader("Content-Type") or ""
         try:
             self.send_response(resp.status)
             for k, v in resp.getheaders():
                 if k.lower() not in HOP and k.lower() != "content-length":
                     self.send_header(k, v)
             self.send_header("X-OllamaBuntu-Instance", label)
+            if store:
+                self.send_header("X-OllamaBuntu-Cache", "MISS")
             if getattr(self, "_clamped", None):
                 self.send_header("X-OllamaBuntu-Clamped", ",".join(self._clamped))
             if getattr(self, "_rag_sources", None):
@@ -735,6 +786,10 @@ class Router(http.server.BaseHTTPRequestHandler):
                         ttft = time.time() - self.t0
                     if self.req_meta is not None:
                         tail = (tail + chunk)[-65536:]   # fin de la réponse seulement : compteurs d'Ollama
+                    if collect is not None:
+                        collect += chunk
+                        if len(collect) > store["limit"]:
+                            collect = None   # trop volumineuse pour le cache
                     self.wfile.write(chunk)
                     self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
@@ -745,6 +800,8 @@ class Router(http.server.BaseHTTPRequestHandler):
             if self.req_meta is not None:
                 elapsed = time.time() - getattr(self, "t0", time.time())
                 met = request_metrics(tail, elapsed, ttft)
+                if collect is not None and not aborted:
+                    self.cache_save(collect, ctype, elapsed, met)
                 log_request(dict(self.req_meta, ts=round(self.t0, 3), instance=label, status=resp.status, aborted=aborted,
                                  ms=round(elapsed * 1000), ttft_ms=round(ttft * 1000) if ttft is not None else None,
                                  **({"retried": list(self._retried)} if getattr(self, "_retried", None) else {}), **met))
@@ -875,6 +932,89 @@ class Router(http.server.BaseHTTPRequestHandler):
         self.path = "/api/chat"
         return "/api/chat", json.dumps(req, ensure_ascii=False).encode()
 
+    def note_prefix(self, path, body):
+        if path in rcache.RESPONSE_PATHS and body and len(body) < (2 << 20):
+            h = rcache.prefix_hash(path, body)
+            if h:
+                try:
+                    _prefixes.note(json.loads(body).get("model", ""), h)
+                    _cache_state["dirty"].set()
+                except (ValueError, AttributeError):
+                    pass
+
+    def cache_try(self, path, body):
+        """Sert la demande depuis un cache si elle y est entière (retourne True : réponse déjà envoyée). Sinon prépare la mémorisation
+        de la réponse qui va être relayée. Ne lève jamais d'exception : au pire la demande suit son chemin normal."""
+        self._cache_store = None
+        try:
+            if self.headers.get(rcache.SKIP_HEADER, "").strip().lower() == "skip" or "no-cache" in (self.headers.get("Cache-Control") or "").lower():
+                return False
+            c = cache_conf()
+            if c["responses"] and path in rcache.RESPONSE_PATHS:
+                key, _why = rcache.response_key(path, body)
+                if key:
+                    hit = _resp_cache.get(key)
+                    if hit:
+                        ctype, raw, meta = hit
+                        _cache_state["saved_ms"] += meta.get("ms") or 0
+                        _cache_state["saved_tokens"] += meta.get("out_tok") or 0
+                        _cache_state["dirty"].set()
+                        self.cache_reply(raw, ctype, meta)
+                        return True
+                    self._cache_store = {"kind": "resp", "key": key, "path": path, "limit": c["max_entry_kb"] * 1024}
+            elif c["embeddings"] and path in rcache.EMBED_PATHS:
+                parsed = rcache.embed_inputs(path, body)
+                if parsed:
+                    model, texts, optkey = parsed
+                    keys = [rcache.embed_key(model, t, optkey) for t in texts]
+                    hit = _emb_cache.get_all(keys)
+                    if hit:
+                        _cache_state["dirty"].set()
+                        raw = json.dumps(rcache.embed_response(path, model, [rcache.unpack(h) for h in hit]), ensure_ascii=False).encode()
+                        self.cache_reply(raw, "application/json; charset=utf-8", {})
+                        return True
+                    self._cache_store = {"kind": "emb", "keys": keys, "path": path, "model": model, "limit": 8 << 20}
+        except Exception as e:   # noqa: BLE001 - le cache ne doit jamais empêcher une réponse
+            print("cache : %s" % e, flush=True)
+            self._cache_store = None
+        return False
+
+    def cache_reply(self, raw, ctype, meta):
+        aborted = False
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", ctype or "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.send_header("X-OllamaBuntu-Cache", "HIT")
+            self.send_header("X-OllamaBuntu-Instance", "cache")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError):
+            aborted = True
+        if self.req_meta is not None:
+            ms = round((time.time() - self.t0) * 1000)
+            log_request(dict(self.req_meta, ts=round(self.t0, 3), instance="cache", status=200, aborted=aborted, ms=ms, ttft_ms=ms, cached=True,
+                             in_tok=meta.get("in_tok"), out_tok=meta.get("out_tok")))
+
+    def cache_save(self, collect, ctype, elapsed, met):
+        st = getattr(self, "_cache_store", None)
+        if not st or collect is None:
+            return
+        raw = bytes(collect)
+        try:
+            if st["kind"] == "resp":
+                if rcache.complete(st["path"], raw, ctype or ""):
+                    _resp_cache.put(st["key"], (ctype, raw, {"ms": round(elapsed * 1000), "out_tok": met.get("out_tok"), "in_tok": met.get("in_tok")}), len(raw))
+            else:
+                vs = rcache.embed_vectors(st["path"], raw)
+                if vs and len(vs) == len(st["keys"]):
+                    for k, v in zip(st["keys"], vs):
+                        _emb_cache.put(k, rcache.pack(v), len(v) * 4)
+            _cache_state["dirty"].set()
+        except Exception as e:   # noqa: BLE001
+            print("cache : %s" % e, flush=True)
+
     def category(self, method, path):
         if path in INFERENCE:
             return "inference"
@@ -943,7 +1083,7 @@ class Router(http.server.BaseHTTPRequestHandler):
                 self._slot = None
 
     def _relay(self):
-        self.t0, self.req_meta, self._inflight_key, self._retried = time.time(), None, None, []
+        self.t0, self.req_meta, self._inflight_key, self._retried, self._cache_store = time.time(), None, None, [], None
         method = self.command
         path = urllib.parse.urlsplit(self.path).path
         try:
@@ -1019,6 +1159,10 @@ class Router(http.server.BaseHTTPRequestHandler):
                         log_request(dict(self.req_meta, ts=round(self.t0, 3), instance="-", status=403, aborted=False, ms=round((time.time() - self.t0) * 1000),
                                          ttft_ms=None, blocked=True, retried=[]))
                     return self.deny(403, "demande refusée pour « %s » : elle contient un terme interdit par la politique de confidentialité (« %s »)" % (who, pres.hits[0]))
+        if path in INFERENCE and body:   # début d'invite (empreinte seulement) puis caches : une réponse en cache ne prend pas de place dans la file
+            self.note_prefix(path, body)
+            if method == "POST" and self.cache_try(path, body):
+                return
         if path in INFERENCE:   # file d'attente : priorité de la clé, plafond de la clé, plafond global (mémoire de la carte graphique)
             if r is not None:
                 gk, gwho, gkey = r[3] or "anonyme", r[0], self._key or {}
@@ -1174,6 +1318,7 @@ def main():
               ", TLS" if isinstance(srv.socket, ssl.SSLSocket) else ""), flush=True)
     threading.Thread(target=usage_writer, daemon=True).start()
     threading.Thread(target=limits_writer, daemon=True).start()
+    threading.Thread(target=cache_writer, daemon=True).start()
     for srv in servers[1:]:
         threading.Thread(target=srv.serve_forever, daemon=True).start()
     servers[0].serve_forever()

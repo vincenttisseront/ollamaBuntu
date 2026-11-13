@@ -12,10 +12,12 @@
 "(vide)": "(empty)",
 "(à choisir à chaque exécution)": "(to choose at each run)",
 "--n-cpu-moe inconnue de cette version : remplacée par --override-tensor": "--n-cpu-moe is unknown to this version: replaced by --override-tensor",
+". Les réponses servies par le cache ne comptent pas dans les quotas de jetons.": ". Responses served from the cache do not count against token quotas.",
 "...pendant au moins (secondes)": "...for at least (seconds)",
 "1 heure": "1 hour",
 "1 jour": "1 day",
 "1 à 3 passes": "1 to 3 runs",
+"1 à 8 requêtes en parallèle": "1 to 8 parallel requests",
 "1. le réseau 3. l'identifiant administrateur": "1. the network                3. the administrator username",
 "100 clés au maximum": "100 keys at most",
 "12 heures": "12 hours",
@@ -150,10 +152,14 @@
 "Applique les réglages enregistrés. Le texte saisi n'est ni enregistré ni consigné.": "Applies the saved settings. The text you type is neither saved nor logged.",
 "Appliquer": "Apply",
 "Appliquer automatiquement": "Apply automatically",
+"Appliquer automatiquement (serveur au repos, 1 fois par jour au plus)": "Apply automatically (idle server, at most once a day)",
+"Appliquer automatiquement les augmentations (serveur au repos, 1 fois par jour au plus)": "Apply increases automatically (idle server, at most once a day)",
 "Appliquer ce profil": "Apply this profile",
 "Appliquer ces réglages": "Apply these settings",
+"Appliquer et vérifier": "Apply and verify",
 "Appliquer la suggestion": "Apply the suggestion",
 "Appliquer le réglage suggéré ? Ollama redémarre.": "Apply the suggested setting? Ollama restarts.",
+"Appliquer sans vérification": "Apply without verification",
 "Appliqué ; Open WebUI est recréé avec ces réglages (voir la tâche).": "Applied; Open WebUI is being recreated with these settings (see the task).",
 "Appliqué.": "Applied.",
 "Approuver ce certificat": "Approve this certificate",
@@ -199,11 +205,14 @@
 "Aucun modèle détecté sur ce serveur : installez-en d'abord (Synchroniser > Modèles).": "No model detected on this server: install some first (Synchronise > Models).",
 "Aucun modèle en commun avec ce serveur : installez les mêmes modèles (Parc > Synchroniser > Modèles).": "No model in common with this server: install the same models (Fleet > Synchronise > Models).",
 "Aucun modèle en mémoire": "No model in memory",
+"Aucun modèle installé ne gagnerait à passer le cache en quantifié avec les réglages actuels.": "No installed model would gain from a quantized cache with the current settings.",
 "Aucun modèle installé.": "No models installed.",
 "Aucun modèle n'est présent sur plusieurs serveurs : le test est impossible.": "No model is present on several servers: the test is impossible.",
 "Aucun modèle ne correspond à ces filtres.": "No model matches these filters.",
 "Aucun modèle personnalisé.": "No custom models.",
 "Aucun modèle trouvé.": "No model found.",
+"Aucun modèle à mesurer (aucune demande récente)": "No model to measure (no recent request)",
+"Aucun modèle à précharger pour l'heure qui vient (déjà en mémoire, ou pas assez d'habitude).": "No model to preload for the coming hour (already in memory, or not enough habit).",
 "Aucun mot de passe enregistré": "No password saved",
 "Aucun moteur.": "No engine.",
 "Aucun problème détecté": "No problem detected",
@@ -219,13 +228,16 @@
 "Aucune action enregistrée.": "No action recorded.",
 "Aucune alerte": "No alert",
 "Aucune alerte active.": "No active alert.",
+"Aucune baisse de débit en cours.": "No throughput drop at the moment.",
 "Aucune carte": "No card",
 "Aucune carte de calcul détectée": "No compute card detected",
 "Aucune carte graphique ou accélérateur détecté.": "No graphics card or accelerator detected.",
 "Aucune carte réseau filaire détectée.": "No wired network card detected.",
 "Aucune carte réseau n'a été détectée.": "No network card was detected.",
+"Aucune cause nette trouvée : vérifiez les contrôles de la machine (onglet « Réglages système »).": "No clear cause found: check the machine checks (\"System tuning\" tab).",
 "Aucune clé. Créez une clé par application : vous pourrez la désactiver sans toucher aux autres.": "No keys. Create one key per application: you can disable it without affecting the others.",
 "Aucune comparaison : choisissez les modèles et lancez-la.": "No comparison yet: choose the models and run it.",
+"Aucune consigne système assez longue (200 caractères) vue pendant la dernière heure. Seules des empreintes sont gardées, jamais le texte.": "No system prompt long enough (200 characters) seen during the last hour. Only fingerprints are kept, never the text.",
 "Aucune console principale autorisée.": "No main console authorised.",
 "Aucune donnée du routeur pour le moment.": "No data from the router at the moment.",
 "Aucune donnée sensible détectée.": "No sensitive data detected.",
@@ -247,6 +259,7 @@
 "Aucune règle : le routeur choisit selon la charge.": "No rule: the router chooses according to the load.",
 "Aucune réparation effectuée.": "No repair performed.",
 "Aucune sauvegarde : la première mise à jour en créera une.": "No backup: the first update will create one.",
+"Aucune statistique reçue du routeur : il n'a pas encore servi de demande depuis le dernier démarrage, ou il est arrêté.": "No statistics received from the router: it has not served a request since it last started, or it is stopped.",
 "Aucune version publiée dans ce dépôt.": "No version published in this repository.",
 "Audio (synthèse, transcription)": "Audio (speech, transcription)",
 "Audit": "Audit",
@@ -260,11 +273,14 @@
 "Autoriser une console principale": "Authorise a main console",
 "Autorisez une console OllamaBuntu principale à superviser ce serveur (état, charge, alertes) et à y lancer des actions de maintenance (redémarrer Ollama, rechercher et installer les correctifs de sécurité). Elle n'a accès ni aux comptes, ni aux réglages, ni aux conversations.": "Allow a main OllamaBuntu console to monitor this server (status, load, alerts) and run maintenance actions on it (restart Ollama, check for and install security fixes). It has no access to accounts, settings or conversations.",
 "Autres personnes": "Everyone else",
+"Avance (minutes avant l'heure)": "Lead time (minutes before the hour)",
 "Avant chaque mise à jour, l'ancienne version est copiée sous un autre nom (sans dupliquer les fichiers). Après le téléchargement, un test rapide vérifie que le modèle répond et que son débit n'a pas chuté ; si vous choisissez un jeu de tests, il est joué avant et après, et un cas devenu faux déclenche le retour. En cas de problème, l'ancienne version est rétablie automatiquement et les alertes sont prévenues. Si tout va bien, l'ancienne version reste disponible pendant la durée choisie, pour revenir en arrière d'un clic.": "Before each update, the old version is copied under another name (without duplicating files). After the download, a quick test checks that the model answers and that its throughput has not dropped; if you choose a test suite, it is played before and after, and a case that now fails triggers the rollback. If anything goes wrong, the old version is restored automatically and the alerts are notified. If all goes well, the old version stays available for the chosen time, so you can go back with one click.",
 "Avant chaque mise à jour, les fichiers de l'appliance sont sauvegardés. Le retour restaure la console, le routeur et les scripts de la version choisie ; comptes, réglages d'Ollama et modèles sont conservés, ainsi que le programme Ollama installé. L'état actuel est sauvegardé d'abord : le retour est lui-même annulable.": "Before each update, the appliance files are backed up. Going back restores the console, the router and the scripts of the chosen version; accounts, Ollama settings and models are kept, as is the installed Ollama program. The current state is backed up first: going back can itself be undone.",
 "Avec données sensibles": "With sensitive data",
 "Avez-vous enregistré cette clé en dehors de ce serveur ?": "Have you saved this key outside this server?",
 "Avis de sécurité Ubuntu (données OSV)": "Ubuntu security notices (OSV data)",
+"Baisse signalée au-delà de (%)": "Drop reported beyond (%)",
+"Baisses de débit constatées": "Throughput drops found",
 "Bande passante théorique de la carte (Go/s)": "Card theoretical bandwidth (GB/s)",
 "Base": "Base",
 "Base de documents": "Document base",
@@ -280,6 +296,10 @@
 "C'est ce modèle qui répond": "This model answers",
 "Cache": "Cache",
 "Cache de contexte": "Context cache",
+"Cache de contexte actuel :": "Current context cache:",
+"Cache de contexte quantifié": "Quantized context cache",
+"Caches": "Caches",
+"Caches du routeur": "Router caches",
 "Calcul": "Compute",
 "Calcul GPU": "GPU compute",
 "Calculé d'après le journal des requêtes conservé sur ce serveur (métadonnées seulement). Une période plus longue que la conservation réglée dans l'onglet Requêtes est tronquée.": "Computed from the request log kept on this server (metadata only). A period longer than the retention set in the Requests tab is truncated.",
@@ -306,6 +326,7 @@
 "Ce modèle n'est pas à experts : le débordement par couches ralentit d'autant plus que la part en mémoire système est grande. Une quantification plus légère (Q4_K_M au lieu de Q5 ou Q6) ou un modèle plus petit vaut souvent mieux.": "This model is not mixture-of-experts: spilling layer by layer slows it down more the larger the share in system memory. A lighter quantization (Q4_K_M instead of Q5 or Q6) or a smaller model is often better.",
 "Ce nom est réservé à un compte système.": "This name is reserved for a system account.",
 "Ce que l'IA peut faire et atteindre. Ollama génère du texte et des embeddings, et analyse les images ou vidéos fournies (modèles de vision) ; il ne génère ni images ni vidéos. Ces règles sont aussi appliquées par le routeur, quel que soit le client.": "What the AI can do and reach. Ollama generates text and embeddings, and analyses the images or videos it is given (vision models); it generates neither images nor videos. These rules are also enforced by the router, whatever the client.",
+"Ce que la console a décidé ou appliqué seule : préchargements, mesures, changements de réglages.": "What the console decided or applied by itself: preloads, measurements, setting changes.",
 "Ce qui attend": "What is waiting",
 "Ce serveur": "This server",
 "Ce serveur n'a pas de GPU : le modèle tournera sur le processeur.": "This server has no GPU: the model will run on the processor.",
@@ -469,6 +490,7 @@
 "Créé le": "Created on",
 "Ctrl+Alt+Suppr désactivé sur la console": "Ctrl+Alt+Del disabled on the console",
 "DNS invalide": "Invalid DNS",
+"Dans l'heure qui vient": "In the coming hour",
 "Dans la mémoire vidéo": "In video memory",
 "Date d'expiration": "Expiry date",
 "DeepSeek R1 distillé en 32B : raisonnement approfondi, réservé aux grosses cartes (Hugging Face).": "DeepSeek R1 distilled to 32B: deep reasoning, for large cards only (Hugging Face).",
@@ -488,6 +510,7 @@
 "Dernières exécutions": "Latest runs",
 "Dernières requêtes": "Latest requests",
 "Destinataires (un par ligne)": "Recipients (one per line)",
+"Deux caches en mémoire vive, vidés à chaque redémarrage du routeur (rien n'est écrit sur le disque). Le cache de réponses ne sert que les demandes dont la température est explicitement 0 : la même demande redonne alors la même réponse, sans solliciter le modèle. Le cache d'embeddings garde un vecteur par texte et ne répond que si tous les textes de la demande y sont. Une demande peut l'ignorer avec l'en-tête": "Two in-memory caches, emptied whenever the router restarts (nothing is written to disk). The response cache only serves requests whose temperature is explicitly 0: the same request then gets the same answer without bothering the model. The embedding cache keeps one vector per text and only answers when every text of the request is in it. A request can bypass it with the header",
 "Devise": "Currency",
 "Dimanche": "Sunday",
 "Disponibilité": "Availability",
@@ -513,6 +536,7 @@
 "Droits": "Rights",
 "Droits accordés sans clé": "Rights granted without a key",
 "Durée": "Duration",
+"Durée de conservation (secondes)": "Retention time (seconds)",
 "Durée de la fenêtre": "Window length",
 "Durée de maintien d'un modèle en mémoire (ex. 5m, 1h, -1 = toujours)": "How long a model stays in memory (e.g. 5m, 1h, -1 = always)",
 "Durée minimale d'éveil après un réveil (secondes)": "Minimum awake time after a wake-up (seconds)",
@@ -529,6 +553,7 @@
 "Débordement par couches (Ollama)": "Layer-by-layer spill (Ollama)",
 "Débranchée": "Unplugged",
 "Début": "Start",
+"Débuts d'invite de la dernière heure": "Prompt beginnings over the last hour",
 "Décharger Ollama avant le démarrage": "Unload Ollama before starting",
 "Décharger les modèles d'Ollama avant le démarrage": "Unload the Ollama models before starting",
 "Déclencheur": "Trigger",
@@ -536,6 +561,7 @@
 "Décompression des archives Ollama": "Decompresses Ollama archives",
 "Déconnexion": "Sign out",
 "Défaut du serveur": "Server default",
+"Dégradation constatée : retour aux réglages précédents": "Degradation found: going back to the previous settings",
 "Déjà configuré": "Already configured",
 "Déjà à jour : aucune mise à jour à appliquer.": "Already up to date: no update to apply.",
 "Délai avant de réveiller de nouveau le même serveur (secondes)": "Delay before waking the same server again (seconds)",
@@ -613,6 +639,7 @@
 "Enregistré.": "Saved.",
 "Entièrement sur GPU": "Fully on GPU",
 "Entrée pour revenir au menu...": "Press Enter to return to the menu...",
+"Entrées": "Entries",
 "Envoi de la commande au serveur.": "Sending the command to the server.",
 "Envoi du rapport hebdomadaire": "Weekly report sent",
 "Envoi...": "Sending...",
@@ -674,6 +701,7 @@
 "Filtrer par nom ou usage...": "Filter by name or use...",
 "Finalisation (version, bannière de connexion, historique)": "Finalising (version, login banner, history)",
 "Firmware UEFI des tests": "UEFI firmware for tests",
+"Fixer les fréquences de la carte AMD au maximum ? Elle sera un peu plus bruyante et consommera davantage au repos ; le réglage survit au redémarrage.": "Pin the AMD card's clocks at maximum? It will be a bit noisier and use more power at idle; the setting survives a reboot.",
 "Flash attention": "Flash attention",
 "Flash attention (nécessaire au cache quantifié)": "Flash attention (needed by the quantized cache)",
 "Flash attention : 1 = activée": "Flash attention: 1 = enabled",
@@ -818,11 +846,13 @@
 "Jeux de tests de non-régression": "Regression test suites",
 "Jour": "Day",
 "Journal": "Log",
+"Journal d'accélération": "Acceleration log",
 "Journal d'audit": "Audit log",
 "Journaliser les connexions refusées (débit limité)": "Log refused connections (rate-limited)",
 "Journaux": "Logs",
 "Journaux système": "System logs",
 "Jours": "Days",
+"Jours d'habitude au minimum": "Minimum number of days of habit",
 "KVM indisponible : la VM sera très lente": "KVM unavailable: the VM will be very slow",
 "L'adresse MAC est celle de la carte réseau filaire du serveur (affichée dans son écran Système > Gestion centralisée). L'adresse de diffusion n'est utile que si le serveur est sur un autre réseau que cette console.": "The MAC address is that of the server's wired network card (shown on its System > Central management screen). The broadcast address is only useful if the server is on a different network from this console.",
 "L'ancienne clé de récupération sera révoquée. Continuer ?": "The old recovery key will be revoked. Continue?",
@@ -836,6 +866,7 @@
 "La configuration réseau a été refusée par netplan.": "The network configuration was rejected by netplan.",
 "La connexion unique a expiré ou n'a pas été lancée depuis ce navigateur. Recommencez.": "The single sign-on attempt expired or was not started from this browser. Please try again.",
 "La connexion unique n'est pas configurée correctement. Contactez un administrateur.": "Single sign-on is not configured correctly. Contact an administrator.",
+"La console compte, par modèle, les demandes de chaque heure (des compteurs seulement : aucun texte, aucun client). Quand un modèle est habituellement demandé dans l'heure qui vient, il est chargé quelques minutes avant : le premier message ne paie plus le chargement. Les jours de semaine et les week-ends sont comptés séparément.": "The console counts, per model, the requests of each hour (counters only: no text, no client). When a model is usually requested within the coming hour, it is loaded a few minutes beforehand: the first message no longer pays for the loading. Weekdays and weekends are counted separately.",
 "La forme du modèle (couches, têtes) n'est pas connue : le cache de contexte est estimé grossièrement.": "The model's shape (layers, heads) is unknown: the context cache is roughly estimated.",
 "La lecture d'un long texte (traitement du prompt) est plus lente que la génération quand les experts sont en mémoire système.": "Reading a long text (prompt processing) is slower than generation when the experts are in system memory.",
 "La mesure copie des blocs de mémoire pendant environ 2 secondes : évitez de la lancer en pleine charge. Elle compte une copie comme une lecture (résultat prudent).": "The measurement copies memory blocks for about 2 seconds: avoid running it under heavy load. It counts a copy as a read (cautious result).",
@@ -856,10 +887,12 @@
 "Laissez vos collaborateurs se connecter avec leur compte d'entreprise : OpenID Connect (Microsoft Entra ID, Keycloak, Google Workspace, Okta...) et/ou annuaire LDAP / Active Directory. Le rôle vient des groupes du fournisseur ; le compte « admin » local reste utilisable en secours. Les comptes créés ainsi n'ont pas de mot de passe local.": "Let your staff sign in with their company account: OpenID Connect (Microsoft Entra ID, Keycloak, Google Workspace, Okta...) and/or an LDAP / Active Directory directory. The role comes from the provider's groups; the local \"admin\" account stays usable as a fallback. Accounts created this way have no local password.",
 "Lancer": "Run",
 "Lancer le test": "Run the test",
+"Lancé.": "Started.",
 "Langue / Language": "Language / Langue",
 "Langue attendue": "Expected language",
 "Langue libre": "Any language",
 "Latence minimale": "Minimum latency",
+"Le cache est déjà quantifié.": "The cache is already quantized.",
 "Le certificat HTTPS est auto-signé (avertissement du navigateur à la": "The HTTPS certificate is self-signed (browser warning on the",
 "Le compte ollama n'a pas accès au périphérique ROCm (/dev/kfd, groupe render) : appliquez la mise à jour de l'appliance, puis redémarrez le serveur.": "The ollama account cannot access the ROCm device (/dev/kfd, render group): apply the appliance update, then restart the server.",
 "Le conteneur sera limité sans être recréé ; il est tué par le système s'il dépasse ce plafond.": "The container will be limited without being recreated; the system kills it if it exceeds this limit.",
@@ -874,6 +907,7 @@
 "Le mot de passe doit contenir au moins 8 caractères.": "The password must contain at least 8 characters.",
 "Le mot de passe doit être différent de l'identifiant.": "The password must differ from the username.",
 "Le programme ethtool est absent de ce serveur (apt install ethtool) : l'état du réveil réseau ne peut pas être lu ni activé.": "The ethtool program is missing on this server (apt install ethtool): the network wake-up state can neither be read nor enabled.",
+"Le réglage actuel convient à la charge observée.": "The current setting suits the observed load.",
 "Le réglage actuel dépasse la mémoire disponible pour ce modèle.": "The current setting exceeds the memory available for this model.",
 "Le réveil réseau est désactivé sur la carte de ce serveur (Système > Gestion centralisée de ce serveur).": "Network wake-up is disabled on this server's card (System > Central management of that server).",
 "Le serveur a redémarré": "The server has restarted",
@@ -891,6 +925,7 @@
 "Les deux saisies sont différentes.": "The two entries differ.",
 "Les empreintes sont identiques": "The fingerprints match",
 "Les requêtes vers les modèles « :cloud » et la recherche web sont traitées par Ollama, hors de ce serveur : les données envoyées quittent votre infrastructure.": "Requests to “:cloud” models and web search are processed by Ollama, outside this server: the data sent leaves your infrastructure.",
+"Les réglages d'Ollama ne sont plus les mêmes que lors de la mesure précédente.": "Ollama's settings are no longer the same as at the previous measurement.",
 "Les réglages proposés viennent du calcul d'ajustement (couches d'experts en mémoire système, contexte, cache en q8_0) ; vous pouvez les modifier ensuite.": "The suggested settings come from the fit calculation (expert layers in system memory, context, q8_0 cache); you can change them afterwards.",
 "Les réglages s'appliquent au prochain démarrage de llama-server (le service est relancé).": "The settings apply at the next start of llama-server (the service is restarted).",
 "Les serveurs du parc ne tournent que quand il y a du travail. La console réveille un serveur (paquet Wake-on-LAN) quand des demandes attendent trop longtemps, quand tous les serveurs éveillés sont saturés ou quand un modèle n'existe que sur un serveur endormi ; elle met en veille un serveur resté inactif. Le réveil dépend du matériel (carte réseau, BIOS, câble) : essayez d'abord à la main avec « Réveiller ».": "Fleet servers only run when there is work. The console wakes a server (Wake-on-LAN packet) when requests wait too long, when all awake servers are saturated, or when a model only exists on a sleeping server; it puts an idle server to sleep. Waking depends on the hardware (network card, BIOS, cable): try it by hand first with \"Wake up\".",
@@ -922,12 +957,18 @@
 "Menu de l'appliance": "Appliance menu",
 "Mercredi": "Wednesday",
 "Message de test": "Test message",
+"Mesure chaque nuit le débit des modèles choisis, quand le serveur est au repos, et le compare à l'habituel (médiane des mesures précédentes faites avec les mêmes réglages). Une baisse déclenche une alerte avec les causes probables : modèle qui déborde, carte trop chaude, noyau, pilote ou réglages changés. Quand tout va bien et que le modèle tient en mémoire vidéo, les estimations de l'écran Ajustement sont recalées sur la mesure.": "Measures the throughput of the chosen models every night, when the server is idle, and compares it with the usual value (median of the previous measurements made with the same settings). A drop raises an alert with the likely causes: model spilling over, card too hot, kernel, driver or settings changed. When all is well and the model fits in video memory, the estimates of the Fit screen are recalibrated on the measurement.",
+"Mesure continue": "Continuous measurement",
+"Mesure continue du débit": "Continuous throughput measurement",
 "Mesure de débit": "Throughput benchmark",
 "Mesure en cours...": "Measuring...",
+"Mesure lancée (elle attend que le serveur soit au repos).": "Measurement started (it waits for the server to be idle).",
 "Mesure terminée.": "Measurement complete.",
 "Mesurer": "Measure",
+"Mesurer automatiquement chaque jour": "Measure automatically every day",
 "Mesurer la mémoire du serveur": "Measure the server memory",
 "Mesurer le débit d'un modèle": "Measure a model's throughput",
+"Mesurer maintenant": "Measure now",
 "Mesures et calibrage": "Measurements and calibration",
 "Mettre a jour - console serie ttyS0 115200": "Update - serial console ttyS0 115200",
 "Mettre en veille": "Put to sleep",
@@ -969,6 +1010,7 @@
 "Mistral Magistral Small : raisonnement pas à pas, vision, bon en français (Hugging Face).": "Mistral Magistral Small: step-by-step reasoning, vision, good in French (Hugging Face).",
 "Mistral Nemo 12B : multilingue, très bon en français, contexte long (Hugging Face).": "Mistral Nemo 12B: multilingual, very good in French, long context (Hugging Face).",
 "Mixture d'experts orientée agents et code.": "Mixture of experts geared towards agents and code.",
+"Mode": "Mode",
 "Modification d'une clé d'API": "API key change",
 "Modifier": "Edit",
 "Modifier l'identifiant": "Change the username",
@@ -1015,8 +1057,10 @@
 "Modèles gardés en mémoire en permanence et rechargés automatiquement après un redémarrage : pas d'attente au premier appel.": "Models kept in memory permanently and reloaded automatically after a restart: no wait on the first call.",
 "Modèles installés": "Installed models",
 "Modèles personnalisés": "Custom models",
+"Modèles préchargés au plus": "At most this many models preloaded",
 "Modèles servis par ce groupe": "Models served by this group",
 "Modèles standard": "Standard models",
+"Modèles à mesurer (aucun coché : le plus utilisé de la semaine)": "Models to measure (none ticked: the most used one of the week)",
 "Mois": "Month",
 "Mon compte": "My account",
 "Mot de passe": "Password",
@@ -1044,6 +1088,8 @@
 "Mémoire système": "System memory",
 "Mémoire vidéo": "Video memory",
 "Mémoire vidéo occupée": "Video memory used",
+"Mémoriser les embeddings": "Remember embeddings",
+"Mémoriser les réponses exactes (température 0)": "Remember exact responses (temperature 0)",
 "Même avec la mémoire système, le modèle ne tient pas : choisissez une quantification plus légère ou ajoutez de la mémoire.": "Even with system memory the model does not fit: pick a lighter quantization or add memory.",
 "NVIDIA : GPU utilisés (ex. 0,1)": "NVIDIA: GPUs used (e.g. 0,1)",
 "Ne doit pas contenir": "Must not contain",
@@ -1066,6 +1112,7 @@
 "Non installé": "Not installed",
 "Non installé sur ce serveur (utile seulement si un serveur du parc le possède).": "Not installed on this server (only useful if a fleet server has it).",
 "Non pris en charge": "Not supported",
+"Non trouvées": "Not found",
 "Non, la réafficher": "No, show it again",
 "Normale": "Normal",
 "Notes de la version": "Release notes",
@@ -1093,8 +1140,10 @@
 "OIDC : identifiant et secret du client obligatoires": "OIDC: client ID and secret are required",
 "OK": "OK",
 "Obligatoire": "Required",
+"Observe sur 24 heures combien de demandes se chevauchent et propose le nombre de requêtes traitées en parallèle par modèle, en tenant compte de la mémoire vidéo libre : chaque emplacement de plus réserve son propre cache de contexte. Changer ce réglage redémarre Ollama.": "Watches over 24 hours how many requests overlap and suggests the number of requests handled in parallel per model, taking the free video memory into account: each extra slot reserves its own context cache. Changing this setting restarts Ollama.",
 "Ollama": "Ollama",
 "Ollama calcule sur": "Ollama computes on",
+"Ollama n'a pas redémarré dans le délai": "Ollama did not restart in time",
 "Ollama n'a renvoyé aucune mesure de génération": "Ollama returned no generation measurement",
 "Ollama ne sait pas laisser les experts d'un modèle MoE en mémoire système en gardant l'attention et le cache sur la carte. llama.cpp le sait (option --n-cpu-moe). Un moteur est un petit service qui se fait passer pour Ollama auprès du routeur : le modèle reste installé dans Ollama (son fichier est lu sur place), llama-server n'est lancé qu'à la première demande et arrêté après inactivité. Au démarrage, les modèles chargés dans Ollama sont déchargés pour libérer la mémoire vidéo ; un seul moteur tourne à la fois.": "Ollama cannot keep the experts of a MoE model in system memory while keeping attention and cache on the card. llama.cpp can (option --n-cpu-moe). An engine is a small service that poses as Ollama to the router: the model stays installed in Ollama (its file is read in place), llama-server is only started on the first request and stopped after inactivity. At start-up, the models loaded in Ollama are unloaded to free video memory; only one engine runs at a time.",
 "Ollama peut accéder à Internet (sinon : seuls les téléchargements de modèles lancés depuis cette console, le temps du téléchargement)": "Ollama can access the Internet (otherwise: only model downloads started from this console, for the duration of the download)",
@@ -1114,6 +1163,7 @@
 "Open WebUI répond.": "Open WebUI is responding.",
 "OpenID Connect": "OpenID Connect",
 "Options supplémentaires de llama-server": "Extra llama-server options",
+"Origine": "Source",
 "Origines autorisées": "Allowed sources",
 "Oui": "Yes",
 "Oui, c'est fait": "Yes, done",
@@ -1132,6 +1182,8 @@
 "Par défaut pour tous les modèles": "Default for all models",
 "Par modèle": "Per model",
 "Par équipe": "Per team",
+"Parallélisme": "Parallelism",
+"Parallélisme adaptatif": "Adaptive parallelism",
 "Parametres du firmware UEFI": "UEFI firmware settings",
 "Paramètres": "Parameters",
 "Paramètres / quantif.": "Parameters / quant.",
@@ -1151,6 +1203,8 @@
 "Part des demandes redirigées, en pourcentage": "Share of requests redirected, in percent",
 "Partage de conversations vers la communauté Open WebUI": "Sharing conversations to the Open WebUI community",
 "Partiellement sur GPU": "Partly on GPU",
+"Pas assez de demandes sur 24 h pour conseiller quoi que ce soit.": "Not enough requests over 24 h to advise anything.",
+"Pas encore d'historique : les compteurs se remplissent au fil des demandes (14 jours sont regardés).": "No history yet: the counters fill up as requests come in (14 days are looked at).",
 "Pas encore de données sur cette période": "No data yet for this period",
 "Passer tous les cœurs en mode « performance » ? La consommation au repos augmente légèrement.": "Switch all cores to “performance” mode? Idle power consumption rises slightly.",
 "Passerelle invalide": "Invalid gateway",
@@ -1206,9 +1260,11 @@
 "Protocole": "Protocol",
 "Préchargement": "Preloading",
 "Préchargement désactivé.": "Preloading disabled.",
+"Précharger les modèles habituellement demandés": "Preload the models that are usually requested",
 "Préchauffage": "Warm-up",
 "Préchauffage des modèles": "Model warm-up",
 "Préchauffage immédiat": "Immediate warm-up",
+"Préchauffage prédictif": "Predictive warm-up",
 "Préchauffer maintenant (démarrage)": "Warm up now (start-up models)",
 "Précision du cache de contexte : f16 (défaut), q8_0 (moitié moins de mémoire) ou q4_0 (quart) ; exige la flash attention": "Context cache precision: f16 (default), q8_0 (half the memory) or q4_0 (a quarter); requires flash attention",
 "Préparation...": "Preparing...",
@@ -1251,6 +1307,7 @@
 "Rapport d'essai envoyé.": "Test report sent.",
 "Rapport hebdomadaire": "Weekly report",
 "Rapport hebdomadaire par e-mail": "Weekly e-mail report",
+"Recaler les estimations d'ajustement": "Recalibrate the fit estimates",
 "Rechargement après restauration de la configuration": "Reload after configuration restore",
 "Recharger le pilote NVIDIA si nécessaire et redémarrer Ollama ? Les modèles chargés sont déchargés et les requêtes en cours interrompues.": "Reload the NVIDIA driver if needed and restart Ollama? Loaded models are unloaded and running requests are interrupted.",
 "Recherche": "Search",
@@ -1298,6 +1355,7 @@
 "Remplacer": "Replace",
 "Remplacer le jeton": "Replace the token",
 "Remplacer le jeton ? L'ancien cessera de fonctionner immédiatement.": "Replace the token? The old one stops working immediately.",
+"Rendre à la carte AMD la gestion automatique de ses fréquences ?": "Give the AMD card back automatic management of its clocks?",
 "Renouvellement d'une clé d'API": "API key renewal",
 "Requêtes": "Requests",
 "Requêtes Ollama": "Ollama requests",
@@ -1330,6 +1388,8 @@
 "Revenir à l'ancienne version": "Go back to the previous version",
 "Revenir à une version précédente": "Go back to a previous version",
 "Rien n'attend : le serveur absorbe toutes les requêtes.": "Nothing is waiting: the server absorbs all requests.",
+"Rien pour le moment.": "Nothing for now.",
+"Rien à mesurer pour le moment (aucune demande récente).": "Nothing to measure for now (no recent request).",
 "Règle": "Rule",
 "Règle active": "Rule enabled",
 "Règles appliquées.": "Rules applied.",
@@ -1339,7 +1399,9 @@
 "Récupérable": "Reclaimable",
 "Réessayer": "Try again",
 "Réflexion en cours…": "Thinking…",
+"Référence avant changement : jeu": "Reference before the change: suite",
 "Réglage": "Setting",
+"Réglage actuel :": "Current setting:",
 "Réglage appliqué : Ollama redémarre.": "Setting applied: Ollama is restarting.",
 "Réglage automatique": "Automatic tuning",
 "Réglage automatique du contexte et du parallélisme": "Automatic context and parallelism tuning",
@@ -1379,6 +1441,7 @@
 "Réponse maximale (jetons)": "Maximum answer (tokens)",
 "Réponse maximale (jetons, 0 = sans plafond)": "Maximum answer (tokens, 0 = no limit)",
 "Réponse moyenne": "Average answer",
+"Réponses exactes": "Exact responses",
 "Réponses les plus rapides pour peu d'utilisateurs : modèle gardé en mémoire, une seule requête par modèle, cache en pleine précision.": "Fastest answers for few users: model kept in memory, a single request per model, full-precision cache.",
 "Réseau": "Network",
 "Réseau (1/2) - Carte réseau": "Network (1/2) - Network card",
@@ -1390,6 +1453,7 @@
 "Réservé aux administrateurs.": "Administrators only.",
 "Résultat": "Result",
 "Résultat du test": "Test result",
+"Rétablir": "Restore",
 "Réussies": "Succeeded",
 "Réveil": "Wake-up",
 "Réveil automatique": "Automatic wake-up",
@@ -1450,6 +1514,7 @@
 "Service Ollama arrêté": "Ollama service stopped",
 "Service arrêté": "Service stopped",
 "Services, démarrage, journaux": "Services, boot, logs",
+"Servies": "Served",
 "Session": "Session",
 "Session expirée : reconnectez-vous.": "Session expired: please sign in again.",
 "Seulement ceux que je coche": "Only those I tick",
@@ -1501,7 +1566,10 @@
 "Taille des extraits (caractères)": "Excerpt size (characters)",
 "Taille du contexte": "Context size",
 "Taille du contexte de la conversation": "Conversation context size",
+"Taille maximale (Mo)": "Maximum size (MB)",
+"Taille maximale d'une réponse (Ko)": "Maximum size of one response (KB)",
 "Taille maximale de la file (au-delà : refus immédiat, erreur 429)": "Maximum queue size (beyond: immediate refusal, error 429)",
+"Taux": "Rate",
 "Taux d'erreur": "Error rate",
 "Temps avant le premier jeton": "Time to first token",
 "Temps de calcul": "Compute time",
@@ -1561,6 +1629,7 @@
 "Télécharger le module AMD ROCm d'Ollama (environ 1 Go) ?": "Download Ollama's AMD ROCm module (about 1 GB)?",
 "Télécharger un modèle": "Download a model",
 "Téléphones": "Phone numbers",
+"Un cache de contexte en q8_0 occupe presque moitié moins de mémoire vidéo qu'en f16 pour une qualité quasi identique : un modèle qui débordait peut alors tenir entièrement sur la carte. Le changement est global (Ollama redémarre) ; « Appliquer et vérifier » rejoue d'abord les jeux de tests du Laboratoire, change le cache, les rejoue de nouveau et revient seul au réglage précédent si un test se dégrade.": "A q8_0 context cache takes almost half the video memory of f16 for nearly identical quality: a model that used to spill over can then fit entirely on the card. The change is global (Ollama restarts); \"Apply and verify\" first replays the Lab test suites, changes the cache, replays them again and goes back to the previous setting by itself if a test gets worse.",
 "Un jeu est une liste de questions avec le résultat attendu (mots présents ou interdits, JSON valide, langue, longueur, expression régulière). On le rejoue pour vérifier qu'un changement de modèle, de profil ou une mise à jour n'a rien dégradé : les cas devenus faux et une chute de débit de 30 % ou plus sont signalés (et envoyés par les alertes si elles sont activées). Un jeu marqué « automatique » est rejoué après chaque changement de profil et chaque mise à jour de la console.": "A suite is a list of questions with the expected result (words present or forbidden, valid JSON, language, length, regular expression). It is replayed to check that a change of model, of profile or an update broke nothing: cases that now fail and a throughput drop of 30% or more are flagged (and sent through the alerts if they are enabled). A suite marked “automatic” is replayed after every profile change and every console update.",
 "Un modèle Hugging Face, avant de le télécharger": "A Hugging Face model, before downloading it",
 "Un modèle dont le cache ne tient pas dans la mémoire vidéo bascule en partie sur le processeur : le débit s'effondre. Cette recommandation calcule, pour chaque modèle, le contexte et le nombre de requêtes parallèles qui tiennent dans la mémoire des cartes. Le réglage est commun à tous les modèles et redémarre Ollama.": "A model whose cache does not fit in video memory moves partly onto the processor: throughput collapses. This recommendation works out, for each model, the context and the number of parallel requests that fit in the cards' memory. The setting is shared by all models and restarts Ollama.",
@@ -1575,6 +1644,7 @@
 "Une console principale peut mettre ce serveur en veille quand il est inactif et le réveiller par le réseau (Wake-on-LAN) quand il y a du travail. Rien n'est possible sans votre autorisation ici. « Veille » garde la mémoire sous tension (réveil rapide) ; « Extinction » éteint complètement (le réveil dépend du BIOS).": "A main console can put this server to sleep when it is idle and wake it over the network (Wake-on-LAN) when there is work. Nothing is possible without your permission here. \"Sleep\" keeps memory powered (fast wake-up); \"Shutdown\" powers off completely (waking depends on the BIOS).",
 "Une mise à jour en ligne est déjà en cours.": "An online update is already running.",
 "Une nouvelle version est disponible.": "A new version is available.",
+"Une seule barrette de mémoire : canal simple, soit environ la moitié du débit d'un double canal. C'est ce débit qui limite un modèle débordé ou ses experts en mémoire système.": "A single memory stick: single channel, about half the throughput of dual channel. This throughput is what limits a model that spills over or its experts in system memory.",
 "Une synthèse de la semaine (usage, débit, incidents, état du matériel, clés qui expirent, modèles inutilisés) envoyée aux destinataires configurés dans l'onglet Alertes.": "A summary of the week (usage, throughput, incidents, hardware status, expiring keys, unused models) sent to the recipients configured in the Alerts tab.",
 "Uniquement sur": "Only on",
 "Uniquement sur ce serveur": "Only on this server",
@@ -1585,6 +1655,7 @@
 "Utilisateur (chat et modèles)": "User (chat and models)",
 "Utilisateur (selon ses groupes)": "User (from their groups)",
 "Utilisateurs": "Users",
+"Utilisation": "Usage",
 "Utilisation des modèles": "Model usage",
 "Utiliser les modèles (chat, génération, embeddings)": "Use models (chat, generation, embeddings)",
 "Utilisée par Ollama": "Used by Ollama",
@@ -1604,6 +1675,7 @@
 "Versions proposées": "Offered versions",
 "Versions stables": "Stable versions",
 "Versions stables et préversions": "Stable versions and previews",
+"Vider les caches": "Empty the caches",
 "Visibilité des cartes": "Card visibility",
 "Visibilité des cartes limitée par un réglage (groupes de GPU ou CUDA_VISIBLE_DEVICES) : c'est voulu si vous l'avez configurée.": "Card visibility is restricted by a setting (GPU groups or CUDA_VISIBLE_DEVICES): this is intended if you configured it.",
 "Visibilité limitée": "Limited visibility",
@@ -1662,6 +1734,7 @@
 "adresse publique de la console : sans chemin (ex. https://ollama.exemple.fr)": "public address of the console: without a path (e.g. https://ollama.example.com)",
 "agetty (bannière console), lsblk, mount...": "agetty (console banner), lsblk, mount...",
 "ancienne version rétablie": "previous version restored",
+"annulé : dégradation constatée": "cancelled: degradation found",
 "après (minutes d'inactivité)": "after (minutes of inactivity)",
 "archive refusée : lien suspect": "archive refused: suspicious link",
 "archive refusée : taille anormale": "archive refused: abnormal size",
@@ -1675,6 +1748,8 @@
 "aucun (à télécharger depuis la console web)": "none (download them from the web console)",
 "aucun GPU restant, ces modèles tournent sur processeur": "no GPU left, these models run on CPU",
 "aucun canal : configurez un webhook ou un e-mail": "no channel: set up a webhook or an e-mail",
+"aucun jeu de tests au Laboratoire": "no test suite in the Lab",
+"aucun jeu de tests dans le Laboratoire : sans eux, la qualité des réponses ne peut pas être vérifiée avant et après (créez-en un ou appliquez sans vérification)": "no test suite in the Lab: without one, the quality of the answers cannot be checked before and after (create one or apply without verification)",
 "aucun modèle": "no model",
 "aucun modèle installé": "no models installed",
 "aucun modèle à tester": "no model to test",
@@ -1697,12 +1772,15 @@
 "automatique": "automatic",
 "automatique, par le TPM de ce serveur": "automatic, by this server's TPM",
 "autre": "other",
+"avance (minutes)": "lead time (minutes)",
+"baisse": "drop",
 "base de documents : 1 à 40 caractères (lettres, chiffres, espaces, . _ -)": "document base: 1 to 40 characters (letters, digits, spaces, . _ -)",
 "bases de documents : une liste est attendue": "document bases: a list is expected",
 "basse": "low",
 "bibliothèque absente": "library missing",
 "bibliothèque présente": "library present",
 "binaire ollama absent après extraction": "ollama binary missing after extraction",
+"c'est déjà le réglage en vigueur": "this is already the current setting",
 "cache de contexte : f16, q8_0 ou q4_0": "context cache: f16, q8_0 or q4_0",
 "cache de contexte quantifié inconnu de cette version": "quantized context cache is unknown to this version",
 "canal inconnu": "unknown channel",
@@ -1756,6 +1834,7 @@
 "configurez un webhook ou un e-mail": "set up a webhook or an e-mail",
 "conforme": "compliant",
 "connexion à l'annuaire interrompue": "connection to the directory interrupted",
+"conseil": "advice",
 "conservation de l'ancienne version : 1 à 60 jours": "old version kept: 1 to 60 days",
 "consultation": "read",
 "contenu du fichier illisible": "unreadable file content",
@@ -1786,11 +1865,13 @@
 "durcissement : paquets de sécurité": "hardening: security packages",
 "durcissement : pare-feu": "hardening: firewall",
 "durée de conservation": "retention period",
+"durée de conservation (secondes)": "retention time (seconds)",
 "durée de la fenêtre : 30 à 720 minutes": "window length: 30 to 720 minutes",
 "durée de saturation : 10 à 3600 secondes": "saturation duration: 10 to 3600 seconds",
 "durée minimale d'éveil après un réveil : 0 à 86400 secondes": "minimum awake time after a wake-up: 0 to 86400 seconds",
 "débit invalide": "invalid throughput",
 "déborde sur le processeur": "spills onto the processor",
+"débuts d'invite": "prompt beginnings",
 "décodage spéculatif": "speculative decoding",
 "défaillant": "failing",
 "défaut": "default",
@@ -1817,6 +1898,7 @@
 "embeddings de tailles différentes": "embeddings of different sizes",
 "empreinte de certificat manquante : vérifiez d'abord le serveur": "certificate fingerprint missing: check the server first",
 "en attente": "pending",
+"en cours": "in progress",
 "en direct": "live",
 "en ligne": "online",
 "en mémoire": "in memory",
@@ -1870,6 +1952,7 @@
 "groupe introuvable": "group not found",
 "haute": "high",
 "heure de début invalide (HH:MM)": "invalid start time (HH:MM)",
+"heure invalide (HH:MM)": "invalid time (HH:MM)",
 "heure invalide (format HH:MM)": "invalid time (HH:MM format)",
 "heure programmée": "scheduled time",
 "hors ligne": "offline",
@@ -1905,6 +1988,7 @@
 "jeudi": "Thursday",
 "jours": "days",
 "jours invalides": "invalid days",
+"jours minimum": "minimum days",
 "l'ISO produite reste une ISO x86-64 (amd64) pour serveurs": "the produced ISO remains an x86-64 (amd64) ISO for servers",
 "l'ISO source n'a pas d'image de démarrage BIOS (UEFI uniquement)": "the source ISO has no BIOS boot image (UEFI only)",
 "l'ISO source n'a pas d'image de démarrage UEFI": "the source ISO has no UEFI boot image",
@@ -1949,6 +2033,8 @@
 "message invalide": "invalid message",
 "message invalide (rôle : system, user, assistant ou tool)": "invalid message (role: system, user, assistant or tool)",
 "mesure avant la mise à jour": "measuring before the update",
+"mesure continue": "continuous measurement",
+"mesure en cours": "measurement in progress",
 "mise en veille : aucune, veille (suspend) ou extinction": "sleep: none, sleep (suspend) or shutdown",
 "mise en veille à distance : refuser, veille (suspend) ou extinction": "remote sleep: refuse, sleep (suspend) or shutdown",
 "mise à jour de md5sum.txt": "updating md5sum.txt",
@@ -1990,6 +2076,7 @@
 "nom du jeu : 1 à 60 caractères": "suite name: 1 to 60 characters",
 "nom invalide (1 à 40 caractères)": "invalid name (1 to 40 characters)",
 "nombre d'extraits : 1 à 12": "number of excerpts: 1 to 12",
+"nombre de modèles": "number of models",
 "nombre invalide": "invalid number",
 "non": "no",
 "non (un seul serveur)": "no (single server)",
@@ -2046,6 +2133,7 @@
 "prompt système trop long (20 000 caractères au maximum)": "system prompt too long (20,000 characters at most)",
 "propriétaire/dépôt": "owner/repository",
 "préchauffé ou réservé": "warmed up or reserved",
+"prédiction": "prediction",
 "préparation": "preparing",
 "puissance moyenne en charge : 1 à 5000 W": "average power under load: 1 to 5000 W",
 "python3 est nécessaire pour générer le script PowerShell": "python3 is required to generate the PowerShell script",
@@ -2133,12 +2221,16 @@
 "t/s moyen": "Average t/s",
 "taille de contexte invalide": "invalid context size",
 "taille des extraits : 200 à 3000 caractères": "excerpt size: 200 to 3000 characters",
+"taille maximale (Mo)": "maximum size (MB)",
+"taille maximale d'une réponse (Ko)": "maximum size of one response (KB)",
 "termes interdits : une liste est attendue": "forbidden terms: a list is expected",
 "terminé": "done",
 "test après la mise à jour": "test after the update",
 "texte trop volumineux (8 millions de caractères au plus)": "text too large (8 million characters at most)",
 "tient": "fits",
 "tient en VRAM": "fits in VRAM",
+"tolérance hors limites (5 à 60 %)": "tolerance out of range (5 to 60 %)",
+"tolérance invalide": "invalid tolerance",
 "tous": "all",
 "toute machine autorisée du réseau peut l'utiliser sans clé": "any allowed machine on the network can use it without a key",
 "toutes": "all",
@@ -2147,6 +2239,7 @@
 "trop gros": "too big",
 "très lent": "very slow",
 "type d'essai inconnu": "unknown test type",
+"type de cache inconnu": "unknown cache type",
 "type de cache inconnu (f16, q8_0, q4_0)": "unknown cache type (f16, q8_0, q4_0)",
 "tâche inconnue": "unknown task",
 "téléchargement": "download",
@@ -2159,14 +2252,17 @@
 "une comparaison est déjà en cours": "a comparison is already running",
 "une installation est déjà en cours": "an installation is already in progress",
 "une mesure est déjà en cours": "a measurement is already running",
+"une mesure ou un jeu de tests est déjà en cours": "a measurement or a test suite is already running",
 "une mise à jour est déjà en cours": "an update is already running",
 "une mise à jour est en cours": "an update is running",
 "une question est vide": "a question is empty",
 "une réparation est déjà en cours": "a repair is already in progress",
 "une tâche est en cours sur ce serveur : mise en veille refusée": "a task is running on this server: sleep refused",
 "utilisation": "use",
+"valeur invalide": "invalid value",
 "valeur invalide : requêtes simultanées au total": "invalid value: simultaneous requests in total",
 "valeur invalide : taille de la file": "invalid value: queue size",
+"validé": "validated",
 "veille (suspend)": "sleep (suspend)",
 "ven.": "Fri",
 "vendredi": "Friday",
@@ -2211,6 +2307,7 @@
 "Éteindre le serveur maintenant ?": "Shut down the server now?",
 "Étudier": "Study",
 "Éveillé": "Awake",
+"Évincées": "Evicted",
 "Évolution": "Trend",
 "Évolution du débit": "Throughput trend",
 "Événement": "Event",
@@ -2218,6 +2315,7 @@
 "à": "to",
 "à jour": "up to date",
 "à réindexer": "to reindex",
+"à savoir": "worth knowing",
 "à surveiller": "to watch",
 "à traiter": "to do",
 "échec": "failed",
@@ -2225,6 +2323,218 @@
 "↑ ↓ pour choisir, Entrée pour valider, Échap pour fermer.": "↑ ↓ to choose, Enter to confirm, Esc to close."
 },
 "patterns": [
+[
+"(.+) est bridée \\(niveau de puissance « low »\\) : les fréquences restent basses et le débit s\\'effondre\\. « high » fixe les fréquences maximales\\.",
+"{1} is throttled (power level \"low\"): the clocks stay low and throughput collapses. \"high\" pins the clocks at maximum."
+],
+[
+"(.+) gère ses fréquences automatiquement : elle met un instant à monter en puissance au premier jeton après une pause\\. « high » les fixe au maximum \\(plus de bruit et de consommation au repos\\)\\.",
+"{1} manages its clocks automatically: it takes a moment to ramp up at the first token after a pause. \"high\" pins them at maximum (more noise and idle power draw)."
+],
+[
+"(.+) : fréquences maximales fixées\\.",
+"{1}: maximum clocks pinned."
+],
+[
+"Resizable BAR actif \\(fenêtre de (.+) Go sur la carte\\)\\.",
+"Resizable BAR enabled ({1} GB window on the card)."
+],
+[
+"Resizable BAR semble désactivé \\(fenêtre de (.+) Go pour (.+) Go de mémoire vidéo\\)\\. À activer dans le BIOS \\(« Above 4G Decoding » puis « Resizable BAR »\\) : chargement des modèles et échanges avec la mémoire système plus rapides\\.",
+"Resizable BAR seems disabled ({1} GB window for {2} GB of video memory). Enable it in the BIOS (\"Above 4G Decoding\" then \"Resizable BAR\"): faster model loading and faster exchanges with system memory."
+],
+[
+"La mémoire tourne à (\\d+) MT/s alors que ses barrettes sont prévues pour (\\d+) MT/s : profil XMP / EXPO désactivé dans le BIOS\\. Le débit de la mémoire système en dépend directement\\.",
+"Memory runs at {1} MT/s while its sticks are rated for {2} MT/s: XMP / EXPO profile disabled in the BIOS. The throughput of system memory depends directly on it."
+],
+[
+"Mémoire à (\\d+) MT/s \\((\\d+) barrette\\(s\\)\\)\\.",
+"Memory at {1} MT/s ({2} stick(s))."
+],
+[
+"(.+) est en PCIe x(\\d+) alors que x(\\d+) est possible : fente partagée, riser ou câble limitant\\. Le chargement des modèles et le débordement en pâtissent\\.",
+"{1} runs at PCIe x{2} while x{3} is possible: shared slot, riser or cable limiting it. Model loading and spill-over suffer from it."
+],
+[
+"Économisé depuis le démarrage du routeur : (.+) de génération et (.+) jetons\\.",
+"Saved since the router started: {1} of generation and {2} tokens."
+],
+[
+"(\\d+) début\\(s\\) distinct\\(s\\) pour (\\d+) demande\\(s\\) ; (\\d+) demande\\(s\\) repartent d\\'un début déjà vu \\(la consigne système est la même\\)\\.",
+"{1} distinct beginning(s) for {2} request(s); {3} request(s) start from a beginning already seen (same system prompt)."
+],
+[
+"(.+) : (\\d+) début\\(s\\) distinct\\(s\\), (\\d+) demande\\(s\\), (\\d+) revenant souvent",
+"{1}: {2} distinct beginning(s), {3} request(s), {4} frequently coming back"
+],
+[
+"Historique disponible : (\\d+) modèle\\(s\\) sur (\\d+) jour\\(s\\)\\.",
+"History available: {1} model(s) over {2} day(s)."
+],
+[
+": habituellement demandé vers (\\d+) h \\((\\d+) jour\\(s\\) sur (\\d+)\\)\\.",
+": usually requested around {1}:00 ({2} day(s) out of {3})."
+],
+[
+"Sera mesuré : (.+)",
+"Will be measured: {1}"
+],
+[
+"(\\d+) jeu\\(x\\) de tests du Laboratoire serviront de contrôle\\.",
+"{1} Lab test suite(s) will serve as a check."
+],
+[
+"Passer le cache de contexte en (.+) \\? Ollama redémarre \\(les modèles chargés sont déchargés quelques secondes\\)\\. Aucun jeu de tests n\\'existe au Laboratoire : le changement serait appliqué SANS vérification de la qualité\\.",
+"Switch the context cache to {1}? Ollama restarts (loaded models are unloaded for a few seconds). No test suite exists in the Lab: the change would be applied WITHOUT any quality check."
+],
+[
+"Passer le cache de contexte en (.+) \\? Ollama redémarre \\(les modèles chargés sont déchargés quelques secondes\\)\\. Les jeux de tests du Laboratoire sont rejoués avant et après ; en cas de dégradation, le réglage précédent est rétabli seul\\.",
+"Switch the context cache to {1}? Ollama restarts (loaded models are unloaded for a few seconds). The Lab test suites are replayed before and after; if anything gets worse, the previous setting is restored by itself."
+],
+[
+"Référence avant changement : jeu « (.+) »",
+"Reference before the change: suite \"{1}\""
+],
+[
+"Contrôle après changement : jeu « (.+) »",
+"Check after the change: suite \"{1}\""
+],
+[
+"Passage du cache de contexte en (.+) \\(Ollama redémarre\\)",
+"Switching the context cache to {1} (Ollama restarts)"
+],
+[
+"(\\d+) requête\\(s\\) en parallèle",
+"{1} request(s) in parallel"
+],
+[
+"Sur 24 h : (.+) demande\\(s\\), jusqu\\'à (\\d+) à la fois, (\\d+) % se chevauchent ; premier jeton après (.+) ms seule, (.+) ms en chevauchement\\.",
+"Over 24 h: {1} request(s), up to {2} at a time, {3} % overlap; first token after {4} ms alone, {5} ms when overlapping."
+],
+[
+"Sur 24 h : (.+) demande\\(s\\), jusqu\\'à (\\d+) à la fois, (\\d+) % se chevauchent\\.",
+"Over 24 h: {1} request(s), up to {2} at a time, {3} % overlap."
+],
+[
+"Passer à (\\d+)",
+"Switch to {1}"
+],
+[
+"Passer à (\\d+) requête\\(s\\) en parallèle \\? Ollama redémarre ; chaque emplacement de plus réserve du cache de contexte en mémoire vidéo\\.",
+"Switch to {1} parallel request(s)? Ollama restarts; each extra slot reserves context cache in video memory."
+],
+[
+"(\\d+) % des demandes se chevauchent \\(jusqu\\'à (\\d+) à la fois\\) mais la mémoire vidéo libre \\((.+) Go\\) ne permet pas un emplacement de plus \\((.+) Go de cache\\)\\.",
+"{1} % of the requests overlap (up to {2} at a time) but the free video memory ({3} GB) does not allow one more slot ({4} GB of cache)."
+],
+[
+"(\\d+) % des demandes se chevauchent \\(jusqu\\'à (\\d+) à la fois\\) ; le délai avant le premier jeton est de (\\d+) ms quand elles se chevauchent contre (\\d+) ms seules : passer de (\\d+) à (\\d+) requêtes en parallèle\\.",
+"{1} % of the requests overlap (up to {2} at a time); the time to first token is {3} ms when they overlap against {4} ms alone: go from {5} to {6} parallel requests."
+],
+[
+"(\\d+) % des demandes se chevauchent \\(jusqu\\'à (\\d+) à la fois\\) : passer de (\\d+) à (\\d+) requêtes en parallèle\\.",
+"{1} % of the requests overlap (up to {2} at a time): go from {3} to {4} parallel requests."
+],
+[
+"Aucune demande ne s\\'est chevauchée sur la période alors que (\\d+) emplacements sont réservés : en retirer un libère (.+) Go de mémoire vidéo\\.",
+"No request overlapped over the period while {1} slots are reserved: removing one frees {2} GB of video memory."
+],
+[
+"(.+) : (\\d+) débuts d\\'invite distincts reviennent souvent pour (\\d+) emplacement\\(s\\) : chaque emplacement garde le cache d\\'un seul début, les autres se chassent mutuellement et sont recalculés\\.",
+"{1}: {2} distinct prompt beginnings come back often for {3} slot(s): each slot keeps the cache of a single beginning, the others push each other out and are recomputed."
+],
+[
+"(.+) déborde sur le processeur avec le cache en f16 ; en (.+) il tient en mémoire vidéo \\(contexte (\\d+)\\) : vitesse estimée de (.+) à (.+) jetons/s\\.",
+"{1} spills over to the processor with an f16 cache; in {2} it fits in video memory (context {3}): estimated speed from {4} to {5} tokens/s."
+],
+[
+"(.+) : (.+) jetons/s au lieu de (.+) d\\'habitude \\((.+) %\\)",
+"{1}: {2} tokens/s instead of the usual {3} ({4} %)"
+],
+[
+"Le modèle est maintenant à (\\d+) % en mémoire vidéo : une partie déborde sur le processeur \\(autre modèle chargé, cache de contexte plus grand, pilote qui réserve plus de mémoire\\)\\.",
+"The model is now {1} % in video memory: part of it spills over to the processor (another model loaded, larger context cache, driver reserving more memory)."
+],
+[
+"Le modèle est maintenant à (\\d+) % en mémoire vidéo \\(contre (\\d+) %\\) : une partie déborde sur le processeur \\(autre modèle chargé, cache de contexte plus grand, pilote qui réserve plus de mémoire\\)\\.",
+"The model is now {1} % in video memory (against {2} %): part of it spills over to the processor (another model loaded, larger context cache, driver reserving more memory)."
+],
+[
+"La carte graphique est à (\\d+) °C : bridage thermique probable \\(poussière, ventilation, boîtier\\)\\.",
+"The graphics card is at {1} °C: thermal throttling likely (dust, ventilation, case)."
+],
+[
+"Le noyau a changé depuis la mesure précédente \\((.+) -> (.+)\\)\\.",
+"The kernel changed since the previous measurement ({1} -> {2})."
+],
+[
+"Ollama a changé depuis la mesure précédente \\((.+) -> (.+)\\)\\.",
+"Ollama changed since the previous measurement ({1} -> {2})."
+],
+[
+"Le pilote graphique a changé depuis la mesure précédente \\((.+) -> (.+)\\)\\.",
+"The graphics driver changed since the previous measurement ({1} -> {2})."
+],
+[
+"La mémoire vive est presque pleine \\((\\d+) %\\) : le système peut pousser des pages vers le disque\\.",
+"System memory is almost full ({1} %): the system may push pages out to disk."
+],
+[
+"Le délai avant le premier jeton a augmenté de (\\d+) % sans rechargement du modèle\\.",
+"The time to first token rose by {1} % without any model reload."
+],
+[
+"Mesure de (.+) reportée : le serveur est resté occupé",
+"Measurement of {1} postponed: the server stayed busy"
+],
+[
+"Mesure de (.+) impossible : (.+)",
+"Measurement of {1} impossible: {2}"
+],
+[
+"Mesure de (.+) en échec : (.+)",
+"Measurement of {1} failed: {2}"
+],
+[
+"Estimations d\\'ajustement recalées sur (.+) : (\\d+) Go/s effectifs",
+"Fit estimates recalibrated on {1}: {2} GB/s effective"
+],
+[
+"Cache de contexte en (.+) annulé pour « (.+) » : dégradation aux tests \\((.+)\\) ; réglages précédents rétablis",
+"Context cache in {1} cancelled for \"{2}\": degradation in tests ({3}); previous settings restored"
+],
+[
+"Cache de contexte en (.+) validé pour « (.+) » \\((\\d+) jeu\\(x\\) de tests sans dégradation\\)",
+"Context cache in {1} validated for \"{2}\" ({3} test suite(s) without degradation)"
+],
+[
+"Cache de contexte en (.+) validé pour « (.+) » \\(sans vérification\\)",
+"Context cache in {1} validated for \"{2}\" (no verification)"
+],
+[
+"Cache de contexte en (.+) : échec \\((.+)\\), réglages précédents rétablis",
+"Context cache in {1}: failed ({2}), previous settings restored"
+],
+[
+"Requêtes en parallèle : (\\d+) -> (\\d+) \\(Ollama redémarré\\)",
+"Parallel requests: {1} -> {2} (Ollama restarted)"
+],
+[
+"Modèle « (.+) » préchargé : habituellement demandé vers (\\d+) h \\((\\d+) jours sur (\\d+)\\)",
+"Model \"{1}\" preloaded: usually requested around {2}:00 ({3} days out of {4})"
+],
+[
+"prédiction : habituellement demandé vers (\\d+) h \\((\\d+) jours sur (\\d+)\\)",
+"prediction: usually requested around {1}:00 ({2} days out of {3})"
+],
+[
+"valeur invalide : (.+)",
+"invalid value: {1}"
+],
+[
+"(.+) hors limites \\((\\d+) à (\\d+)\\)",
+"{1} out of range ({2} to {3})"
+],
 [
 "équipe : (.+)",
 "team: {1}"

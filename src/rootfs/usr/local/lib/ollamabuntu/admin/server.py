@@ -42,6 +42,7 @@ import privacy  # noqa: E402  détection et masquage des données sensibles, ter
 import rag  # noqa: E402  base de documents : extraction, découpage, vecteurs, recherche
 import power  # noqa: E402  réveil (Wake-on-LAN) et mise en veille des serveurs du parc
 import fit  # noqa: E402  ajustement d'un modèle à la mémoire : place, options, vitesse estimée
+import rcache  # noqa: E402  caches du routeur (réglages, durée)
 import llamacpp  # noqa: E402  moteur llama.cpp : fichier du modèle, ligne de commande, traduction Ollama / OpenAI
 import updater  # noqa: E402  mise à jour depuis Internet (GitHub)
 import monitor  # noqa: E402  débordement CPU/GPU, alertes, réglages recommandés
@@ -3890,7 +3891,7 @@ def alert_snapshot():
                if (_fleet_state.get(x["id"]) or {}).get("state") not in (None, "en attente")]
     keys = [{"name": k["name"], "days_left": expiry_days(k.get("expires"))} for k in load_publication().get("keys", []) if k.get("enabled", True) and k.get("expires")]
     perf_res = perf_snapshot(st)
-    return {"perf": perf_res, "keys": keys, "guard": guard_status(max_age=120)["issues"], "hw": hw_view(max_age=600)["issues"], "service": st["ollama"]["service"], "disk": st["disk"], "gpus": st["gpu_live"], "offload": st["offload"], "servers": servers,
+    return {"perf": perf_res, "regress": [dict(r, model=m) for m, r in accel_conf()["regress"].items()], "keys": keys, "guard": guard_status(max_age=120)["issues"], "hw": hw_view(max_age=600)["issues"], "service": st["ollama"]["service"], "disk": st["disk"], "gpus": st["gpu_live"], "offload": st["offload"], "servers": servers,
             "tps": {"avg": round(sum(tps) / len(tps), 1) if tps else None, "count": sum(x.get("req") or 0 for x in recent)}, "update": st["update_available"]}
 
 
@@ -4091,8 +4092,13 @@ def sys_view():
         m = re.fullmatch(r"([\d.]+)\s*(MiB|GiB|KiB|B)", use)
         if m:
             webui["rss_mb"] = round(float(m.group(1)) * {"GiB": 1024, "MiB": 1, "KiB": 1 / 1024.0, "B": 1 / 1048576.0}[m.group(2)])
-    return perf.sys_checks({"swappiness": int(sw) if sw.isdigit() else None, "governors": gov, "mem_total": mi.get("MemTotal"), "swap_total": mi.get("SwapTotal"),
-                            "zram": "zram" in swaps, "webui": webui})
+    try:
+        machine = sys_machine()
+    except Exception as e:   # noqa: BLE001 - un contrôle de plus ne doit pas casser l'écran
+        sys.stderr.write("contrôles machine : %s\n" % e)
+        machine = {}
+    return perf.sys_checks(dict({"swappiness": int(sw) if sw.isdigit() else None, "governors": gov, "mem_total": mi.get("MemTotal"), "swap_total": mi.get("SwapTotal"),
+                                 "zram": "zram" in swaps, "webui": webui}, **machine))
 
 
 def sys_fix(fix, value=None):
@@ -4105,6 +4111,22 @@ def sys_fix(fix, value=None):
             try:
                 with open(g, "w") as f:
                     f.write("performance")
+            except OSError:
+                pass
+    elif fix in ("amd_power", "amd_power_auto"):
+        level = "high" if fix == "amd_power" else "auto"
+        conf = sysp("/etc/tmpfiles.d/ollamabuntu-gpu-power.conf")
+        if level == "high":
+            atomic_write(conf, "# OllamaBuntu : fréquences maximales fixées pour les cartes AMD (latence du premier jeton)\nw /sys/bus/pci/devices/*/power_dpm_force_performance_level - - - - high\n", 0o644)
+        else:
+            try:
+                os.remove(conf)
+            except OSError:
+                pass
+        for g in glob.glob(os.path.join(PCI_ROOT, "*", "power_dpm_force_performance_level")):
+            try:
+                with open(g, "w") as f:
+                    f.write(level)
             except OSError:
                 pass
     elif fix == "webui_mem":
@@ -4130,7 +4152,7 @@ def bench_addr(model):
     return main_addr()
 
 
-def bench_run(model, runs):
+def bench_run(model, runs, auto=False):
     """Mesure en tâche de fond : `runs` générations identiques (température 0), médiane retenue et comparée à la précédente."""
     results = []
     try:
@@ -4151,15 +4173,22 @@ def bench_run(model, runs):
         entry["vram_used"] = sum(g.get("mem_used") or 0 for g in gpus) or None
         entry["vram_total"] = sum(g.get("mem_total") or 0 for g in gpus) or None
         entry["profile"] = perf.detect_profile(read_env())
+        entry["auto"] = bool(auto)
+        try:
+            entry["sys"] = bench_sys()
+        except Exception as e:   # noqa: BLE001
+            sys.stderr.write("mesure : informations système : %s\n" % e)
         atomic_write(BENCH_FILE, json.dumps({"history": (hist + [entry])[-100:]}, ensure_ascii=False), 0o600)
         _bench["error"] = ""
+        if auto:
+            bench_after_auto(entry, hist)
     except (OSError, ValueError) as e:
         _bench["error"] = str(e)[:200]
     finally:
         _bench["running"] = False
 
 
-def bench_start(model, runs):
+def bench_start(model, runs, auto=False):
     model = str(model or "")
     if not MODEL_RE.match(model):
         raise ValueError("nom de modèle invalide")
@@ -4171,8 +4200,8 @@ def bench_start(model, runs):
         raise ValueError("1 à 3 passes")
     if _bench["running"]:
         raise ValueError("une mesure est déjà en cours")
-    _bench.update(running=True, model=model, step=0, runs=runs, error="")
-    threading.Thread(target=bench_run, args=(model, runs), daemon=True).start()
+    _bench.update(running=True, model=model, step=0, runs=runs, error="", auto=bool(auto))
+    threading.Thread(target=bench_run, args=(model, runs, auto), daemon=True).start()
 
 
 def warmup_config():
@@ -4182,9 +4211,9 @@ def warmup_config():
         return {"boot": [], "times": []}
 
 
-def warm_model(model, why):
+def warm_model(model, why, keep=None):
     env = read_env()
-    keep = env.get("OLLAMA_KEEP_ALIVE") or "30m"
+    keep = keep or env.get("OLLAMA_KEEP_ALIVE") or "30m"
     rec = {"t": int(time.time()), "model": model, "why": why, "ok": False, "error": ""}
     try:
         addr = bench_addr(model)
@@ -4224,6 +4253,501 @@ def perf_view():
             "profiles": [{"id": k, "label": p["label"], "help": p["help"], "diff": perf.profile_diff(k, env)} for k, p in perf.PROFILES.items()],
             "checks": sys_view(), "guard": cfg["guard"], "events": list(reversed(cfg["events"])), "alert": _perf_last.get("guard"),
             "warmup": dict(warmup_config(), log=list(reversed(_warm["log"]))), "bench": dict(_bench, history=list(reversed(bench_history()))[:30])}
+
+
+# ------------------------------------------------------------- accélération ---
+# Compléments de l'écran Performance : caches du routeur, préchauffage prédictif, mesure continue, parallélisme adaptatif,
+# cache de contexte validé par le Laboratoire, contrôles de la machine.
+ACCEL_FILE = os.path.join(ETC, "perf2.json")
+CACHE_FILE = os.path.join(ETC, "cache.json")
+CACHE_STATS_FILE = os.environ.get("OB_ROUTER_CACHE_STATS", "/var/lib/ollamabuntu-router/cache-stats.json")
+HOURS_FILE = os.path.join(os.environ.get("OB_STATE", "/var/lib/ollamabuntu"), "usage-hours.json")
+_accel_lock = threading.Lock()
+_accel = {"played": {}, "bench_day": {}, "kv": {"running": False, "model": "", "kv": "", "step": "", "log": [], "error": ""}, "driver": (0.0, None)}
+
+
+def accel_conf():
+    c = load_json_file(ACCEL_FILE, {})
+    out = {}
+    for name, fn in (("predict", perf.predict_clean), ("bench_auto", perf.bench_auto_clean), ("parallel", perf.parallel_clean)):
+        try:
+            out[name] = fn(c.get(name))
+        except ValueError:
+            out[name] = fn({})
+    k = c.get("kv") if isinstance(c.get("kv"), dict) else {}
+    out["kv"] = {"mode": k.get("mode") if k.get("mode") in ("off", "suggest", "auto") else "suggest"}
+    out["events"] = [e for e in c.get("events", []) if isinstance(e, dict)][-30:]
+    out["regress"] = {m: r for m, r in (c.get("regress") or {}).items() if isinstance(r, dict)}
+    out["last"] = {k: int(v) for k, v in (c.get("last") or {}).items() if isinstance(v, (int, float))}
+    return out
+
+
+def accel_store(section=None, value=None, event=None, regress=None, last=None):
+    with _accel_lock:
+        c = accel_conf()
+        if section:
+            c[section] = value
+        if event:
+            c["events"] = (c["events"] + [event])[-30:]
+        if regress is not None:
+            model, rec = regress
+            if rec is None:
+                c["regress"].pop(model, None)
+            else:
+                c["regress"][model] = rec
+        if last:
+            c["last"].update(last)
+        atomic_write(ACCEL_FILE, json.dumps(c, ensure_ascii=False), 0o644)
+        return c
+
+
+def accel_event(who, text, **extra):
+    accel_store(event=dict({"t": int(time.time()), "who": who, "text": text}, **extra))
+    print("accélération : %s" % text, flush=True)
+
+
+def accel_set(section, data, who):
+    if section == "predict":
+        v = perf.predict_clean(data)
+    elif section == "bench_auto":
+        v = perf.bench_auto_clean(data)
+    elif section == "parallel":
+        v = perf.parallel_clean(data)
+    elif section == "kv":
+        if data.get("mode") not in ("off", "suggest", "auto"):
+            raise ValueError("mode inconnu")
+        v = {"mode": data["mode"]}
+    else:
+        raise ValueError("réglage inconnu")
+    accel_store(section, v)
+    return v
+
+
+# --- caches du routeur
+def cache_conf_read():
+    try:
+        return rcache.clean_config(load_json_file(CACHE_FILE, {}))
+    except ValueError:
+        return dict(rcache.DEFAULTS)
+
+
+def cache_conf_save(data, purge=False):
+    cur = cache_conf_read()
+    new = rcache.clean_config(dict(cur, **{k: data[k] for k in ("responses", "embeddings", "ttl", "max_mb", "max_entry_kb") if k in data}))
+    if purge:
+        new["purged"] = int(time.time())
+    atomic_write(CACHE_FILE, json.dumps(new), 0o644)
+    return new
+
+
+def cache_view():
+    st = load_json_file(CACHE_STATS_FILE, {})
+    return {"config": cache_conf_read(), "stats": st if st.get("t") and time.time() - st["t"] < 3600 else {}}
+
+
+# --- usage par heure et préchauffage prédictif
+def hours_load():
+    d = load_json_file(HOURS_FILE, {})
+    return {"last": float(d.get("last") or 0), "data": d.get("data") if isinstance(d.get("data"), dict) else {}}
+
+
+def hours_update():
+    """Ajoute les requêtes nouvelles du journal aux compteurs par heure (conservés 28 jours, sans texte ni client)."""
+    d = hours_load()
+    rows = [r for r in read_request_log(max(d["last"], time.time() - 28 * 86400)) if r.get("ts", 0) > d["last"]]
+    if not rows:
+        return d
+    perf.hours_add(d["data"], rows)
+    d["last"] = max(r["ts"] for r in rows)
+    atomic_write(HOURS_FILE, json.dumps(d), 0o600)
+    return d
+
+
+def loaded_models():
+    names = set()
+    for _unit, addr, _pool in instances():
+        try:
+            for m in ollama_json("GET", "/api/ps", timeout=3, addr=addr)[1].get("models", []):
+                names |= {m.get("name", ""), short_name(m.get("name", ""))}
+        except (OSError, ValueError):
+            continue
+    return names
+
+
+def predict_step(now=None):
+    cfg = accel_conf()["predict"]
+    if not cfg["enabled"]:
+        return []
+    lt = time.localtime(now)
+    day = "%04d-%02d-%02d" % (lt.tm_year, lt.tm_mon, lt.tm_mday)
+    for k in [k for k in _accel["played"] if not k.endswith(day) and not k.rsplit("@", 1)[-1].startswith(day)]:
+        _accel["played"].pop(k)
+    done = []
+    for p in perf.warm_predict(hours_load()["data"], lt, loaded_models(), cfg):
+        key = "%s@%s-%d" % (p["model"], day, p["hour"])
+        if key in _accel["played"]:
+            continue
+        _accel["played"][key] = True
+        why = "prédiction : habituellement demandé vers %d h (%d jours sur %d)" % (p["hour"], p["hits"], p["days"])
+        if warm_model(p["model"], why, keep="75m"):
+            accel_event("prédiction", "Modèle « %s » préchargé : habituellement demandé vers %d h (%d jours sur %d)" % (p["model"], p["hour"], p["hits"], p["days"]))
+            done.append(p["model"])
+    return done
+
+
+# --- mesure continue
+def gpu_driver_version():
+    t, v = _accel["driver"]
+    if time.time() - t < 600:
+        return v
+    v = None
+    smi = os.environ.get("OB_NVIDIA_SMI") or shutil.which("nvidia-smi")
+    if smi:
+        v = "NVIDIA " + (run([smi, "--query-gpu=driver_version", "--format=csv,noheader"], timeout=5).strip().splitlines() or [""])[0].strip()
+    elif shutil.which("dpkg-query"):
+        mv = run(["dpkg-query", "-W", "-f=${Version}", "mesa-vulkan-drivers"], timeout=5).strip()
+        v = ("mesa " + mv) if mv else None
+    _accel["driver"] = (time.time(), v if v and v != "NVIDIA" else None)
+    return _accel["driver"][1]
+
+
+def bench_sys():
+    temps = [g["temp"] for g in gpu_metrics() if g.get("temp") is not None]
+    return {"kernel": os.uname().release, "ollama": ollama_version(), "driver": gpu_driver_version(), "gpu_temp": round(max(temps)) if temps else None}
+
+
+def bench_after_auto(entry, hist):
+    """Mesure continue : compare au débit habituel, explique une baisse, recale l'estimation d'ajustement quand tout va bien."""
+    cfg = accel_conf()["bench_auto"]
+    model = entry["model"]
+    reg = perf.bench_regression(hist, entry, cfg["tolerance"])
+    prev = next((h for h in reversed(hist) if h.get("model") == model), None)
+    if reg:
+        hints = perf.diagnose(entry, prev)
+        text = "%s : %s jetons/s au lieu de %s d'habitude (%s %%)" % (model, entry["tps"], reg["baseline"], ("%+.0f" % reg["pct"]).replace("-", "−"))
+        accel_store(regress=(model, {"t": int(time.time()), "text": text, "hints": hints[:4], "pct": reg["pct"]}))
+        accel_event("mesure continue", text + (" — " + " ".join(hints[:3]) if hints else ""), kind="regression")
+        return
+    accel_store(regress=(model, None))
+    if cfg["recalibrate"] and entry.get("vram_pct") == 100:
+        try:
+            r = fit_calibrate(model)
+            accel_event("mesure continue", "Estimations d'ajustement recalées sur %s : %d Go/s effectifs" % (model, round(r["gpu_gbps"])))
+        except ValueError:
+            pass
+
+
+def requests_since(seconds):
+    return read_request_log(time.time() - seconds)
+
+
+def wait_idle(seconds=120, tries=180):
+    for _ in range(tries):
+        if not [r for r in requests_since(seconds) if r.get("instance") != "cache"]:
+            return True
+        time.sleep(10)
+    return False
+
+
+def bench_auto_models():
+    cfg = accel_conf()["bench_auto"]
+    if cfg["models"]:
+        return cfg["models"]
+    counts = {}
+    for r in read_requests(20000):
+        if r.get("model") and r.get("ts", 0) > time.time() - 7 * 86400 and (r.get("status") or 200) < 400:
+            counts[r["model"]] = counts.get(r["model"], 0) + 1
+    return [max(counts, key=counts.get)] if counts else []
+
+
+def bench_auto_run():
+    models = bench_auto_models()
+    if not models:
+        accel_event("mesure continue", "Aucun modèle à mesurer (aucune demande récente)")
+        return
+    for m in models:
+        if not wait_idle():
+            accel_event("mesure continue", "Mesure de %s reportée : le serveur est resté occupé" % m)
+            continue
+        for _ in range(300):
+            if not _bench["running"]:
+                break
+            time.sleep(2)
+        try:
+            bench_start(m, 2, auto=True)
+        except ValueError as e:
+            accel_event("mesure continue", "Mesure de %s impossible : %s" % (m, e))
+            continue
+        while _bench["running"]:
+            time.sleep(2)
+        if _bench["error"]:
+            accel_event("mesure continue", "Mesure de %s en échec : %s" % (m, _bench["error"]))
+
+
+# --- cache de contexte validé par le Laboratoire
+def kv_advice():
+    """Modèles qui tiendraient en mémoire vidéo avec un cache de contexte en q8_0 alors que leurs réglages actuels débordent."""
+    st = fit_settings()
+    if st["kv"] != "f16":
+        return {"current": st["kv"], "items": []}
+    hwr = fit.resolve_hw(fit_hw(), fit_conf())
+    items, ctx_conf = [], load_json_file(CONTEXT_FILE, {}).get("models", {})
+    try:
+        tags = ollama_json("GET", "/api/tags", timeout=10)[1].get("models", [])
+    except (OSError, ValueError):
+        tags = []
+    for m in sorted(tags, key=lambda t: t.get("name", "")):
+        if str(m.get("name", "")).endswith("-cloud") or hidden_model(m.get("name", "")):
+            continue
+        shape = fit.model_from_show(m["name"], m.get("size"), fit_show(m["name"], m.get("digest")))
+        if shape is None or not shape.get("kv_elems"):
+            continue
+        want = ctx_conf.get(m["name"]) or ctx_conf.get(short_name(m["name"])) or st["ctx"] or min(shape.get("max_ctx") or 8192, 8192)
+        plan = fit.plan(shape, hwr, want, st["parallel"], current={"ctx": want, "kv": "f16", "parallel": st["parallel"]})
+        rec = next((s for s in plan["scenarios"] if s["id"] == plan["recommended"]), None)
+        if plan.get("current_fits") is False and plan["verdict"] in ("gpu", "ajuste") and rec and rec["kv"] != "f16":
+            cur = next(s for s in plan["scenarios"] if s["label"] == "Réglages actuels")
+            items.append({"model": m["name"], "kv": rec["kv"], "ctx": rec["ctx"], "now_mode": "gpu" if cur["fits_vram"] else "cpu", "tps_now": cur["tps"], "tps_after": rec["tps"],
+                          "text": "%s déborde sur le processeur avec le cache en f16 ; en %s il tient en mémoire vidéo (contexte %d) : vitesse estimée de %s à %s jetons/s." %
+                                  (m["name"], rec["kv"], rec["ctx"], fit_num(cur["tps"]), fit_num(rec["tps"]))})
+    return {"current": st["kv"], "items": items}
+
+
+def fit_num(v):
+    return "?" if v is None else ("%.1f" % v).rstrip("0").rstrip(".")
+
+
+def kv_suites():
+    return [s for s in lab_load()["suites"] if s.get("cases")][:3]
+
+
+def kv_log(text):
+    _accel["kv"]["log"] = (_accel["kv"]["log"] + [text])[-12:]
+    _accel["kv"]["step"] = text
+
+
+def kv_apply_start(model, kv, who, force=False):
+    if not MODEL_RE.match(str(model or "")):
+        raise ValueError("nom de modèle invalide")
+    if kv not in ("q8_0", "q4_0"):
+        raise ValueError("type de cache inconnu")
+    if _accel["kv"]["running"] or _lab["eval"]["running"] or _bench["running"]:
+        raise ValueError("une mesure ou un jeu de tests est déjà en cours")
+    suites = kv_suites()
+    if not suites and not force:
+        raise ValueError("aucun jeu de tests dans le Laboratoire : sans eux, la qualité des réponses ne peut pas être vérifiée avant et après (créez-en un ou appliquez sans vérification)")
+    _accel["kv"].update(running=True, model=model, kv=kv, step="", log=[], error="", result="")
+    threading.Thread(target=kv_apply_run, args=(model, kv, who, suites), daemon=True).start()
+
+
+def wait_ollama(seconds=180):
+    for _ in range(seconds // 3):
+        try:
+            if ollama_json("GET", "/api/version", timeout=3)[0] == 200:
+                return True
+        except OSError:
+            pass
+        time.sleep(3)
+    return False
+
+
+def kv_apply_run(model, kv, who, suites):
+    state = _accel["kv"]
+    old = {k: read_env().get(k, "") for k in ("OLLAMA_KV_CACHE_TYPE", "OLLAMA_FLASH_ATTENTION")}
+    try:
+        for s in suites:
+            kv_log("Référence avant changement : jeu « %s »" % s["name"])
+            lab_eval_core(s["id"], model, who, "référence avant passage du cache en %s" % kv, notify=False)
+        kv_log("Passage du cache de contexte en %s (Ollama redémarre)" % kv)
+        update_env(perf.normalize_env({"OLLAMA_KV_CACHE_TYPE": kv}, read_env()))
+        if not wait_ollama():
+            raise ValueError("Ollama n'a pas redémarré dans le délai")
+        degraded = []
+        for s in suites:
+            kv_log("Contrôle après changement : jeu « %s »" % s["name"])
+            run = lab_eval_core(s["id"], model, who, "après passage du cache en %s" % kv, notify=False)
+            if run.get("diff") and run["diff"].get("degraded"):
+                degraded.append("%s (%s)" % (s["name"], ("%d cas échoue(nt) maintenant" % len(run["diff"]["regressions"])) if run["diff"].get("regressions") else "débit en baisse"))
+        if degraded:
+            kv_log("Dégradation constatée : retour aux réglages précédents")
+            update_env({k: v for k, v in old.items()})
+            wait_ollama()
+            state["result"] = "annule"
+            accel_event(who, "Cache de contexte en %s annulé pour « %s » : dégradation aux tests (%s) ; réglages précédents rétablis" % (kv, model, ", ".join(degraded)), kind="kv")
+        else:
+            state["result"] = "valide"
+            accel_store(last={"kv_change": int(time.time())})
+            accel_event(who, "Cache de contexte en %s validé pour « %s »%s" % (kv, model, (" (%d jeu(x) de tests sans dégradation)" % len(suites)) if suites else " (sans vérification)"), kind="kv")
+        state["error"] = ""
+    except (OSError, ValueError) as e:
+        state["error"] = str(e)[:200]
+        try:
+            update_env({k: v for k, v in old.items()})
+        except OSError:
+            pass
+        accel_event(who, "Cache de contexte en %s : échec (%s), réglages précédents rétablis" % (kv, state["error"]), kind="kv")
+    finally:
+        state["running"] = False
+
+
+# --- parallélisme adaptatif
+def parallel_view():
+    st = fit_settings()
+    now = time.time()
+    rows = read_requests(20000)
+    prof = perf.concurrency_profile(rows, now)
+    counts = {}
+    for r in rows:
+        if r.get("model") and r.get("ts", 0) > now - 86400 and r.get("instance") not in ("-", "cache"):
+            counts[r["model"]] = counts.get(r["model"], 0) + 1
+    out = {"parallel": st["parallel"], "profile": prof, "advice": None, "model": None, "headroom": None, "slot": None}
+    if not counts:
+        return out
+    model = max(counts, key=counts.get)
+    out["model"] = model
+    try:
+        m = next(t for t in ollama_json("GET", "/api/tags", timeout=10)[1].get("models", []) if short_name(t.get("name", "")) == short_name(model))
+        shape = fit.model_from_show(m["name"], m.get("size"), fit_show(m["name"], m.get("digest")))
+    except (StopIteration, OSError, ValueError):
+        shape = None
+    if shape:
+        hwr = fit.resolve_hw(fit_hw(), fit_conf())
+        ctx = st["ctx"] or 4096
+        sc = fit.scenario(shape, hwr, ctx, st["kv"], st["parallel"])
+        out["slot"] = int(fit.kv_bytes(shape, ctx, st["kv"], 1))
+        out["headroom"] = int(hwr["vram"] * fit.VRAM_USABLE - sc["vram"]) if hwr["vram"] else None
+    out["advice"] = perf.parallel_advice(prof, st["parallel"], out["headroom"], out["slot"])
+    return out
+
+
+def parallel_apply(to, who):
+    try:
+        to = int(to)
+    except (TypeError, ValueError):
+        raise ValueError("valeur invalide")
+    if not 1 <= to <= 8:
+        raise ValueError("1 à 8 requêtes en parallèle")
+    cur = fit_settings()["parallel"]
+    if to == cur:
+        raise ValueError("c'est déjà le réglage en vigueur")
+    update_env({"OLLAMA_NUM_PARALLEL": str(to)})
+    accel_store(last={"parallel_change": int(time.time())})
+    accel_event(who, "Requêtes en parallèle : %d -> %d (Ollama redémarré)" % (cur, to), kind="parallel")
+
+
+def prefix_advice(stats, parallel):
+    """Débuts d'invite fréquents (>= 3 demandes en une heure) plus nombreux que les emplacements : ils se chassent du cache."""
+    notes = []
+    for m in ((stats or {}).get("prefixes") or {}).get("models", []):
+        if m.get("frequent", 0) > parallel:
+            notes.append("%s : %d débuts d'invite distincts reviennent souvent pour %d emplacement(s) : chaque emplacement garde le cache d'un seul début, les autres se chassent mutuellement et sont recalculés." %
+                         (m["model"], m["frequent"], parallel))
+    return notes
+
+
+# --- boucle de fond
+def accel_worker():
+    time.sleep(90)
+    last_hours = 0.0
+    while True:
+        try:
+            now = time.time()
+            if now - last_hours > 300:
+                hours_update()
+                last_hours = now
+            predict_step()
+            cfg = accel_conf()
+            if perf.bench_auto_due(cfg["bench_auto"], time.localtime(), _accel["bench_day"]) and not _bench["running"]:
+                threading.Thread(target=bench_auto_run, daemon=True).start()
+            accel_auto_steps(cfg)
+        except Exception as e:   # noqa: BLE001 - la boucle ne doit jamais s'arrêter
+            sys.stderr.write("accélération : %s\n" % e)
+        time.sleep(20)
+
+
+def accel_auto_steps(cfg):
+    """Modes automatiques : au plus un changement par jour et par réglage, seulement si le serveur est au repos depuis 10 minutes."""
+    now = time.time()
+    auto_par, auto_kv = cfg["parallel"]["mode"] == "auto", cfg["kv"]["mode"] == "auto"
+    if not (auto_par or auto_kv) or _bench["running"] or _accel["kv"]["running"] or _lab["eval"]["running"]:
+        return
+    if [r for r in requests_since(600) if r.get("instance") != "cache"]:
+        return
+    if auto_par and now - cfg["last"].get("parallel_change", 0) > 86400:
+        pv = parallel_view()
+        a = pv["advice"]
+        if a and a.get("to") and a["why"] == "overlap" and pv["headroom"] is not None and pv["slot"] and pv["headroom"] >= 2 * pv["slot"]:
+            parallel_apply(a["to"], "automatique")
+            return
+    if auto_kv and now - cfg["last"].get("kv_change", 0) > 86400 and kv_suites():
+        items = kv_advice()["items"]
+        if items:
+            kv_apply_start(items[0]["model"], items[0]["kv"], "automatique")
+
+
+# --- vue d'ensemble
+def accel_view():
+    cfg = accel_conf()
+    env = read_env()
+    cv = cache_view()
+    par = parallel_view()
+    hrs = hours_load()["data"]
+    preds = perf.warm_predict(hrs, time.localtime(), loaded_models(), cfg["predict"], preview=True)
+    st = {"config": cfg, "cache": cv, "parallel": dict(par, notes=prefix_advice(cv["stats"], par["parallel"])), "kv": dict(kv_advice(), job=dict(_accel["kv"]), suites=len(kv_suites())),
+          "predict": {"candidates": preds, "models_seen": len(hrs), "days": len({d for m in hrs.values() for d in m})},
+          "bench_auto": {"models": bench_auto_models(), "running": _bench["running"] and _bench.get("auto", False)}, "env": {k: env.get(k, "") for k in ("OLLAMA_KV_CACHE_TYPE", "OLLAMA_FLASH_ATTENTION", "OLLAMA_NUM_PARALLEL")},
+          "events": list(reversed(cfg["events"]))}
+    return st
+
+
+# --- contrôles de la machine (carte AMD, Resizable BAR, mémoire, PCIe)
+def sys_machine():
+    gp, pcie, rebar = [], [], {"checked": False}
+    names = {g.get("pci"): g.get("name") for g in gpu_metrics()}
+    for dev in sorted(glob.glob(os.path.join(PCI_ROOT, "*"))):
+        cls, vendor = read_text(os.path.join(dev, "class"), "").strip(), read_text(os.path.join(dev, "vendor"), "").strip()
+        if not cls.startswith("0x03") or vendor not in ("0x1002", "0x10de"):
+            continue
+        pci = norm_pci(os.path.basename(dev))
+        name = names.get(pci) or ("AMD" if vendor == "0x1002" else "NVIDIA") + " " + pci
+        lvl = read_text(os.path.join(dev, "power_dpm_force_performance_level"), "").strip()
+        if lvl:
+            gp.append({"card": pci, "name": name, "level": lvl})
+        w, mw = read_text(os.path.join(dev, "current_link_width"), "").strip(), read_text(os.path.join(dev, "max_link_width"), "").strip()
+        if w.isdigit() and mw.isdigit():
+            pcie.append({"card": pci, "name": name, "width": int(w), "max_width": int(mw)})
+        vram = int(read_text(os.path.join(dev, "mem_info_vram_total"), "0") or 0) or next((int((g.get("mem_total") or 0)) for g in gpu_metrics() if g.get("pci") == pci), 0)
+        bars = []
+        for line in read_text(os.path.join(dev, "resource"), "").splitlines():
+            f = line.split()
+            if len(f) >= 3:
+                try:
+                    a, b, fl = int(f[0], 16), int(f[1], 16), int(f[2], 16)
+                except ValueError:
+                    continue
+                if b > a and fl & 0x200:
+                    bars.append(b - a + 1)
+        if vram >= (2 << 30) and bars and not rebar["checked"]:
+            big = max(bars)
+            rebar = {"checked": True, "enabled": big >= 0.9 * vram, "bar_gb": round(big / 2 ** 30, 2), "vram_gb": round(vram / 2 ** 30)}
+    mem = None
+    if shutil.which("dmidecode"):
+        txt = run(["dmidecode", "-t", "memory"], timeout=10)
+        dimms, rated, conf = 0, 0, 0
+        for block in txt.split("Memory Device")[1:]:
+            size = re.search(r"Size:\s*(\d+)\s*(MB|GB)", block)
+            if not size:
+                continue
+            dimms += 1
+            sp = re.search(r"\n\s*Speed:\s*(\d+)\s*(?:MT/s|MHz)", block)
+            cs = re.search(r"Configured (?:Memory|Clock) Speed:\s*(\d+)\s*(?:MT/s|MHz)", block)
+            if sp:
+                rated = max(rated, int(sp.group(1)))
+            if cs:
+                conf = max(conf, int(cs.group(1)))
+        if dimms:
+            mem = {"dimms": dimms, "rated": rated or None, "configured": conf or None}
+    return {"gpu_power": gp, "pcie": pcie, "rebar": rebar, "memory": mem}
 
 
 # ------------------------------------------------- journal d'audit ---
@@ -6514,7 +7038,7 @@ def start_webui_proxy(ctx):
 
 
 # ---------------------------------------------------------------- serveur ---
-ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
+ADMIN_GET = {"/api/accel", "/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
              "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/redirects", "/api/fit", "/api/fit/hf", "/api/llama", "/api/llama/logs", "/api/power", "/api/costs", "/api/costs/export", "/api/privacy", "/api/rag", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
 
 
@@ -6809,6 +7333,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, guard_status())
             if path == "/api/perf":
                 return self.send_json(200, perf_view())
+            if path == "/api/accel":
+                return self.send_json(200, accel_view())
             if path == "/api/lab":
                 return self.send_json(200, lab_view())
             if path == "/api/mu":
@@ -7039,6 +7565,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not models:
                     raise ValueError("aucun modèle")
                 threading.Thread(target=lambda: [warm_model(m, "manuel (%s)" % user) for m in models], daemon=True).start()
+                return self.send_json(200, {"ok": True})
+            if path == "/api/accel/cache":
+                cache_conf_save(data, purge=data.get("purge") is True)
+                return self.send_json(200, cache_view())
+            if path in ("/api/accel/predict", "/api/accel/bench-auto", "/api/accel/parallel", "/api/accel/kv"):
+                section = {"/api/accel/predict": "predict", "/api/accel/bench-auto": "bench_auto", "/api/accel/parallel": "parallel", "/api/accel/kv": "kv"}[path]
+                return self.send_json(200, {"ok": True, "config": accel_set(section, data, user)})
+            if path == "/api/accel/bench-auto/run":
+                if _bench["running"]:
+                    raise ValueError("une mesure est déjà en cours")
+                threading.Thread(target=bench_auto_run, daemon=True).start()
+                return self.send_json(200, {"ok": True})
+            if path == "/api/accel/parallel/apply":
+                parallel_apply(data.get("to"), user)
+                return self.send_json(200, {"ok": True})
+            if path == "/api/accel/kv/apply":
+                kv_apply_start(data.get("model"), data.get("kv"), user, force=data.get("force") is True)
                 return self.send_json(200, {"ok": True})
             if path == "/api/bench/run":
                 bench_start(data.get("model"), data.get("runs"))
@@ -7629,6 +8172,7 @@ def main():
     threading.Thread(target=alerts_worker, daemon=True).start()
     threading.Thread(target=guard_worker, daemon=True).start()
     threading.Thread(target=warmup_worker, daemon=True).start()
+    threading.Thread(target=accel_worker, daemon=True).start()
     threading.Thread(target=report_worker, daemon=True).start()
     threading.Thread(target=lab_worker, daemon=True).start()
     threading.Thread(target=costs_worker, daemon=True).start()

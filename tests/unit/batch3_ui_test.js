@@ -115,7 +115,7 @@ const $$e_tabs = (win, v) => [...win.document.querySelectorAll('#view-' + v + ' 
 
   // --- navigation
   ok($$('#nav a').some((a) => a.getAttribute('href') === '#perf' && a.textContent === 'Performance'), 'menu : écran Performance');
-  ok(w.document.querySelector('#view-perf > .subtabs') && [...$$('#view-perf > .subtabs a')].map((a) => a.dataset.key).join() === 'bench,profiles,warmup,guard,tune', 'Performance : 5 onglets dans l\'ordre');
+  ok(w.document.querySelector('#view-perf > .subtabs') && [...$$('#view-perf > .subtabs a')].map((a) => a.dataset.key).join() === 'bench,profiles,warmup,predict,guard,autobench,kv,parallel,cache,tune,aclog', 'Performance : 11 onglets dans l\'ordre');
   ok([...$$('#view-gpu > .subtabs a')].map((a) => a.dataset.key).join() === 'cards,availability,placement,advanced' && [...$$('#view-system > .subtabs a')].map((a) => a.dataset.key).join().includes('alerts,report,hardware,audit,backup') && [...$$('#view-models > .subtabs a')].map((a) => a.dataset.key).includes('disk'), 'onglets Disponibilité, Rapport, Matériel, Audit et Espace disque');
 
   // --- menu : une seule ligne, les écrans rares sont dans « Plus »
@@ -334,7 +334,7 @@ const $$e_tabs = (win, v) => [...win.document.querySelectorAll('#view-' + v + ' 
     for (const a of ['placeholder', 'title', 'aria-label']) { const v = nd.getAttribute(a); if (v && FR_WORDS.test(v) && !SAME.has(v)) rest.push(a + ': ' + v); }
   }
   ok(rest.length === 0, 'anglais : aucun texte statique français dans toute la page' + (rest.length ? ' : ' + JSON.stringify(rest.slice(0, 8)) : ''));
-  ok($$e_tabs(f, 'perf') === 'Throughput benchmark,Profiles,Warm-up,Guard,System tuning' && $$e_tabs(f, 'gpu') === 'Cards,Availability,Groups and pinning,Advanced settings', 'anglais : onglets Performance et GPU traduits');
+  ok($$e_tabs(f, 'perf') === 'Throughput benchmark,Profiles,Warm-up,Predictive warm-up,Guard,Continuous measurement,Context cache,Parallelism,Caches,System tuning,Acceleration log' && $$e_tabs(f, 'gpu') === 'Cards,Availability,Groups and pinning,Advanced settings', 'anglais : onglets Performance et GPU traduits');
   console.log('\n' + n + ' vérifications réussies');
   process.exit(0);
 })();

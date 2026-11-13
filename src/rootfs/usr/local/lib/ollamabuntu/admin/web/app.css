@@ -289,3 +289,6 @@ label.block{display:block;margin:8px 0}
 .row-filter { align-items: center; gap: 8px; margin: 6px 0; }
 .rec td{font-weight:600}
 .logbox{max-height:340px;overflow:auto;white-space:pre-wrap;font-size:12px;padding:8px;border:1px solid var(--line);border-radius:6px}
+.card.inner{margin:8px 0;padding:10px 14px;border-radius:10px;background:transparent}
+ul.items{list-style:none;margin:8px 0;padding:0;display:grid;gap:8px}
+ul.items li{padding:10px 14px;border:1px solid var(--line);border-radius:10px;font-size:14px}

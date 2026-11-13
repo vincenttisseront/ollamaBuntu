@@ -423,6 +423,63 @@
         <p class="muted small">Contrôles du système d'exploitation qui influencent la vitesse et la mémoire. Les corrections sont persistantes.</p>
         <div id="pf-checks"></div>
       </div>
+      <div class="card wide" data-panel="cache" data-label="Caches">
+        <h2>Caches du routeur</h2>
+        <p class="muted small">Deux caches en mémoire vive, vidés à chaque redémarrage du routeur (rien n'est écrit sur le disque). Le cache de réponses ne sert que les demandes dont la température est explicitement 0 : la même demande redonne alors la même réponse, sans solliciter le modèle. Le cache d'embeddings garde un vecteur par texte et ne répond que si tous les textes de la demande y sont. Une demande peut l'ignorer avec l'en-tête <code>X-OllamaBuntu-Cache: skip</code>. Les réponses servies par le cache ne comptent pas dans les quotas de jetons.</p>
+        <form id="ac-cache-form" class="pool-form">
+          <label class="check"><input type="checkbox" name="responses"> Mémoriser les réponses exactes (température 0)</label>
+          <label class="check"><input type="checkbox" name="embeddings"> Mémoriser les embeddings</label>
+          <div class="row"><label>Durée de conservation (secondes) <input name="ttl" type="number" min="60" max="604800"></label>
+            <label>Taille maximale (Mo) <input name="max_mb" type="number" min="4" max="1024"></label>
+            <label>Taille maximale d'une réponse (Ko) <input name="max_entry_kb" type="number" min="16" max="8192"></label></div>
+          <div class="row"><button class="btn primary" type="submit">Enregistrer</button><button id="ac-cache-purge" class="btn" type="button">Vider les caches</button><span id="ac-cache-msg" class="small" aria-live="polite"></span></div>
+        </form>
+        <h3>Utilisation</h3>
+        <div id="ac-cache-stats"></div>
+      </div>
+      <div class="card wide" data-panel="predict" data-label="Préchauffage prédictif">
+        <h2>Préchauffage prédictif</h2>
+        <p class="muted small">La console compte, par modèle, les demandes de chaque heure (des compteurs seulement : aucun texte, aucun client). Quand un modèle est habituellement demandé dans l'heure qui vient, il est chargé quelques minutes avant : le premier message ne paie plus le chargement. Les jours de semaine et les week-ends sont comptés séparément.</p>
+        <form id="ac-predict-form" class="pool-form">
+          <label class="check"><input type="checkbox" name="enabled"> Précharger les modèles habituellement demandés</label>
+          <div class="row"><label>Avance (minutes avant l'heure) <input name="lead" type="number" min="2" max="30"></label>
+            <label>Modèles préchargés au plus <input name="max_models" type="number" min="1" max="4"></label>
+            <label>Jours d'habitude au minimum <input name="min_days" type="number" min="2" max="14"></label></div>
+          <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="ac-predict-msg" class="small" aria-live="polite"></span></div>
+        </form>
+        <p id="ac-predict-info" class="small muted"></p>
+        <div id="ac-predict-now"></div>
+      </div>
+      <div class="card wide" data-panel="autobench" data-label="Mesure continue">
+        <h2>Mesure continue du débit</h2>
+        <p class="muted small">Mesure chaque nuit le débit des modèles choisis, quand le serveur est au repos, et le compare à l'habituel (médiane des mesures précédentes faites avec les mêmes réglages). Une baisse déclenche une alerte avec les causes probables : modèle qui déborde, carte trop chaude, noyau, pilote ou réglages changés. Quand tout va bien et que le modèle tient en mémoire vidéo, les estimations de l'écran Ajustement sont recalées sur la mesure.</p>
+        <form id="ac-bench-form" class="pool-form">
+          <label class="check"><input type="checkbox" name="enabled"> Mesurer automatiquement chaque jour</label>
+          <div class="row"><label>Heure <input name="at" type="time" required></label>
+            <label>Baisse signalée au-delà de (%) <input name="tolerance" type="number" min="5" max="60"></label>
+            <label class="check"><input type="checkbox" name="recalibrate"> Recaler les estimations d'ajustement</label></div>
+          <div><div class="small muted">Modèles à mesurer (aucun coché : le plus utilisé de la semaine)</div><div id="ac-bench-models" class="checks"></div></div>
+          <div class="row"><button class="btn primary" type="submit">Enregistrer</button><button id="ac-bench-now" class="btn" type="button">Mesurer maintenant</button><span id="ac-bench-msg" class="small" aria-live="polite"></span></div>
+        </form>
+        <div id="ac-bench-state"></div>
+      </div>
+      <div class="card wide" data-panel="kv" data-label="Cache de contexte">
+        <h2>Cache de contexte quantifié</h2>
+        <p class="muted small">Un cache de contexte en q8_0 occupe presque moitié moins de mémoire vidéo qu'en f16 pour une qualité quasi identique : un modèle qui débordait peut alors tenir entièrement sur la carte. Le changement est global (Ollama redémarre) ; « Appliquer et vérifier » rejoue d'abord les jeux de tests du Laboratoire, change le cache, les rejoue de nouveau et revient seul au réglage précédent si un test se dégrade.</p>
+        <div class="row"><label>Mode <select id="ac-kv-mode"><option value="off">Désactivé</option><option value="suggest">Suggérer</option><option value="auto">Appliquer automatiquement (serveur au repos, 1 fois par jour au plus)</option></select></label><span id="ac-kv-msg" class="small" aria-live="polite"></span></div>
+        <div id="ac-kv-body"></div>
+      </div>
+      <div class="card wide" data-panel="parallel" data-label="Parallélisme">
+        <h2>Parallélisme adaptatif</h2>
+        <p class="muted small">Observe sur 24 heures combien de demandes se chevauchent et propose le nombre de requêtes traitées en parallèle par modèle, en tenant compte de la mémoire vidéo libre : chaque emplacement de plus réserve son propre cache de contexte. Changer ce réglage redémarre Ollama.</p>
+        <div class="row"><label>Mode <select id="ac-par-mode"><option value="off">Désactivé</option><option value="suggest">Suggérer</option><option value="auto">Appliquer automatiquement les augmentations (serveur au repos, 1 fois par jour au plus)</option></select></label><span id="ac-par-msg" class="small" aria-live="polite"></span></div>
+        <div id="ac-par-body"></div>
+      </div>
+      <div class="card wide" data-panel="aclog" data-label="Journal d'accélération">
+        <h2>Journal d'accélération</h2>
+        <p class="muted small">Ce que la console a décidé ou appliqué seule : préchargements, mesures, changements de réglages.</p>
+        <div id="ac-events"></div>
+      </div>
     </section>
 
     <section id="view-system" class="view hidden">

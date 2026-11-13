@@ -150,7 +150,7 @@ function make(lang) {
   key('k', { ctrlKey: true });
   ok(!$('#palette').classList.contains('hidden') && w.document.activeElement === $('#pal-q') && $$('#pal-list li').length > 10, 'palette : ouverte par Ctrl+K, focus dans la recherche');
   $('#pal-q').value = 'journ'; $('#pal-q').dispatchEvent(new w.Event('input'));
-  ok($$('#pal-list li')[0].textContent.includes('Journaux') && $$('#pal-list li').every((l) => l.textContent.toLowerCase().includes('journ')), 'palette : filtre');
+  ok($$('#pal-list li').some((l) => l.textContent.startsWith('Journaux')) && $$('#pal-list li').every((l) => l.textContent.toLowerCase().includes('journ')), 'palette : filtre');
   $('#pal-q').value = 'stat'; $('#pal-q').dispatchEvent(new w.Event('input'));
   ok($$('#pal-list li').some((l) => l.textContent.includes('Journaux › Statistiques')), 'palette : onglets proposés');
   $('#pal-q').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
