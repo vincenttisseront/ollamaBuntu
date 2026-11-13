@@ -246,7 +246,7 @@ function route() {
   $('#job-card').classList.toggle('hidden', !(['gpu', 'system', 'webui'].includes(v) && jobs.current));
   clearInterval(state.timer); state.timer = null;
   if (v === 'dashboard') { loadDashboard(); loadPerf(); state.timer = setInterval(() => { loadDashboard(); loadPerf(); }, 10000); }
-  if (v === 'models') { loadModels(); if (isAdmin()) { loadCustom(); loadContext(); if (currentTab('models') === 'disk') loadModelsDisk(); if (currentTab('models') === 'updates') loadMu(); } }
+  if (v === 'models') { loadModels(); if (isAdmin()) { loadCustom(); loadContext(); loadRedirects(); if (currentTab('models') === 'disk') loadModelsDisk(); if (currentTab('models') === 'updates') loadMu(); } }
   if (v === 'chat') { loadChatModels(); loadChatRag(); }
   if (v === 'gpu') loadGpu();
   if (v === 'perf') loadPerformance();
@@ -2117,6 +2117,40 @@ $('#ctx-default-save').addEventListener('click', async () => {
   catch (e) { $('#ctx-default-msg').className = 'small error'; $('#ctx-default-msg').textContent = e.message; }
 });
 
+/* ------------------------------------------------ redirection de modèles */
+const rd = { rules: [] };
+function renderRedirects() {
+  const rows = rd.rules.map((r, i) => {
+    const src = el('input', { type: 'text', list: 'rd-models', value: r.from, placeholder: 'modèle demandé', 'aria-label': 'Modèle demandé par les applications' });
+    const dst = el('input', { type: 'text', list: 'rd-models', value: r.to, placeholder: 'modèle servi', 'aria-label': 'Modèle qui répond' });
+    const pct = el('input', { type: 'number', min: 1, max: 100, value: r.percent, class: 'w80', 'aria-label': 'Part des demandes redirigées, en pourcentage' });
+    const on = el('input', { type: 'checkbox', 'aria-label': 'Règle active' }); on.checked = r.enabled !== false;
+    src.addEventListener('input', () => { r.from = src.value.trim(); }); dst.addEventListener('input', () => { r.to = dst.value.trim(); });
+    pct.addEventListener('input', () => { r.percent = Number(pct.value) || 0; }); on.addEventListener('change', () => { r.enabled = on.checked; });
+    const del = el('button', { class: 'btn small', type: 'button', text: 'Retirer', onclick: () => { rd.rules.splice(i, 1); renderRedirects(); } });
+    return el('tr', {}, el('td', {}, src), el('td', {}, dst, r.to && r.to_installed === false ? el('div', { class: 'small muted', text: 'Non installé sur ce serveur (utile seulement si un serveur du parc le possède).' }) : null),
+      el('td', {}, pct, ' %'), el('td', {}, on), el('td', {}, del));
+  });
+  $('#rd-body').replaceChildren(rows.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
+    el('thead', {}, el('tr', {}, ...['Quand on demande', 'C\'est ce modèle qui répond', 'Part des demandes', 'Active', ''].map((c) => el('th', { text: c })))),
+    el('tbody', {}, ...rows))) : el('p', { class: 'muted small', text: 'Aucune redirection : chaque application reçoit le modèle qu\'elle demande.' }));
+}
+async function loadRedirects() {
+  let d;
+  try { d = await api('/api/redirects'); } catch (e) { $('#rd-body').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
+  rd.rules = d.rules.map((r) => ({ from: r.from, to: r.to, percent: r.percent, enabled: r.enabled !== false, to_installed: r.to_installed }));
+  $('#rd-models').replaceChildren(...d.models.map((m) => el('option', { value: m })));
+  renderRedirects();
+}
+$('#rd-add').addEventListener('click', () => { rd.rules.push({ from: '', to: '', percent: 100, enabled: true }); renderRedirects(); });
+$('#rd-save').addEventListener('click', async () => {
+  const msg = $('#rd-msg'); msg.className = 'small'; msg.textContent = '';
+  try {
+    const r = await api('/api/redirects/config', { json: { rules: rd.rules.map(({ from, to, percent, enabled }) => ({ from, to, percent, enabled })) } });
+    msg.className = 'small okmsg'; msg.textContent = 'Enregistré : appliqué aux prochaines demandes.'; await loadRedirects(); return r;
+  } catch (e) { msg.className = 'small error'; msg.textContent = e.message; }
+});
+
 /* ------------------------------------------------ onglets internes des écrans */
 /* Les éléments marqués data-panel sont regroupés en onglets ; l'adresse #écran/onglet
    permet un lien direct, et l'onglet choisi est mémorisé. */
@@ -2332,7 +2366,7 @@ function renderMuHistory(d) {
     el('tbody', {}, ...d.history.map((h) => { const s = MU_STATUS[h.status] || [h.status, '']; return el('tr', {}, el('td', { class: 'small', text: fmtDate(h.t) }), el('td', { class: 'name', text: h.model }), el('td', {}, pill(s[0], s[1])),
       el('td', { class: 'small', text: h.detail + (h.tps_before && h.tps_after ? ' (débit ' + DEC(h.tps_before) + ' → ' + DEC(h.tps_after) + ' jetons/s)' : '') }), el('td', { class: 'small', text: h.who + ' (' + h.reason + ')' })); })))) : el('p', { class: 'muted small', text: 'Aucune mise à jour enregistrée.' }));
 }
-const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'costs', 'privacy', 'system'], fleet: ['fleet', 'balance', 'queue', 'power', 'rules', 'add'] };
+const TAB_ORDER = { system: ['overview', 'appliance', 'updates', 'api', 'central', 'alerts', 'report', 'hardware', 'audit', 'backup'], models: ['installed', 'context', 'redirect', 'add', 'hf', 'tuning', 'updates', 'disk', 'catalog', 'custom'], perf: ['bench', 'profiles', 'warmup', 'guard', 'tune'], lab: ['compare', 'tests'], gpu: ['cards', 'availability', 'placement', 'advanced'], logs: ['requests', 'stats', 'costs', 'privacy', 'system'], fleet: ['fleet', 'balance', 'queue', 'power', 'rules', 'add'] };
 function setupTabs() {
   for (const sec of $$('section.view')) {
     const items = [...sec.querySelectorAll('[data-panel]')];

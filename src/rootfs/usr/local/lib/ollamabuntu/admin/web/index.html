@@ -152,6 +152,17 @@
         <div id="ctx-models"></div>
         <p class="muted small" id="ctx-note">La valeur d'un modèle s'applique à toutes les requêtes de l'API d'Ollama (console, Open WebUI, applications), sauf si la requête précise sa propre taille. La mémoire est estimée pour une requête à la fois.</p>
       </div>
+      <div class="card wide" data-admin data-panel="redirect" data-label="Redirections">
+        <h2>Redirection de modèles</h2>
+        <p class="muted small">Quand une application demande un modèle par son nom, la console peut le faire répondre par un autre : l'application n'a rien à changer. Exemple : toutes les demandes pour « gemma4:12b » servies par « Qwen3 ». Avec un pourcentage inférieur à 100, seule une partie des demandes est redirigée, pour comparer deux modèles en situation réelle. Les droits des clés d'accès s'appliquent au modèle demandé. Une règle ne s'enchaîne pas avec une autre.</p>
+        <div id="rd-body"></div>
+        <datalist id="rd-models"></datalist>
+        <div class="row">
+          <button id="rd-add" class="btn" type="button">Ajouter une règle</button>
+          <button id="rd-save" class="btn primary" type="button">Enregistrer</button>
+          <span id="rd-msg" class="small" aria-live="polite"></span>
+        </div>
+      </div>
       <div class="card wide" data-admin data-panel="updates" data-label="Mises à jour">
         <h2>Mises à jour des modèles</h2>
         <p class="muted small">Avant chaque mise à jour, l'ancienne version est copiée sous un autre nom (sans dupliquer les fichiers). Après le téléchargement, un test rapide vérifie que le modèle répond et que son débit n'a pas chuté ; si vous choisissez un jeu de tests, il est joué avant et après, et un cas devenu faux déclenche le retour. En cas de problème, l'ancienne version est rétablie automatiquement et les alertes sont prévenues. Si tout va bien, l'ancienne version reste disponible pendant la durée choisie, pour revenir en arrière d'un clic.</p>

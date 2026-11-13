@@ -4095,6 +4095,69 @@ def queue_view():
             "keys": [{"id": k["id"], "name": k["name"], "priority": k.get("priority", 2), "max_concurrent": k.get("max_concurrent", 0)} for k in load_publication().get("keys", [])]}
 
 
+REDIRECT_CONF = os.path.join(ETC, "redirects.json")   # lu à chaud par le routeur
+
+
+def redirects_load():
+    return [r for r in load_json_file(REDIRECT_CONF, {}).get("rules", []) if isinstance(r, dict)]
+
+
+def redirects_save(data):
+    """Règles « les demandes pour X sont servies par Y » (une seule étape : pas d'enchaînement). `percent` < 100 : essai sur une partie du trafic."""
+    rules = data.get("rules") if isinstance(data, dict) else None
+    if not isinstance(rules, list) or len(rules) > 50:
+        raise ValueError("règles invalides (50 au maximum)")
+    out, seen = [], set()
+    for r in rules:
+        if not isinstance(r, dict):
+            raise ValueError("règle invalide")
+        src, dst = str(r.get("from") or "").strip(), str(r.get("to") or "").strip()
+        if not src or not dst or len(src) > 200 or len(dst) > 200 or any(c in (src + dst) for c in "\r\n\t"):
+            raise ValueError("chaque règle a besoin d'un modèle demandé et d'un modèle servi (200 caractères au plus)")
+        if router_norm(src) == router_norm(dst):
+            raise ValueError("« %s » : le modèle servi est le même que le modèle demandé" % src)
+        if router_norm(src) in seen:
+            raise ValueError("« %s » apparaît deux fois : une seule règle par modèle demandé" % src)
+        seen.add(router_norm(src))
+        try:
+            pct = int(r.get("percent", 100))
+        except (TypeError, ValueError):
+            raise ValueError("pourcentage invalide pour « %s »" % src)
+        if not 1 <= pct <= 100:
+            raise ValueError("pourcentage de « %s » : 1 à 100" % src)
+        out.append({"from": src, "to": dst, "percent": pct, "enabled": r.get("enabled") is not False})
+    # Une règle dont le modèle servi est lui-même redirigé ne serait pas suivie : on le dit plutôt que de laisser croire à un enchaînement.
+    active = {router_norm(r["from"]) for r in out if r["enabled"]}
+    for r in out:
+        if router_norm(r["to"]) in active and r["enabled"]:
+            raise ValueError("« %s » est servi par « %s », qui est lui-même redirigé : les redirections ne s'enchaînent pas" % (r["from"], r["to"]))
+    atomic_write(REDIRECT_CONF, json.dumps({"rules": out}, ensure_ascii=False), 0o644)
+    return out
+
+
+def router_norm(name):
+    n = str(name or "").strip()
+    for p in ("registry.ollama.ai/library/", "ollama.com/library/", "library/"):
+        if n.startswith(p):
+            n = n[len(p):]
+    if ":" not in n.split("/")[-1]:
+        n += ":latest"
+    return n.lower()
+
+
+def redirects_view():
+    try:
+        tags = ollama_json("GET", "/api/tags", timeout=10)[1].get("models", [])
+    except (OSError, ValueError):
+        tags = []
+    names = sorted({t.get("name") for t in tags if t.get("name")}, key=str.lower)
+    have = {router_norm(n) for n in names}
+    rules = redirects_load()
+    for r in rules:
+        r["to_installed"] = router_norm(r.get("to")) in have
+    return {"rules": rules, "models": names}
+
+
 def load_rules():
     return load_json_file(RULES_FILE, {}).get("rules", [])
 
@@ -5819,7 +5882,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/power", "/api/costs", "/api/costs/export", "/api/privacy", "/api/rag", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/redirects", "/api/power", "/api/costs", "/api/costs/export", "/api/privacy", "/api/rag", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -6034,6 +6097,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, limits_view())
             if path == "/api/queue":
                 return self.send_json(200, queue_view())
+            if path == "/api/redirects":
+                return self.send_json(200, redirects_view())
             if path == "/api/power":
                 return self.send_json(200, power_view())
             if path == "/api/sso/config":
@@ -6410,6 +6475,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, privacy_test(data))
             if path == "/api/queue/config":
                 return self.send_json(200, {"ok": True, "settings": queue_save(data)})
+            if path == "/api/redirects/config":
+                return self.send_json(200, {"ok": True, "rules": redirects_save(data)})
             if path == "/api/power/config":
                 return self.send_json(200, {"ok": True, "settings": power_save(data)})
             if path == "/api/power/server":

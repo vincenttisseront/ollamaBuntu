@@ -16,6 +16,7 @@ import http.server
 import ipaddress
 import json
 import os
+import random
 import re
 import socket
 import ssl
@@ -125,6 +126,46 @@ def queue_conf():
         except (TypeError, ValueError):
             return 0
     return {"max_active": num("max_active", 256), "max_queue": num("max_queue", 10000)}
+
+
+REDIRECT_CONF = os.path.join(ETC, "redirects.json")   # écrit par la console : « les demandes pour X sont servies par Y »
+_rdc = {"mtime": None, "data": {}}
+
+
+def redirect_rules():
+    """Règles actives, sous forme [(modèle demandé normalisé, modèle servi, pourcentage)]."""
+    out = []
+    for r in (hot_json(REDIRECT_CONF, _rdc).get("rules") or [])[:50]:
+        if not isinstance(r, dict) or r.get("enabled") is False or not r.get("from") or not r.get("to"):
+            continue
+        try:
+            pct = max(1, min(100, int(r.get("percent", 100))))
+        except (TypeError, ValueError):
+            pct = 100
+        out.append((norm(r["from"]), str(r["to"]), pct))
+    return out
+
+
+def apply_redirect(body, rules=None, rnd=None):
+    """Remplace le modèle d'une requête d'inférence selon les règles (une seule étape, pas d'enchaînement).
+    Retourne (corps, modèle demandé, modèle servi) ; le corps est inchangé si aucune règle ne s'applique."""
+    rules = redirect_rules() if rules is None else rules
+    if not rules or not body:
+        return body, None, None
+    try:
+        d = json.loads(body)
+    except ValueError:
+        return body, None, None
+    if not isinstance(d, dict) or not d.get("model"):
+        return body, None, None
+    asked = str(d["model"])
+    for src, dst, pct in rules:
+        if norm(asked) == src and norm(dst) != src:
+            if pct < 100 and (rnd or random.random)() * 100 >= pct:
+                return body, None, None
+            d["model"] = dst
+            return json.dumps(d, ensure_ascii=False).encode(), asked, dst
+    return body, None, None
 
 
 def balance_strategy():
@@ -942,6 +983,10 @@ class Router(http.server.BaseHTTPRequestHandler):
                 why = _tokens.exceeded(kid, key.get("quota_day"), key.get("quota_month"))
                 if why:
                     return self.deny(429, "%s pour « %s »" % (why, who))
+        if path in INFERENCE and body:   # redirection de modèle (réglage de la console) : après les droits de la clé, qui portent sur le modèle demandé
+            body, asked, served = apply_redirect(body)
+            if served and self.req_meta is not None:
+                self.req_meta["model"], self.req_meta["redirected_from"] = served, asked
         if path in INFERENCE and body:   # confidentialité : détection, anonymisation, termes interdits (globaux + ceux de la clé)
             pc = privacy_conf()
             kwords = list((self._key or {}).get("words") or []) if r is not None else []
