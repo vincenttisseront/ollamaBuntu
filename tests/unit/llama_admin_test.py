@@ -228,6 +228,29 @@ with zipfile.ZipFile(bz, "w") as z:
 STATE["zip"] = bz.getvalue(); i = install("vulkan"); ok(i["state"] == "error" and "lien suspect" in i["error"], "lien symbolique qui sort du dossier : archive refusée")
 STATE["zip"] = make_zip(b"#!/bin/sh\necho 'no such flag' >&2\nexit 2\n"); i = install("vulkan"); ok(i["state"] == "error" and "ne démarre pas" in i["error"], "binaire qui ne démarre pas sur ce serveur : refusé avant d'être installé")
 ok(server.llama_binary()["path"] == b["path"] and os.access(b["path"], os.X_OK), "…l'installation précédente reste en place après chaque échec")
+# bibliothèque système manquante : détectée, paquet Ubuntu installé, essai relancé
+MARK = os.path.join(tmp, "libgomp-ok")
+def lib_script(lib): return ("#!/bin/sh\n[ -e %s ] || { echo \"$0: error while loading shared libraries: %s: cannot open shared object file: No such file or directory\" >&2; exit 127; }\n"
+                             "case \"$1\" in --help) echo '--ctx-size N'; echo '--n-cpu-moe N';; esac\nexit 0\n" % (MARK, lib)).encode()
+APT = []
+def fake_apt(cands, ok=True):
+    APT.append(list(cands))
+    if ok: open(MARK, "w").close()
+    return ok, cands[0]
+_real_apt = server._apt_install
+server._apt_install = fake_apt
+STATE["zip"] = make_zip(lib_script("libgomp.so.1")); i = install("vulkan")
+ok(i["state"] == "done" and APT == [["libgomp1"]] and any("libgomp.so.1 : installation du paquet libgomp1" in x for x in i["log"]) and any("Paquet libgomp1 installé." in x for x in i["log"]), "libgomp.so.1 absente (Ubuntu minimale) : paquet libgomp1 installé automatiquement, puis l'installation aboutit")
+os.remove(MARK); APT.clear(); server._apt_install = lambda c: fake_apt(c, ok=False)
+i = install("vulkan"); ok(i["state"] == "error" and "sudo apt install -y libgomp1" in i["error"] and "libgomp.so.1" in i["error"], "paquet impossible à installer : la commande à lancer à la main est donnée")
+APT.clear(); server._apt_install = fake_apt
+STATE["zip"] = make_zip(lib_script("libamdhip64.so.7")); STATE["assets"] = [dict(name="llama-b7001-bin-ubuntu-rocm-7.0-x64.zip", size=5, browser_download_url=updater.API + "/dl/r.zip", digest="sha256:" + hashlib.sha256(STATE["zip"]).hexdigest())]; i = install("rocm")
+ok(i["state"] == "error" and APT == [] and "libamdhip64.so.7" in i["error"] and "Vulkan" in i["error"], "bibliothèque ROCm absente : rien n'est installé à l'aveugle, le moteur Vulkan est proposé")
+STATE["assets"] = None; i = install("vulkan"); ok(i["state"] == "error" and "libamdhip64.so.7" in i["error"] and "Vulkan" not in i["error"].split("absentes")[-1], "…mais sans suggérer Vulkan quand c'est déjà le moteur choisi")
+server._apt_install = _real_apt; STATE["zip"] = good
+server._llama_inst.update(state="running", log=["Version b1"]); server._llama_progress("Téléchargement : 10 % (5 / 50 Mo)"); server._llama_progress("Téléchargement : 40 % (20 / 50 Mo)")
+ok(server._llama_inst["log"] == ["Version b1", "Téléchargement : 40 % (20 / 50 Mo)"], "progression du téléchargement : une seule ligne mise à jour")
+server._llama_inst.update(state="idle")
 STATE["zip"] = good; STATE["fail_release"] = True; i = install("vulkan"); ok(i["state"] == "error" and "introuvable" in i["error"], "GitHub sans réponse : message clair"); STATE["fail_release"] = False
 STATE["zip"] = good; STATE["truncate"] = 1; i = install("vulkan")
 ok(i["state"] == "done" and any("nouvel essai (2 sur 3)" in x for x in i["log"]) and any("versions récentes lues" in x for x in i["log"]), "liste des versions coupée en cours de route : nouvel essai, puis installation (avant : l'état restait « en cours » pour toujours)")

@@ -870,6 +870,57 @@ def _llama_extract(archive, name, dest):
     return listing
 
 
+def _llama_progress(text):
+    """Ligne de progression du téléchargement : remplace la précédente au lieu de remplir le journal."""
+    with _llama_lock:
+        log = _llama_inst["log"]
+        if log and log[-1].startswith("Téléchargement"):
+            log[-1] = text
+        else:
+            log.append(text)
+
+
+# bibliothèques système que llama-server peut réclamer sur une Ubuntu Server minimale -> paquets (le premier qui existe est installé)
+LLAMA_LIBS = {"libgomp.so.1": ["libgomp1"], "libstdc++.so.6": ["libstdc++6"], "libgcc_s.so.1": ["libgcc-s1"], "libvulkan.so.1": ["libvulkan1"], "libnuma.so.1": ["libnuma1"],
+              "libz.so.1": ["zlib1g"], "libssl.so.3": ["libssl3t64", "libssl3"], "libcrypto.so.3": ["libssl3t64", "libssl3"], "libcurl.so.4": ["libcurl4t64", "libcurl4"],
+              "libelf.so.1": ["libelf1t64", "libelf1"], "libdrm.so.2": ["libdrm2"], "libdrm_amdgpu.so.1": ["libdrm-amdgpu1"], "libtinfo.so.6": ["libtinfo6"]}
+
+
+def _missing_libs(binary, env, text=""):
+    """Bibliothèques absentes : celles que `ldd` signale, plus celle que le message d'erreur du chargeur nomme."""
+    libs = []
+    try:
+        out = subprocess.run(["ldd", binary], capture_output=True, text=True, timeout=30, env=env, cwd=os.path.dirname(binary)).stdout
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    libs += re.findall(r"^\s*(\S+\.so[.\d]*)\s*=>\s*not found", out, re.M)
+    libs += re.findall(r"error while loading shared libraries: (\S+?):", text)
+    return list(dict.fromkeys(libs))
+
+
+def _apt_install(candidates):
+    """Installe un paquet Ubuntu parmi `candidates` (le premier qui s'installe). Retourne (réussi, nom du paquet ou message)."""
+    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive", NEEDRESTART_MODE="a")
+    updated = False
+    for pkg in candidates:
+        for attempt in (1, 2):
+            try:
+                r = subprocess.run(["apt-get", "-y", "-o", "DPkg::Lock::Timeout=120", "install", pkg], capture_output=True, text=True, timeout=600, env=env)
+            except (OSError, subprocess.SubprocessError) as e:
+                return False, str(e) or e.__class__.__name__
+            if r.returncode == 0:
+                return True, pkg
+            if attempt == 1 and not updated:   # listes de paquets périmées : une mise à jour, puis un second essai
+                updated = True
+                try:
+                    subprocess.run(["apt-get", "-y", "-o", "DPkg::Lock::Timeout=120", "update"], capture_output=True, text=True, timeout=300, env=env)
+                except (OSError, subprocess.SubprocessError):
+                    break
+            else:
+                break
+    return False, ", ".join(candidates)
+
+
 def _llama_releases(count):
     """Les `count` versions les plus récentes de llama.cpp (JSON de GitHub), avec trois essais si la lecture est interrompue."""
     for attempt in (1, 2, 3):
@@ -909,7 +960,9 @@ def _llama_install(backend):
         _llama_log("Version %s, fichier %s (%d Mo)" % (tag, name, int(asset.get("size") or 0) >> 20))
         os.makedirs(LLAMA_ROOT, mode=0o755, exist_ok=True)
         part = os.path.join(LLAMA_ROOT, "download.part.%s" % ("zip" if name.lower().endswith(".zip") else "tgz"))
-        got = updater._download(str(asset.get("browser_download_url") or ""), part, LLAMA_MAX_DOWNLOAD, name)
+        _llama_log("Téléchargement : 0 %")
+        got = updater._download(str(asset.get("browser_download_url") or ""), part, LLAMA_MAX_DOWNLOAD, name,
+                                progress=lambda done, total: _llama_progress("Téléchargement : %d %% (%d / %d Mo)" % (done * 100 // max(total, 1), done >> 20, total >> 20)))
         if got != sha:
             os.remove(part)
             raise ValueError("somme SHA-256 incorrecte : téléchargement refusé")
@@ -925,10 +978,31 @@ def _llama_install(backend):
         binary = os.path.join(tmp, rel_server)
         os.chmod(binary, 0o755)
         env = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(binary) + os.pathsep + os.environ.get("LD_LIBRARY_PATH", ""))
-        r = subprocess.run([binary, "--help"], capture_output=True, text=True, timeout=30, env=env, cwd=os.path.dirname(binary))
-        text = (r.stdout or "") + (r.stderr or "")
+        installed = []
+        for attempt in range(4):   # un essai, puis un de plus après chaque série de paquets installés
+            r = subprocess.run([binary, "--help"], capture_output=True, text=True, timeout=30, env=env, cwd=os.path.dirname(binary))
+            text = (r.stdout or "") + (r.stderr or "")
+            if r.returncode in (0, 1) and "--ctx-size" in text:
+                break
+            missing = _missing_libs(binary, env, text)
+            known = [m for m in missing if m in LLAMA_LIBS and m not in installed]
+            unknown = [m for m in missing if m not in LLAMA_LIBS]
+            if not known or unknown:
+                break
+            for lib in known:
+                _llama_log("Bibliothèque système manquante : %s : installation du paquet %s (apt)..." % (lib, LLAMA_LIBS[lib][0]))
+                okay, what = _apt_install(LLAMA_LIBS[lib])
+                installed.append(lib)
+                if not okay:
+                    raise ValueError("la bibliothèque %s manque et son installation a échoué : sur le serveur, lancez « sudo apt install -y %s » puis relancez l'installation" % (lib, LLAMA_LIBS[lib][0]))
+                _llama_log("Paquet %s installé." % what)
         if r.returncode not in (0, 1) or "--ctx-size" not in text:
-            raise ValueError("llama-server ne démarre pas sur ce serveur : %s" % (text.strip().splitlines() or ["aucun message"])[-1][:200])
+            last = (text.strip().splitlines() or ["aucun message"])[-1][:200]
+            missing = [m for m in _missing_libs(binary, env, text) if m not in LLAMA_LIBS]
+            hint = ""
+            if missing:
+                hint = " (bibliothèques absentes : %s%s)" % (", ".join(missing[:4]), " ; essayez le moteur de calcul Vulkan, qui n'en demande pas" if backend == "rocm" else "")
+            raise ValueError("llama-server ne démarre pas sur ce serveur : %s%s" % (last, hint))
         caps = llamacpp.detect_caps(text)
         _llama_log("llama-server démarre (--n-cpu-moe : %s)." % ("oui" if caps["n_cpu_moe"] else "non, repli sur --override-tensor" if caps["override_tensor"] else "NON : à mettre à jour"))
         shutil.rmtree(dest, ignore_errors=True)

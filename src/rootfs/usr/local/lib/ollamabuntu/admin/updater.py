@@ -311,7 +311,7 @@ def view():
 
 
 # ---------------------------------------------------------- téléchargement ---
-def _download(url, dest, limit, label, token=None, accept="application/octet-stream"):
+def _download(url, dest, limit, label, token=None, accept="application/octet-stream", progress=None):
     """Téléchargement vers dest (fichier .part puis renommage), SHA-256 renvoyé."""
     with _open(url, token=token, accept=accept, timeout=60) as r:
         total = int(r.headers.get("Content-Length") or 0)
@@ -336,6 +336,8 @@ def _download(url, dest, limit, label, token=None, accept="application/octet-str
                 if total > (20 << 20) and time.time() - last >= 5:
                     last = time.time()
                     say("      %s : %d %% (%d / %d Mo)" % (label, got * 100 // total, got >> 20, total >> 20))
+                    if progress:
+                        progress(got, total)
         if total and got != total:
             raise UpdateError("Téléchargement interrompu : %s" % label)
     os.replace(part, dest)
