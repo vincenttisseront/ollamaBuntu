@@ -69,6 +69,7 @@ python3 tests/unit/hf_test.py            # recherche Hugging Face (faux serveur 
 python3 tests/unit/webui_url_test.py       # Open WebUI : adresse publique (validation, enregistrement)
 python3 tests/unit/webui_pwd_test.py       # Open WebUI : réinitialisation du mot de passe administrateur (script réel sur SQLite temporaire ; bcrypt requis)
 python3 tests/unit/webui_sso_test.py       # Open WebUI : connexion unique OIDC (validation, fichiers d'environnement, secret, essai du fournisseur)
+python3 tests/unit/webui_searx_test.py     # SearXNG : déploiement par le script (faux docker), état, surveillant, aucune commande pour l'arrêter
 python3 tests/unit/gpu_auto_test.py
 bash    tests/unit/crypt_engine_test.sh      # nécessite : cryptsetup, swtpm, tpm2-tools, clevis
 python3 tests/unit/online_update_test.py     # nécessite : openssl

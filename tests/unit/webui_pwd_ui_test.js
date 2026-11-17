@@ -11,6 +11,7 @@ const ok = (c, m) => { n++; console.log((c ? `[${String(n).padStart(2, '0')}] OK
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function until(fn, ms = 4000) { const t = Date.now(); while (Date.now() - t < ms) { try { if (fn()) return true; } catch (e) { /* attente */ } await sleep(40); } return false; }
 const json = (o, status = 200) => ({ ok: status < 400, status, json: async () => o, blob: async () => ({}) });
+let searx = { name: 'SearXNG', running: true, healthy: true, container: 'running' };
 const calls = []; let deployed = true, reply = null, ssoReply = null, askAnswer = true;
 const SSO = { enabled: false, name: 'SSO', issuer: '', client_id: '', scopes: 'openid email profile', redirect_base: '', signup: true, merge_by_email: true, login_form: true, allowed_domains: '', roles_claim: '', allowed_roles: '', admin_roles: '', groups_claim: '', header_auth: false, header_email: 'X-Forwarded-Email', header_name: '', header_groups: '', trusted_proxies: '', secret_set: false, redirect_uri: '', public_url: '' };
 async function fakeFetch(p, o = {}) {
@@ -19,7 +20,7 @@ async function fakeFetch(p, o = {}) {
   if (p === '/api/ping') return json({ ok: true, version: 'v', lang: 'fr', boot: 'x' });
   if (p === '/api/session') return json({ user: 'adm', role: 'admin', version: 'v' });
   if (p === '/api/webui') return json({ docker: true, configured: deployed, container: deployed ? 'running' : null, running: deployed, healthy: deployed, version: '0.6', latest: '0.6',
-    tls_port: 8443, admin_email: deployed ? 'alice@x.fr' : null, public_url: '', started: '2026-11-17 10:00:00' });
+    tls_port: 8443, admin_email: deployed ? 'alice@x.fr' : null, public_url: '', started: '2026-11-17 10:00:00', searxng: deployed ? searx : null });
   if (p === '/api/webui/sso' && (o.method || 'GET') === 'GET') return json(SSO);
   if (p === '/api/webui/sso') return ssoReply ? json(ssoReply.body, ssoReply.status) : json({ ok: true, config: Object.assign({}, SSO, body, { secret_set: true }), job: 'j1' });
   if (p === '/api/webui/sso/test') return ssoReply ? json(ssoReply.body, ssoReply.status) : json({ ok: true, issuer: body.issuer });
@@ -107,6 +108,14 @@ async function run(l) {
   const hb = calls.filter((x) => x[1] === '/api/webui/sso' && x[0] === 'POST').pop()[2];
   ok(hb.header_auth === true && hb.enabled === false && hb.header_email === 'X-Forwarded-Email' && hb.trusted_proxies === '192.168.1.10', lang + ' : en-tête : réglages envoyés');
   sf.elements.trusted_proxies.value = ''; sf.elements.header_auth.checked = false;
+  // --- SearXNG : affiché, jamais pilotable
+  const row = () => [...w.document.querySelectorAll('#webui-status tr, #webui-status .kv > *')].map((x) => x.textContent).join('|');
+  ok(await until(() => $('#webui-status').textContent.includes('SearXNG')), lang + ' : SearXNG nommé dans l\'état d\'Open WebUI');
+  ok($('#webui-status').textContent.includes(lang === 'en' ? 'running' : 'en service'), lang + ' : SearXNG : en service');
+  ok(![...w.document.querySelectorAll('#webui-status button, #webui-status a.btn')].some((b) => /searx/i.test(b.textContent + (b.getAttribute('onclick') || ''))), lang + ' : aucun bouton pour arrêter ou supprimer SearXNG');
+  searx = { name: 'SearXNG', running: false, healthy: false, container: 'exited' }; w.document.querySelector('#webui-refresh').click();
+  ok(await until(() => $('#webui-status').textContent.includes(lang === 'en' ? 'stopped (automatic restart)' : 'arrêté (relance automatique)')), lang + ' : SearXNG arrêté : relance automatique annoncée');
+  searx = { name: 'SearXNG', running: true, healthy: true, container: 'running' };
   deployed = false; w.document.querySelector('#webui-refresh').click();
   ok(await until(() => $('#webui-pwd').classList.contains('hidden') && $('#webui-sso').classList.contains('hidden')), lang + ' : cartes masquées quand Open WebUI n\'est pas déployé');
   deployed = true;

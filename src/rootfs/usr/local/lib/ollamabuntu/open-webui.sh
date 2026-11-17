@@ -11,6 +11,12 @@ IMAGE=${OB_WEBUI_IMAGE:-ghcr.io/open-webui/open-webui:main}
 NAME=open-webui
 ENVF=${OB_WEBUI_ENV:-/etc/ollamabuntu/open-webui.env}
 PORT=3000
+# SearXNG : moteur de recherche web d'Open WebUI, déployé avec lui, publié seulement sur 127.0.0.1
+SEARX_NAME=searxng
+SEARX_IMAGE=${OB_SEARXNG_IMAGE:-docker.io/searxng/searxng:latest}
+SEARX_DIR=${OB_SEARXNG_DIR:-/etc/ollamabuntu/searxng}
+SEARX_PORT=8888
+SEARX_ENV=${OB_WEBUI_SEARCH_ENV:-/etc/ollamabuntu/open-webui-search.env}
 MIN_FREE_KB=${OB_WEBUI_MIN_FREE_KB:-8388608}
 say() { echo ">>> $*"; }
 trap 'say "ERREUR à la ligne $LINENO : $BASH_COMMAND"' ERR
@@ -36,7 +42,78 @@ check_space() {
   fi
 }
 
+# Réglages de SearXNG : format JSON obligatoire pour Open WebUI, pas de limiteur (accès local seulement), clé secrète propre à ce serveur.
+searx_prepare() {
+  mkdir -p "$SEARX_DIR"
+  if [[ ! -s $SEARX_DIR/settings.yml ]]; then
+    local key
+    key=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    cat > "$SEARX_DIR/settings.yml" <<YML
+# Généré par OllamaBuntu : SearXNG au service d'Open WebUI (accès local uniquement).
+use_default_settings: true
+general:
+  instance_name: "SearXNG"
+server:
+  secret_key: "$key"
+  limiter: false
+  image_proxy: false
+search:
+  formats:
+    - html
+    - json
+YML
+  fi
+  chown -R 977:977 "$SEARX_DIR" 2>/dev/null || true
+}
+
+# Variables transmises à Open WebUI : moteur de recherche = SearXNG. ENABLE_PERSISTENT_CONFIG=false : sans cela Open WebUI garde en base
+# le moteur vide lu à son premier démarrage et ignore ces variables.
+searx_env() {
+  cat > "$SEARX_ENV" <<ENV
+# SearXNG (console OllamaBuntu)
+ENABLE_PERSISTENT_CONFIG=false
+WEB_SEARCH_ENGINE=searxng
+SEARXNG_QUERY_URL=http://127.0.0.1:$SEARX_PORT/search
+ENV
+  chmod 600 "$SEARX_ENV"
+}
+
+run_searxng() {
+  searx_prepare
+  docker rm -f "$SEARX_NAME" >/dev/null 2>&1 || true
+  docker run -d --name "$SEARX_NAME" --restart always -p "127.0.0.1:$SEARX_PORT:8080" \
+    -v "$SEARX_DIR":/etc/searxng -e "SEARXNG_BASE_URL=http://127.0.0.1:$SEARX_PORT/" \
+    --log-driver json-file --log-opt max-size=10m --log-opt max-file=2 "$SEARX_IMAGE" >/dev/null
+}
+
+searx_ready() { curl -fsS -o /dev/null "http://127.0.0.1:$SEARX_PORT/healthz" 2>/dev/null || curl -fsS -o /dev/null "http://127.0.0.1:$SEARX_PORT/" 2>/dev/null; }
+
+wait_searx() {
+  local i
+  say "Démarrage de SearXNG..."
+  for ((i = 0; i < 40; i++)); do
+    if searx_ready; then say "SearXNG répond."; return 0; fi
+    sleep 3
+  done
+  say "ERREUR : SearXNG ne répond pas. Dernières lignes de son journal :"
+  docker logs --tail 40 "$SEARX_NAME" 2>&1 || true
+  return 1
+}
+
+# Garantit que SearXNG tourne (démarre le conteneur arrêté, le crée s'il manque, le recrée s'il ne répond pas).
+ensure_searx() {
+  local st
+  st=$(docker inspect -f '{{.State.Status}}' "$SEARX_NAME" 2>/dev/null || echo absent)
+  case $st in
+    running) searx_ready && return 0; say "SearXNG ne répond pas : recréation"; run_searxng; wait_searx ;;
+    absent) run_searxng; wait_searx ;;
+    *) docker start "$SEARX_NAME" >/dev/null 2>&1 || run_searxng; wait_searx ;;
+  esac
+}
+
 run_container() {
+  ensure_searx || say "AVERTISSEMENT : SearXNG indisponible, la recherche sur Internet d'Open WebUI ne fonctionnera pas (la console le relance automatiquement)."
+  searx_env
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   local pol=()
   [[ -f /etc/ollamabuntu/open-webui-policy.env ]] && pol=(--env-file /etc/ollamabuntu/open-webui-policy.env)
@@ -46,10 +123,11 @@ run_container() {
   [[ -n $mem ]] && lim=(--memory "$mem" --memory-swap "$mem")
   local url=()
   [[ -f /etc/ollamabuntu/open-webui-url.env ]] && url=(--env-file /etc/ollamabuntu/open-webui-url.env)
+  local srx=(--env-file "$SEARX_ENV")
   local sso=()
   [[ -f /etc/ollamabuntu/open-webui-sso.env ]] && sso=(--env-file /etc/ollamabuntu/open-webui-sso.env)
   docker run -d --name "$NAME" --restart always --network host \
-    -v open-webui:/app/backend/data --env-file "$ENVF" "${pol[@]}" "${url[@]}" "${sso[@]}" "${lim[@]}" "$IMAGE" >/dev/null
+    -v open-webui:/app/backend/data --env-file "$ENVF" "${pol[@]}" "${url[@]}" "${srx[@]}" "${sso[@]}" "${lim[@]}" "$IMAGE" >/dev/null
 }
 
 wait_ready() {
@@ -71,6 +149,8 @@ case "${1:-}" in
     check_space
     say "Téléchargement de l'image $IMAGE (plusieurs Go, patience)"
     docker pull "$IMAGE"
+    say "Téléchargement de l'image $SEARX_IMAGE"
+    docker pull "$SEARX_IMAGE"
     run_container
     wait_ready
     if grep -q '^WEBUI_ADMIN_PASSWORD=' "$ENVF"; then
@@ -87,6 +167,10 @@ case "${1:-}" in
     need_docker
     say "Téléchargement de la dernière image $IMAGE"
     docker pull "$IMAGE"
+    say "Téléchargement de la dernière image $SEARX_IMAGE"
+    docker pull "$SEARX_IMAGE"
+    run_searxng
+    wait_searx
     run_container
     wait_ready
     docker image prune -f >/dev/null 2>&1 || true
@@ -113,18 +197,23 @@ case "${1:-}" in
     wait_ready
     say "Connexion unique appliquée."
     ;;
+  ensure-searx)
+    need_docker
+    ensure_searx
+    ;;
   start)   docker start "$NAME" >/dev/null ;;
   stop)    docker stop "$NAME" >/dev/null ;;
   restart) docker restart "$NAME" >/dev/null ;;
   remove)
-    docker rm -f "$NAME" >/dev/null 2>&1 || true
-    say "Conteneur supprimé. Les conversations et comptes restent dans le volume « open-webui »."
+    docker rm -f "$NAME" "$SEARX_NAME" >/dev/null 2>&1 || true
+    say "Conteneurs supprimés. Les conversations et comptes restent dans le volume « open-webui »."
     ;;
   purge)
-    docker rm -f "$NAME" >/dev/null 2>&1 || true
+    docker rm -f "$NAME" "$SEARX_NAME" >/dev/null 2>&1 || true
     docker volume rm open-webui >/dev/null 2>&1 || true
-    rm -f "$ENVF" /etc/ollamabuntu/open-webui-url.env /etc/ollamabuntu/open-webui-sso.env /etc/ollamabuntu/open-webui-sso.json
+    rm -f "$ENVF" /etc/ollamabuntu/open-webui-url.env /etc/ollamabuntu/open-webui-sso.env /etc/ollamabuntu/open-webui-sso.json "$SEARX_ENV"
+    rm -rf "$SEARX_DIR"
     say "Open WebUI et toutes ses données ont été supprimés."
     ;;
-  *) echo "usage : $0 install|update|apply|apply-url|apply-sso|start|stop|restart|remove|purge" >&2; exit 2 ;;
+  *) echo "usage : $0 install|update|apply|apply-url|apply-sso|ensure-searx|start|stop|restart|remove|purge" >&2; exit 2 ;;
 esac

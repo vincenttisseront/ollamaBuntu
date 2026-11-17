@@ -2802,7 +2802,7 @@ def hardening_audit():
 POLICY_FILE = os.path.join(ETC, "ai-policy.json")
 WEBUI_POLICY_ENV = os.path.join(ETC, "open-webui-policy.env")
 WEBUI_FEATURES = [
-    ("web_search", "ENABLE_WEB_SEARCH", "Recherche sur Internet"),
+    ("web_search", "ENABLE_WEB_SEARCH", "Recherche sur Internet (via SearXNG : les requêtes quittent le serveur)"),
     ("image_generation", "ENABLE_IMAGE_GENERATION", "Génération d'images (moteur externe à configurer : ComfyUI, Automatic1111, API)"),
     ("code_execution", "ENABLE_CODE_EXECUTION", "Exécution du code des réponses"),
     ("code_interpreter", "ENABLE_CODE_INTERPRETER", "Interpréteur de code (le modèle lance lui-même du code)"),
@@ -7042,6 +7042,59 @@ def webui_set_url(raw):
     return url
 
 
+# SearXNG : moteur de recherche web d'Open WebUI. Déployé et supprimé avec lui, jamais arrêté seul : aucune action de la console ne le
+# vise, et un surveillant le relance s'il tombe.
+SEARX_PORT = int(os.environ.get("OB_SEARXNG_PORT", "8888"))
+
+
+def searx_status():
+    out = run(["docker", "inspect", "--format", "{{.State.Status}}|{{.Config.Image}}|{{.State.StartedAt}}|{{.RestartCount}}", "searxng"], timeout=15).strip()
+    st = {"name": "SearXNG", "container": None, "running": False, "healthy": False, "image": None, "port": SEARX_PORT}
+    if out.count("|") == 3:
+        status_, image, started, restarts = out.split("|")
+        st.update(container=status_, running=status_ == "running", image=image, started=started[:19].replace("T", " "),
+                  restarts=int(restarts) if restarts.isdigit() else 0)
+    if st["running"]:
+        try:
+            st["healthy"] = http_get("http://127.0.0.1:%d/healthz" % SEARX_PORT, timeout=4)[0] == 200
+        except (OSError, ValueError):
+            st["healthy"] = False
+    return st
+
+
+_searx_state = {"fails": 0, "last_fix": 0.0, "fixes": 0}
+
+
+def searx_watch_once(now=None, runner=None):
+    """Un passage du surveillant : s'il manque ou ne répond pas deux fois de suite, le script le relance (au plus une fois par 2 minutes)."""
+    now = time.time() if now is None else now
+    if not webui_deployed() or not shutil.which("docker"):
+        _searx_state["fails"] = 0
+        return "inactif"
+    st = searx_status()
+    if st["running"] and st["healthy"]:
+        _searx_state["fails"] = 0
+        return "ok"
+    _searx_state["fails"] += 1
+    if _searx_state["fails"] < 2 or now - _searx_state["last_fix"] < 120:
+        return "attente"
+    _searx_state["last_fix"] = now
+    _searx_state["fixes"] += 1
+    print("SearXNG ne répond pas (état : %s) : relance" % (st["container"] or "absent"), flush=True)
+    (runner or (lambda: subprocess.run(["/bin/bash", WEBUI_HELPER, "ensure-searx"], capture_output=True, text=True, timeout=300)))()
+    return "relancé"
+
+
+def searx_watchdog():
+    time.sleep(60)
+    while True:
+        try:
+            searx_watch_once()
+        except Exception as e:   # le surveillant ne doit jamais s'arrêter
+            sys.stderr.write("surveillant SearXNG : %s\n" % e)
+        time.sleep(int(os.environ.get("OB_SEARXNG_INTERVAL", "30")))
+
+
 def webui_status():
     st = {"docker": bool(shutil.which("docker")), "configured": os.path.exists(WEBUI_ENV), "container": None,
           "running": False, "version": None, "latest": None, "tls_port": WEBUI_TLS_PORT, "admin_email": None,
@@ -7054,6 +7107,7 @@ def webui_status():
         if out.count("|") == 2:
             status_, image, started = out.split("|")
             st.update(container=status_, running=status_ == "running", image=image, started=started[:19].replace("T", " "))
+    st["searxng"] = searx_status() if st["docker"] and webui_deployed() else None
     if st["running"]:
         try:
             code, raw = http_get("http://127.0.0.1:%d/api/version" % WEBUI_PORT, timeout=4)
@@ -8527,6 +8581,7 @@ def main():
     httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True, do_handshake_on_connect=False)
     if WEBUI_TLS_PORT:
         start_webui_proxy(ctx)
+    threading.Thread(target=searx_watchdog, daemon=True).start()
     if HTTP_PORT:
         try:
             redirect = make_server(HTTP_PORT, Redirect)

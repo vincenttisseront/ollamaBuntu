@@ -56,6 +56,9 @@ E = {
 "Reverse proxy autorisé : 20 adresses au plus.": "Allowed reverse proxy: 20 addresses at most.",
 "Reverse proxy autorisé : indiquez l'adresse de votre reverse proxy (sans cela n'importe qui pourrait forger l'en-tête).": "Allowed reverse proxy: give the address of your reverse proxy (without it anyone could forge the header).",
 "La connexion par en-tête et le bouton OpenID Connect ne se combinent pas : choisissez l'un ou l'autre.": "Header sign-in and the OpenID Connect button cannot be combined: choose one or the other.",
+"Recherche sur Internet (via SearXNG : les requêtes quittent le serveur)": "Internet search (via SearXNG: queries leave the server)",
+"arrêté (relance automatique)": "stopped (automatic restart)",
+"SearXNG est le moteur de recherche d'Open WebUI : installé, mis à jour et supprimé avec lui, il ne s'arrête pas séparément et la console le relance s'il tombe. Il n'est joignable que depuis ce serveur.": "SearXNG is Open WebUI's search engine: installed, updated and removed with it, it cannot be stopped on its own and the console restarts it if it goes down. It can only be reached from this server.",
 }
 P = [
 (r"Fournisseur joignable : (.+)\. \(L'identifiant et le secret ne sont vérifiés qu'à la première connexion\.\)", "Provider reachable: {1}. (The client ID and secret are only checked at the first sign-in.)"),

@@ -1509,7 +1509,8 @@ async function loadWebui() {
   const url = w.public_url ? w.public_url + '/' : 'https://' + location.hostname + ':' + w.tls_port + '/';
   const rows = [['Docker', w.docker ? 'installé' : 'non installé'], ['Conteneur', w.container || 'absent']];
   if (deployed) rows.push(['Version', (w.version || '?') + (w.latest && w.version && w.latest !== w.version ? ' (version ' + w.latest + ' disponible)' : '')],
-    ['Démarré le', w.started || '-'], ['Administrateur', w.admin_email || '-'], ['Adresse', url]);
+    ['Démarré le', w.started || '-'], ['Administrateur', w.admin_email || '-'], ['Adresse', url],
+    ['SearXNG', !w.searxng ? '-' : w.searxng.running && w.searxng.healthy ? 'en service' : w.searxng.running ? 'démarrage...' : 'arrêté (relance automatique)']);
   const btn = (label, act, cls) => el('button', { class: 'btn ' + (cls || ''), type: 'button', text: label, onclick: () => webuiAction(act, label) });
   $('#webui-status').replaceChildren(el('h2', { text: 'État' }),
     el('div', { class: 'big' }, pill(w.running ? (w.healthy ? 'en service' : 'démarrage...') : deployed ? 'arrêté' : 'non déployé', w.running && w.healthy ? 'ok' : deployed ? 'warn' : '')),
@@ -1519,7 +1520,8 @@ async function loadWebui() {
       btn('Mettre à jour', 'webui-update'), w.running ? btn('Redémarrer', 'webui-restart') : null,
       w.running ? btn('Arrêter', 'webui-stop') : btn('Démarrer', 'webui-start'),
       btn('Supprimer (garder les données)', 'webui-remove', 'danger'), btn('Tout supprimer', 'webui-purge', 'danger')) : null,
-    deployed ? el('p', { class: 'muted small', text: 'Le certificat est celui de la console (auto-signé). Les comptes Open WebUI sont propres à Open WebUI.' }) : null);
+    deployed ? el('p', { class: 'muted small', text: 'Le certificat est celui de la console (auto-signé). Les comptes Open WebUI sont propres à Open WebUI.' }) : null,
+    deployed ? el('p', { class: 'muted small', text: 'SearXNG est le moteur de recherche d\'Open WebUI : installé, mis à jour et supprimé avec lui, il ne s\'arrête pas séparément et la console le relance s\'il tombe. Il n\'est joignable que depuis ce serveur.' }) : null);
   $('#webui-deploy').classList.toggle('hidden', deployed);
   $('#webui-url').classList.toggle('hidden', !deployed);
   $('#webui-pwd').classList.toggle('hidden', !deployed);
