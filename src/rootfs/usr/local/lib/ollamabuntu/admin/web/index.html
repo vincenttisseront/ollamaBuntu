@@ -699,6 +699,14 @@
               <label>Rôles qui deviennent administrateurs<input name="admin_roles" maxlength="1000"></label>
               <label>Revendication des groupes (synchronise les groupes d'Open WebUI ; vide = non)<input name="groups_claim" maxlength="100" placeholder="groups"></label>
             </details>
+            <details class="fold mt"><summary>Connexion par en-tête (reverse proxy d'authentification)</summary>
+              <p class="muted small">Pour un reverse proxy placé devant Open WebUI (bastion) qui authentifie l'utilisateur puis transmet son e-mail dans un en-tête : Open WebUI lui fait confiance et ouvre la session sans écran de connexion. Ne se combine pas avec le bouton OpenID Connect ci-dessus. Pour empêcher quiconque d'envoyer lui-même l'en-tête, le port d'Open WebUI de ce serveur n'accepte alors que les adresses du reverse proxy ci-dessous. Le reverse proxy doit aussi supprimer tout en-tête du même nom envoyé par le client. L'e-mail doit être celui d'un compte Open WebUI existant, ou le compte est créé à la première visite.</p>
+              <label class="inline"><input type="checkbox" name="header_auth"> Faire confiance aux en-têtes d'identité du reverse proxy</label>
+              <label>En-tête de l'e-mail<input name="header_email" maxlength="64" placeholder="X-Forwarded-Email"></label>
+              <label>En-tête du nom affiché (facultatif)<input name="header_name" maxlength="64" placeholder="X-Auth-Name"></label>
+              <label>En-tête des groupes (facultatif)<input name="header_groups" maxlength="64"></label>
+              <label>Adresses du reverse proxy autorisées (séparées par des virgules ; adresse ou réseau, vue par ce serveur)<input name="trusted_proxies" maxlength="600" placeholder="192.168.1.10"></label>
+            </details>
             <div class="row"><button class="btn primary" type="submit">Enregistrer et appliquer</button><button class="btn" type="button" id="webui-sso-test">Tester le fournisseur</button><span id="webui-sso-msg" class="small"></span></div>
           </form>
         </div>

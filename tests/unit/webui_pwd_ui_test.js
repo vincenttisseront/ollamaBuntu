@@ -12,7 +12,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function until(fn, ms = 4000) { const t = Date.now(); while (Date.now() - t < ms) { try { if (fn()) return true; } catch (e) { /* attente */ } await sleep(40); } return false; }
 const json = (o, status = 200) => ({ ok: status < 400, status, json: async () => o, blob: async () => ({}) });
 const calls = []; let deployed = true, reply = null, ssoReply = null, askAnswer = true;
-const SSO = { enabled: false, name: 'SSO', issuer: '', client_id: '', scopes: 'openid email profile', redirect_base: '', signup: true, merge_by_email: true, login_form: true, allowed_domains: '', roles_claim: '', allowed_roles: '', admin_roles: '', groups_claim: '', secret_set: false, redirect_uri: '', public_url: '' };
+const SSO = { enabled: false, name: 'SSO', issuer: '', client_id: '', scopes: 'openid email profile', redirect_base: '', signup: true, merge_by_email: true, login_form: true, allowed_domains: '', roles_claim: '', allowed_roles: '', admin_roles: '', groups_claim: '', header_auth: false, header_email: 'X-Forwarded-Email', header_name: '', header_groups: '', trusted_proxies: '', secret_set: false, redirect_uri: '', public_url: '' };
 async function fakeFetch(p, o = {}) {
   const body = o.body ? JSON.parse(o.body) : undefined;
   calls.push([o.method || 'GET', p, body]);
@@ -89,6 +89,24 @@ async function run(l) {
   $('#webui-sso-test').click();
   ok(await until(() => sm.classList.contains('okmsg') && sm.textContent.includes('login.x.fr')), lang + ' : SSO : essai du fournisseur : ' + sm.textContent);
   if (lang === 'en') ok(sm.textContent.startsWith('Provider reachable: https://login.x.fr.'), 'anglais : essai traduit');
+  // --- connexion par en-tête
+  ssoReply = null; sf.elements.login_form.checked = true;
+  ok(sf.elements.header_email.value === 'X-Forwarded-Email' && !sf.elements.header_auth.checked, lang + ' : en-tête : valeur par défaut X-Forwarded-Email, mode désactivé');
+  sf.elements.enabled.checked = true; sf.elements.header_auth.checked = true; sf.elements.header_auth.dispatchEvent(new w.Event('change'));
+  ok(!sf.elements.enabled.checked, lang + ' : en-tête : cocher le mode décoche OpenID Connect');
+  sf.elements.enabled.checked = true; sf.elements.enabled.dispatchEvent(new w.Event('change'));
+  ok(!sf.elements.header_auth.checked, lang + ' : en-tête : cocher OpenID Connect décoche le mode en-tête');
+  sf.elements.enabled.checked = false; sf.elements.header_auth.checked = true; sf.elements.trusted_proxies.value = '192.168.1.10';
+  const hp = posts(); sub();
+  ok(await until(() => !$('#modal').classList.contains('hidden') && $('#modal-text').textContent.includes('192.168.1.10')), lang + ' : en-tête : confirmation avec les adresses autorisées : ' + $('#modal-text').textContent.replace(/\n/g, ' / '));
+  if (lang === 'en') ok($('#modal-text').textContent.startsWith('Trust the reverse proxy headers?'), 'anglais : confirmation traduite');
+  $('#modal-cancel').click(); await sleep(200);
+  ok(posts() === hp, lang + ' : en-tête : annulation : rien n\'est envoyé');
+  sub(); await until(() => !$('#modal').classList.contains('hidden')); $('#modal-ok').click();
+  ok(await until(() => posts() === hp + 1), lang + ' : en-tête : confirmé et envoyé');
+  const hb = calls.filter((x) => x[1] === '/api/webui/sso' && x[0] === 'POST').pop()[2];
+  ok(hb.header_auth === true && hb.enabled === false && hb.header_email === 'X-Forwarded-Email' && hb.trusted_proxies === '192.168.1.10', lang + ' : en-tête : réglages envoyés');
+  sf.elements.trusted_proxies.value = ''; sf.elements.header_auth.checked = false;
   deployed = false; w.document.querySelector('#webui-refresh').click();
   ok(await until(() => $('#webui-pwd').classList.contains('hidden') && $('#webui-sso').classList.contains('hidden')), lang + ' : cartes masquées quand Open WebUI n\'est pas déployé');
   deployed = true;

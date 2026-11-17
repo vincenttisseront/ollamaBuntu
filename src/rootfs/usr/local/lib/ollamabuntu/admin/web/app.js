@@ -1550,7 +1550,7 @@ $('#webui-url-form').addEventListener('submit', async (ev) => {
     loadWebui();
   } catch (e) { out.textContent = e.message; out.classList.add('error'); }
 });
-const SSO_TXT = ['name', 'issuer', 'client_id', 'redirect_base', 'scopes', 'allowed_domains', 'roles_claim', 'allowed_roles', 'admin_roles', 'groups_claim'];
+const SSO_TXT = ['name', 'issuer', 'client_id', 'redirect_base', 'scopes', 'allowed_domains', 'roles_claim', 'allowed_roles', 'admin_roles', 'groups_claim', 'header_email', 'header_name', 'header_groups', 'trusted_proxies'];
 const ssoRedirect = () => {
   const b = $('#webui-sso-form').elements.redirect_base.value.trim().replace(/\/+$/, '');
   $('#webui-sso-redirect').textContent = b ? b + '/oauth/oidc/callback' : '-';
@@ -1559,7 +1559,7 @@ async function loadWebuiSso(w) {
   const f = $('#webui-sso-form'), out = $('#webui-sso-msg');
   let c;
   try { c = await api('/api/webui/sso'); } catch (e) { out.className = 'small error'; out.textContent = e.message; return; }
-  f.elements.enabled.checked = c.enabled; f.elements.signup.checked = c.signup; f.elements.merge_by_email.checked = c.merge_by_email; f.elements.login_form.checked = c.login_form;
+  f.elements.enabled.checked = c.enabled; f.elements.signup.checked = c.signup; f.elements.merge_by_email.checked = c.merge_by_email; f.elements.login_form.checked = c.login_form; f.elements.header_auth.checked = c.header_auth;
   for (const k of SSO_TXT) f.elements[k].value = c[k] || '';
   if (!f.elements.redirect_base.value) f.elements.redirect_base.value = (w && w.public_url) || 'https://' + location.hostname + ':' + ((w && w.tls_port) || 8443);
   f.elements.client_secret.value = '';
@@ -1568,17 +1568,20 @@ async function loadWebuiSso(w) {
 }
 function ssoBody() {
   const f = $('#webui-sso-form'), b = { enabled: f.elements.enabled.checked, signup: f.elements.signup.checked, merge_by_email: f.elements.merge_by_email.checked,
-    login_form: f.elements.login_form.checked };
+    login_form: f.elements.login_form.checked, header_auth: f.elements.header_auth.checked };
   for (const k of SSO_TXT) b[k] = f.elements[k].value.trim();
   if (f.elements.client_secret.value) b.client_secret = f.elements.client_secret.value;
   return b;
 }
 $('#webui-sso-form').elements.redirect_base.addEventListener('input', ssoRedirect);
+$('#webui-sso-form').elements.header_auth.addEventListener('change', (ev) => { if (ev.target.checked) $('#webui-sso-form').elements.enabled.checked = false; });
+$('#webui-sso-form').elements.enabled.addEventListener('change', (ev) => { if (ev.target.checked) $('#webui-sso-form').elements.header_auth.checked = false; });
 $('#webui-sso-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target, out = $('#webui-sso-msg');
   out.className = 'small';
   if (f.elements.enabled.checked && !f.elements.login_form.checked && !(await ask('Désactiver le formulaire e-mail / mot de passe ?\nSi la connexion unique est mal réglée, plus personne ne pourra se connecter à Open WebUI.'))) return;
+  if (f.elements.header_auth.checked && !(await ask('Faire confiance aux en-têtes du reverse proxy ?\nOpen WebUI n\'acceptera plus que les connexions venant de : ' + (f.elements.trusted_proxies.value.trim() || '(aucune adresse)') + '. Si cette adresse est fausse, plus personne ne pourra ouvrir Open WebUI.'))) return;
   try {
     const d = await api('/api/webui/sso', { json: ssoBody() });
     f.elements.client_secret.value = ''; f.elements.client_secret.placeholder = d.config.secret_set ? '(inchangé)' : '';

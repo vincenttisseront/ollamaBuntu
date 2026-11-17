@@ -85,6 +85,52 @@ ok(err(server.webui_sso_test, {"issuer": "https://mauvais.x.fr"}) == "fournisseu
 ok(err(server.webui_sso_test, {"issuer": "http://login.x.fr"}) is not None, "essai : http refusé")
 server.sso = real
 
+# --- connexion par en-tête (reverse proxy)
+HB = {"enabled": False, "header_auth": True, "header_email": "X-Forwarded-Email", "trusted_proxies": "192.168.1.10"}
+server.webui_sso_save({"enabled": False})
+for bad, why in (({"header_auth": True, "header_email": "", "trusted_proxies": "10.0.0.1"}, "en-tête de l'e-mail vide"), (dict(HB, trusted_proxies=""), "aucun reverse proxy déclaré"),
+                 (dict(HB, trusted_proxies="0.0.0.0/0"), "tout le monde (IPv4)"), (dict(HB, trusted_proxies="::/0"), "tout le monde (IPv6)"), (dict(HB, trusted_proxies="pas-une-ip"), "adresse invalide"),
+                 (dict(HB, header_email="X Forwarded"), "nom d'en-tête invalide"), (dict(HB, header_name="a\r\nX: y"), "en-tête avec retour à la ligne"),
+                 (dict(HB, trusted_proxies=",".join("10.0.0.%d" % i for i in range(21))), "plus de 20 adresses"),
+                 (dict(OK, header_auth=True, trusted_proxies="192.168.1.10"), "combiné au bouton OpenID Connect")):
+    ok(err(server.webui_sso_clean, bad) is not None, "en-tête refusé : " + why)
+c = server.webui_sso_save(dict(HB, login_form=True, header_name="X-Auth-Name", header_groups="X-Auth-Groups", trusted_proxies="192.168.1.10, 10.0.0.0/8\n2001:db8::1"))
+e = env(server.WEBUI_SSO_ENV)
+ok(c["trusted_proxies"] == "192.168.1.10/32,10.0.0.0/8,2001:db8::1/128", "reverse proxy normalisés : " + c["trusted_proxies"])
+ok(e["WEBUI_AUTH_TRUSTED_EMAIL_HEADER"] == "X-Forwarded-Email" and e["WEBUI_AUTH_TRUSTED_NAME_HEADER"] == "X-Auth-Name" and e["WEBUI_AUTH_TRUSTED_GROUPS_HEADER"] == "X-Auth-Groups", "variables d'en-tête transmises à Open WebUI")
+ok(e["OAUTH_CLIENT_ID"] == "" and e["ENABLE_OAUTH_SIGNUP"] == "false", "OpenID Connect neutralisé dans ce mode")
+ok(e["ENABLE_LOGIN_FORM"] == "true", "formulaire local gardé par défaut")
+server.webui_sso_save(dict(HB, login_form=False))
+ok(env(server.WEBUI_SSO_ENV)["ENABLE_LOGIN_FORM"] == "false", "formulaire local retirable à la demande")
+server.webui_sso_save(dict(HB, header_name="", header_groups="", login_form=True))
+ok(env(server.WEBUI_SSO_ENV)["WEBUI_AUTH_TRUSTED_NAME_HEADER"] == "", "nom et groupes vides par défaut")
+ok(server.webui_sso_view()["header_auth"] and server.webui_sso_view()["trusted_proxies"], "la vue expose le mode et les adresses")
+ok(server.webui_proxy_allowed("192.168.1.10") and not server.webui_proxy_allowed("192.168.1.11") and not server.webui_proxy_allowed("8.8.8.8"), "port d'Open WebUI : seul le reverse proxy déclaré est accepté")
+ok(server.webui_proxy_allowed("::ffff:192.168.1.10") and not server.webui_proxy_allowed("::ffff:192.168.1.11"), "adresse IPv4 portée par IPv6 reconnue")
+ok(not server.webui_proxy_allowed("n'importe quoi") and not server.webui_proxy_allowed(""), "adresse illisible : refusée")
+server.webui_sso_save(dict(HB, trusted_proxies="10.0.0.0/8"))
+ok(server.webui_proxy_allowed("10.200.3.4") and not server.webui_proxy_allowed("192.168.1.10"), "le changement de liste est pris en compte sans redémarrage")
+server.webui_sso_save({"header_auth": False})
+ok(server.webui_proxy_allowed("8.8.8.8") and env(server.WEBUI_SSO_ENV)["WEBUI_AUTH_TRUSTED_EMAIL_HEADER"] == "", "mode désactivé : tout le monde accepté, en-tête retiré du conteneur")
+os.remove(server.WEBUI_SSO_FILE)
+ok(server.webui_proxy_allowed("8.8.8.8"), "aucune configuration : tout le monde accepté")
+
+# --- le relais refuse réellement les autres sources
+import asyncio
+class W:
+    def __init__(self, ip): self.ip, self.out, self.closed = ip, b"", False
+    def get_extra_info(self, k): return (self.ip, 1234)
+    def write(self, b): self.out += b
+    async def drain(self): pass
+    def close(self): self.closed = True
+server.webui_sso_save(dict(HB, trusted_proxies="192.168.1.10"))
+w = W("203.0.113.9"); asyncio.run(server._webui_client(None, w))
+ok(w.out.startswith(b"HTTP/1.1 403") and w.closed, "relais : source non déclarée refusée en 403, avant toute connexion à Open WebUI")
+server.WEBUI_PORT = 1   # aucun Open WebUI ne répond : une source déclarée passe le contrôle et reçoit l'erreur 503 habituelle
+w = W("192.168.1.10"); asyncio.run(server._webui_client(None, w))
+ok(w.out.startswith(b"HTTP/1.1 503") and w.closed, "relais : source déclarée acceptée (puis 503 : aucun Open WebUI dans ce test)")
+os.remove(server.WEBUI_SSO_FILE) if os.path.exists(server.WEBUI_SSO_FILE) else None
+
 sh = open(os.path.join(os.path.dirname(__file__), "..", "..", "src", "rootfs", "usr", "local", "lib", "ollamabuntu", "open-webui.sh")).read()
 ok("--env-file /etc/ollamabuntu/open-webui-sso.env" in sh and "apply-sso)" in sh and "open-webui-sso.json" in sh, "script : fichier passé au conteneur, action apply-sso, nettoyage à la suppression")
 ok("apply-sso" in server.JOBS.get("webui-apply-sso", ("", ""))[1], "tâche d'application déclarée")

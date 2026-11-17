@@ -2,6 +2,7 @@
 "exact": {
 "(32 caractères au plus). Les comptes système (root, ollama...) sont interdits.": "(32 characters at most). System accounts (root, ollama...) are not allowed.",
 "(aucun)": "(none)",
+"(aucune adresse)": "(no address)",
 "(clé supprimée)": "(deleted key)",
 "(câble, VLAN, serveur DHCP ?).": "(cable, VLAN, DHCP server?).",
 "(inchangé)": "(unchanged)",
@@ -120,6 +121,7 @@
 "Adresses": "Addresses",
 "Adresses :": "Addresses     :",
 "Adresses IP": "IP addresses",
+"Adresses du reverse proxy autorisées (séparées par des virgules ; adresse ou réseau, vue par ce serveur)": "Allowed reverse proxy addresses (comma-separated; address or network, as seen by this server)",
 "Adresses e-mail": "E-mail addresses",
 "Affichage de la console (contrôleur BMC ou carte virtuelle) : non utilisable pour l'IA.": "Console display (BMC controller or virtual card): not usable for AI.",
 "Afficher en français": "Show in French",
@@ -447,6 +449,7 @@
 "Connectez-vous avec le compte créé à la fin de l'installation": "Sign in with the account created at the end of the installation",
 "Connectez-vous ensuite sur cette console pour accéder au menu.": "Then sign in on this console to access the menu.",
 "Connectée": "Connected",
+"Connexion par en-tête (reverse proxy d'authentification)": "Header sign-in (authentication reverse proxy)",
 "Connexion unique (SSO)": "Single sign-on (SSO)",
 "Connexion unique appliquée.": "Single sign-on applied.",
 "Connexion unique d'Open WebUI": "Open WebUI single sign-on",
@@ -658,6 +661,13 @@
 "En marche": "Running",
 "En mémoire": "In memory",
 "En veille": "Asleep",
+"En-tête de l'e-mail": "E-mail header",
+"En-tête de l'e-mail : caractères non autorisés.": "E-mail header: characters not allowed.",
+"En-tête de l'e-mail : champ obligatoire.": "E-mail header: required field.",
+"En-tête des groupes (facultatif)": "Groups header (optional)",
+"En-tête des groupes : caractères non autorisés.": "Groups header: characters not allowed.",
+"En-tête du nom : caractères non autorisés.": "Name header: characters not allowed.",
+"En-tête du nom affiché (facultatif)": "Display name header (optional)",
 "Enregistrer": "Save",
 "Enregistrer et appliquer": "Save and apply",
 "Enregistrer et redémarrer Ollama": "Save and restart Ollama",
@@ -719,6 +729,7 @@
 "Extraits donnés au modèle": "Excerpts given to the model",
 "Exécution d'Open WebUI (option)": "Runs Open WebUI (optional)",
 "Exécution du code des réponses": "Execution of code in answers",
+"Faire confiance aux en-têtes d'identité du reverse proxy": "Trust the identity headers of the reverse proxy",
 "Fermer": "Close",
 "Fichier de sauvegarde (.obbk)": "Backup file (.obbk)",
 "Fichier exporté : conservez-le avec la phrase secrète, séparément.": "File exported: keep it with the passphrase, separately.",
@@ -901,6 +912,7 @@
 "La clé n'a pas été créée (phrase refusée ?). Rien n'a été modifié.": "The key was not created (passphrase refused?). Nothing was changed.",
 "La clé reste valable jusqu'à la fin de ce jour. Laissez vide pour qu'elle n'expire jamais.": "The key stays valid until the end of that day. Leave empty so that it never expires.",
 "La configuration réseau a été refusée par netplan.": "The network configuration was rejected by netplan.",
+"La connexion par en-tête et le bouton OpenID Connect ne se combinent pas : choisissez l'un ou l'autre.": "Header sign-in and the OpenID Connect button cannot be combined: choose one or the other.",
 "La connexion unique a expiré ou n'a pas été lancée depuis ce navigateur. Recommencez.": "The single sign-on attempt expired or was not started from this browser. Please try again.",
 "La connexion unique n'est pas configurée correctement. Contactez un administrateur.": "Single sign-on is not configured correctly. Contact an administrator.",
 "La console compte, par modèle, les demandes de chaque heure (des compteurs seulement : aucun texte, aucun client). Quand un modèle est habituellement demandé dans l'heure qui vient, il est chargé quelques minutes avant : le premier message ne paie plus le chargement. Les jours de semaine et les week-ends sont comptés séparément.": "The console counts, per model, the requests of each hour (counters only: no text, no client). When a model is usually requested within the coming hour, it is loaded a few minutes beforehand: the first message no longer pays for the loading. Weekdays and weekends are counted separately.",
@@ -1296,6 +1308,7 @@
 "Port": "Port",
 "Pour chaque modèle installé : tient-il en mémoire vidéo, avec quel réglage, et sinon que déborder et à quel prix. La vitesse est une estimation (la génération est limitée par la bande passante mémoire) ; elle se cale sur vos mesures réelles ci-dessous. Un modèle « à experts » (MoE) trop gros peut garder ses experts en mémoire système sans perdre autant de vitesse qu'un débordement par couches : c'est le rôle du moteur llama.cpp (onglet « Moteur MoE »).": "For each installed model: does it fit in video memory, with which setting, and if not what spills over and at what cost. Speed is an estimate (generation is limited by memory bandwidth); it is calibrated on your real measurements below. A \"mixture of experts\" (MoE) model that is too big can keep its experts in system memory without losing as much speed as a layer-by-layer spill: that is the role of the llama.cpp engine (\"MoE engine\" tab).",
 "Pour comparaison : débordement par couches (Ollama)": "For comparison: layer-by-layer spill (Ollama)",
+"Pour un reverse proxy placé devant Open WebUI (bastion) qui authentifie l'utilisateur puis transmet son e-mail dans un en-tête : Open WebUI lui fait confiance et ouvre la session sans écran de connexion. Ne se combine pas avec le bouton OpenID Connect ci-dessus. Pour empêcher quiconque d'envoyer lui-même l'en-tête, le port d'Open WebUI de ce serveur n'accepte alors que les adresses du reverse proxy ci-dessous. Le reverse proxy doit aussi supprimer tout en-tête du même nom envoyé par le client. L'e-mail doit être celui d'un compte Open WebUI existant, ou le compte est créé à la première visite.": "For a reverse proxy in front of Open WebUI (bastion) that authenticates the user and passes their e-mail in a header: Open WebUI trusts it and opens the session without a sign-in screen. Cannot be combined with the OpenID Connect button above. To stop anyone from sending the header themselves, this server's Open WebUI port then only accepts the reverse proxy addresses below. The reverse proxy must also remove any header of the same name sent by the client. The e-mail must be that of an existing Open WebUI account, or the account is created on the first visit.",
 "Premier jeton": "First token",
 "Priorité": "Priority",
 "Priorité dans la file d'attente": "Queue priority",
@@ -1449,6 +1462,9 @@
 "Revenir à cette version": "Go back to this version",
 "Revenir à l'ancienne version": "Go back to the previous version",
 "Revenir à une version précédente": "Go back to a previous version",
+"Reverse proxy autorisé : 20 adresses au plus.": "Allowed reverse proxy: 20 addresses at most.",
+"Reverse proxy autorisé : indiquez l'adresse de votre reverse proxy (sans cela n'importe qui pourrait forger l'en-tête).": "Allowed reverse proxy: give the address of your reverse proxy (without it anyone could forge the header).",
+"Reverse proxy autorisé : « tout le monde » n'est pas accepté.": "Allowed reverse proxy: “everybody” is not accepted.",
 "Rien n'attend : le serveur absorbe toutes les requêtes.": "Nothing is waiting: the server absorbs all requests.",
 "Rien pour le moment.": "Nothing for now.",
 "Rien à mesurer pour le moment (aucune demande récente).": "Nothing to measure for now (no recent request).",
@@ -5308,6 +5324,18 @@
 [
 "Émetteur \\(issuer\\) : une adresse https:// est exigée",
 "Issuer: an https:// address is required"
+],
+[
+"(En-tête de l'e-mail|En-tête du nom|En-tête des groupes) : (\\d+) caractères au plus, sans caractère de contrôle\\.",
+"{1}: {2} characters at most, no control characters."
+],
+[
+"Reverse proxy autorisé : adresse ou réseau invalide \\((.+)\\)\\.",
+"Allowed reverse proxy: invalid address or network ({1})."
+],
+[
+"Faire confiance aux en-têtes du reverse proxy \\?\\nOpen WebUI n'acceptera plus que les connexions venant de : ([\\s\\S]+)\\. Si cette adresse est fausse, plus personne ne pourra ouvrir Open WebUI\\.",
+"Trust the reverse proxy headers?\nOpen WebUI will only accept connections coming from: {1}. If this address is wrong, nobody will be able to open Open WebUI any more."
 ],
 [
 "(Nom du bouton|Identifiant client|Secret client|Émetteur \\(issuer\\)|Scopes|Adresse d'Open WebUI|Revendication des rôles|Revendication des groupes) : (\\d+) caractères au plus, sans caractère de contrôle\\.",

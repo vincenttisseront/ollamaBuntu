@@ -7148,7 +7148,8 @@ WEBUI_SSO_FILE = os.path.join(ETC, "open-webui-sso.json")
 WEBUI_SSO_ENV = os.path.join(ETC, "open-webui-sso.env")
 WEBUI_SSO_DEFAULT = {"enabled": False, "name": "SSO", "issuer": "", "client_id": "", "client_secret": "", "scopes": "openid email profile",
                      "redirect_base": "", "signup": True, "merge_by_email": True, "login_form": True, "allowed_domains": "",
-                     "roles_claim": "", "allowed_roles": "", "admin_roles": "", "groups_claim": ""}
+                     "roles_claim": "", "allowed_roles": "", "admin_roles": "", "groups_claim": "",
+                     "header_auth": False, "header_email": "X-Forwarded-Email", "header_name": "", "header_groups": "", "trusted_proxies": ""}
 WEBUI_SSO_CALLBACK = "/oauth/oidc/callback"
 
 
@@ -7187,6 +7188,29 @@ def webui_sso_clean(data, cur=None):
         o[k] = _sso_text(d, k, cur, 100, label, r"[A-Za-z0-9_.:/-]+")
     if (o["allowed_roles"] or o["admin_roles"]) and not o["roles_claim"]:
         raise ValueError("Rôles : indiquez la revendication qui les contient.")
+    o["header_auth"] = bool(d.get("header_auth", cur["header_auth"]))
+    for k, label in (("header_email", "En-tête de l'e-mail"), ("header_name", "En-tête du nom"), ("header_groups", "En-tête des groupes")):
+        o[k] = _sso_text(d, k, cur, 64, label, r"[A-Za-z0-9-]+")
+    nets = []
+    for x in str(d.get("trusted_proxies", cur["trusted_proxies"]) or "").replace("\n", ",").replace(" ", ",").split(","):
+        if x.strip():
+            try:
+                net = ipaddress.ip_network(x.strip(), strict=False)
+            except ValueError:
+                raise ValueError("Reverse proxy autorisé : adresse ou réseau invalide (%s)." % x.strip()[:40])
+            if net.prefixlen == 0:
+                raise ValueError("Reverse proxy autorisé : « tout le monde » n'est pas accepté.")
+            nets.append(str(net))
+    if len(nets) > 20:
+        raise ValueError("Reverse proxy autorisé : 20 adresses au plus.")
+    o["trusted_proxies"] = ",".join(nets)
+    if o["header_auth"]:
+        if not o["header_email"]:
+            raise ValueError("En-tête de l'e-mail : champ obligatoire.")
+        if not o["trusted_proxies"]:
+            raise ValueError("Reverse proxy autorisé : indiquez l'adresse de votre reverse proxy (sans cela n'importe qui pourrait forger l'en-tête).")
+        if o["enabled"]:
+            raise ValueError("La connexion par en-tête et le bouton OpenID Connect ne se combinent pas : choisissez l'un ou l'autre.")
     if o["enabled"]:
         if not o["issuer"]:
             raise ValueError("Émetteur (issuer) : champ obligatoire.")
@@ -7202,9 +7226,12 @@ def webui_sso_clean(data, cur=None):
 
 def webui_sso_env(c):
     """Variables d'environnement d'Open WebUI. Désactivé : on force des valeurs neutres (le conteneur ne doit pas garder l'ancien réglage)."""
-    e = [("ENABLE_PERSISTENT_CONFIG", "false")]
+    e = [("ENABLE_PERSISTENT_CONFIG", "false"),
+         ("WEBUI_AUTH_TRUSTED_EMAIL_HEADER", c["header_email"] if c["header_auth"] else ""),
+         ("WEBUI_AUTH_TRUSTED_NAME_HEADER", c["header_name"] if c["header_auth"] else ""),
+         ("WEBUI_AUTH_TRUSTED_GROUPS_HEADER", c["header_groups"] if c["header_auth"] else "")]
     if not c["enabled"]:
-        e += [("ENABLE_OAUTH_SIGNUP", "false"), ("ENABLE_LOGIN_FORM", "true"), ("OAUTH_CLIENT_ID", ""), ("OAUTH_CLIENT_SECRET", ""),
+        e += [("ENABLE_OAUTH_SIGNUP", "false"), ("ENABLE_LOGIN_FORM", "true" if not c["header_auth"] or c["login_form"] else "false"), ("OAUTH_CLIENT_ID", ""), ("OAUTH_CLIENT_SECRET", ""),
               ("OPENID_PROVIDER_URL", ""), ("ENABLE_OAUTH_ROLE_MANAGEMENT", "false"), ("ENABLE_OAUTH_GROUP_MANAGEMENT", "false")]
     else:
         tf = lambda b: "true" if b else "false"
@@ -7269,8 +7296,43 @@ async def _pipe(reader, writer):
             pass
 
 
+_webui_trust_cache = {"mtime": None, "nets": None}
+
+
+def webui_proxy_allowed(ip):
+    """Connexion au port d'Open WebUI : sans connexion par en-tête, tout le monde ; avec, seulement les reverse proxy déclarés
+    (sinon n'importe qui pourrait envoyer lui-même l'en-tête d'identité et se connecter en n'importe quel compte)."""
+    try:
+        mt = os.stat(WEBUI_SSO_FILE).st_mtime
+    except OSError:
+        return True
+    if _webui_trust_cache["mtime"] != mt:
+        c = webui_sso_load()
+        _webui_trust_cache.update(mtime=mt, nets=[ipaddress.ip_network(x) for x in c["trusted_proxies"].split(",") if x] if c["header_auth"] else None)
+    nets = _webui_trust_cache["nets"]
+    if nets is None:
+        return True
+    try:
+        a = ipaddress.ip_address(str(ip).split("%")[0])
+    except ValueError:
+        return False
+    if a.version == 6 and a.ipv4_mapped:
+        a = a.ipv4_mapped
+    return any(a in n for n in nets if n.version == a.version)
+
+
 async def _webui_client(cr, cw):
     import asyncio
+    peer = (cw.get_extra_info("peername") or ("",))[0]
+    if not webui_proxy_allowed(peer):
+        msg = "Accès refusé : Open WebUI n'est joignable que par le reverse proxy déclaré.\n".encode()
+        cw.write(b"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n"
+                 b"Content-Length: " + str(len(msg)).encode() + b"\r\n\r\n" + msg)
+        try:
+            await cw.drain()
+        finally:
+            cw.close()
+        return
     try:
         ur, uw = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", WEBUI_PORT), 10)
     except (OSError, asyncio.TimeoutError):
