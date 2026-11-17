@@ -28,6 +28,7 @@ python3 tests/unit/catalog_sources_test.py  # catalogue « Recommandés » multi
 python3 tests/unit/ops3_test.py            # journal d'audit, rapport hebdomadaire par e-mail, espace disque des modèles (routes HTTP réelles)
 node tests/unit/batch2_ui_test.js          # console : thème, cloche, statistiques, filtres, palette Ctrl+K (jsdom, FR et EN)
 node tests/unit/batch3_ui_test.js          # console : Performance, disponibilité GPU, matériel, audit, rapport, espace disque, plafonds, catalogue multi-registres (jsdom, FR et EN)
+node tests/unit/webui_pwd_ui_test.js         # console : réinitialisation du mot de passe Open WebUI (jsdom, FR et EN)
 python3 tests/unit/router_failover_test.py      # routeur : reprise automatique sur un autre serveur (vrais échanges HTTPS simulés), disjoncteur, requêtes sauvées
 python3 tests/unit/queue_test.py                 # file d'attente : priorités, vieillissement, plafond global, file pleine, délai dépassé, routeur en vrais échanges HTTP
 python3 tests/unit/privacy_test.py               # confidentialité : motifs (IBAN, carte, sécu, téléphone, e-mail, IP, secrets), anonymisation avant le modèle, termes interdits globaux et par clé, routeur de bout en bout
@@ -66,6 +67,7 @@ node tests/unit/modelmap_ui_test.js         # console : modèles de remplacement
 node tests/unit/accel_ui_test.js            # console : Performance > Caches, Préchauffage prédictif, Mesure continue, Cache de contexte vérifié, Parallélisme, Journal d'accélération (français et anglais)
 python3 tests/unit/hf_test.py            # recherche Hugging Face (faux serveur local)
 python3 tests/unit/webui_url_test.py       # Open WebUI : adresse publique (validation, enregistrement)
+python3 tests/unit/webui_pwd_test.py       # Open WebUI : réinitialisation du mot de passe administrateur (script réel sur SQLite temporaire ; bcrypt requis)
 python3 tests/unit/gpu_auto_test.py
 bash    tests/unit/crypt_engine_test.sh      # nécessite : cryptsetup, swtpm, tpm2-tools, clevis
 python3 tests/unit/online_update_test.py     # nécessite : openssl

@@ -7087,6 +7087,59 @@ def webui_configure(email, password, name):
     atomic_write(WEBUI_ENV, "\n".join(lines) + "\n", 0o600)
 
 
+# Script exécuté DANS le conteneur Open WebUI (Python et bcrypt y sont déjà présents). Le mot de passe arrive
+# par l'entrée standard (jamais dans la ligne de commande, visible par les autres processus).
+WEBUI_PWD_SCRIPT = r"""
+import sys, json, sqlite3, bcrypt
+d = json.load(sys.stdin)
+con = sqlite3.connect(sys.argv[1], timeout=20)
+cur = con.cursor()
+admins = [r[0] for r in cur.execute("SELECT email FROM user WHERE role = 'admin' ORDER BY created_at")]
+email = (d.get("email") or "").strip().lower() or (admins[0] if admins else "")
+row = cur.execute("SELECT id FROM auth WHERE lower(email) = ?", (email.lower(),)).fetchone() if email else None
+if not row:
+    print(json.dumps({"error": "absent", "admins": admins})); sys.exit(0)
+h = bcrypt.hashpw(d["password"].encode("utf-8"), bcrypt.gensalt()).decode("ascii")
+cur.execute("UPDATE auth SET password = ? WHERE id = ?", (h, row[0]))
+con.commit()
+print(json.dumps({"ok": True, "email": email}))
+"""
+
+
+def webui_exec_cmd():
+    return ["docker", "exec", "-i", "open-webui", "python3", "-c", WEBUI_PWD_SCRIPT, "/app/backend/data/webui.db"]
+
+
+def webui_reset_password(email, password):
+    """Réinitialise le mot de passe d'un compte Open WebUI (par défaut son premier administrateur) dans sa base."""
+    email = (email or "").strip()
+    if email and not EMAIL_RE.match(email):
+        raise ValueError("Adresse e-mail invalide.")
+    if len(password) < 8 or any(ord(c) < 32 for c in password):
+        raise ValueError("Mot de passe refusé (8 caractères minimum, sans caractère de contrôle).")
+    if len(password.encode("utf-8")) > 72:
+        raise ValueError("Mot de passe trop long (72 octets au maximum pour Open WebUI).")
+    if not webui_deployed():
+        raise ValueError("Open WebUI n'est pas déployé.")
+    try:
+        r = subprocess.run(webui_exec_cmd(), input=json.dumps({"email": email, "password": password}),
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise RuntimeError("Open WebUI injoignable : %s" % e)
+    if r.returncode != 0:
+        raise RuntimeError("Open WebUI ne répond pas (conteneur arrêté ou base indisponible).")
+    try:
+        out = json.loads((r.stdout or "").strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        raise RuntimeError("Réponse inattendue d'Open WebUI.")
+    if out.get("error") == "absent":
+        admins = ", ".join(out.get("admins") or [])
+        raise LookupError("Aucun compte Open WebUI avec cette adresse." + (" Administrateurs : %s" % admins if admins else ""))
+    if not out.get("ok"):
+        raise RuntimeError("Réinitialisation impossible.")
+    return out["email"]
+
+
 async def _pipe(reader, writer):
     import asyncio
     try:
@@ -7871,6 +7924,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self.send_json(200, {"ok": True, "url": new, "job": start_job("webui-apply-url")})
                 except (OSError, subprocess.SubprocessError) as e:
                     return self.send_json(500, {"error": "adresse enregistrée, mais impossible d'appliquer : %s" % e})
+            if path == "/api/webui/password":
+                try:
+                    done = webui_reset_password(str(data.get("email", "")), str(data.get("password", "")))
+                except ValueError as e:
+                    return self.send_json(400, {"error": str(e)})
+                except LookupError as e:
+                    return self.send_json(404, {"error": str(e)})
+                except RuntimeError as e:
+                    return self.send_json(502, {"error": str(e)})
+                print("mot de passe Open WebUI réinitialisé pour %s (par %s)" % (done, user), flush=True)
+                return self.send_json(200, {"ok": True, "email": done})
             if path == "/api/webui/deploy":
                 webui_configure(str(data.get("email", "")).strip(), str(data.get("password", "")), str(data.get("name", "")))
                 try:

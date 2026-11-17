@@ -677,6 +677,16 @@
             <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="webui-url-msg" class="small"></span></div>
           </form>
         </div>
+        <div id="webui-pwd" class="card hidden">
+          <h2>Mot de passe administrateur</h2>
+          <p class="muted small">Réinitialise le mot de passe d'un compte Open WebUI directement dans sa base (Open WebUI doit être démarré). Sans adresse, le premier administrateur est utilisé. Les connexions déjà ouvertes restent valables jusqu'à leur expiration ; redémarrez Open WebUI pour les couper.</p>
+          <form id="webui-pwd-form" autocomplete="off">
+            <label>Compte (e-mail)<input name="email" type="email" placeholder="administrateur par défaut"></label>
+            <label>Nouveau mot de passe<input name="password" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+            <label>Confirmation<input name="confirm" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+            <div class="row"><button class="btn primary" type="submit">Réinitialiser le mot de passe</button><span id="webui-pwd-msg" class="small"></span></div>
+          </form>
+        </div>
         <div id="webui-deploy" class="card hidden">
           <h2>Déployer Open WebUI</h2>
           <p class="muted small">Interface de chat complète (historique, documents, comptes) branchée sur l'Ollama de ce serveur, publiée en HTTPS sur le port 8443. Nécessite un accès Internet (Docker et une image de plusieurs Go) et 10 Go libres.</p>

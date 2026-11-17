@@ -1522,6 +1522,8 @@ async function loadWebui() {
     deployed ? el('p', { class: 'muted small', text: 'Le certificat est celui de la console (auto-signé). Les comptes Open WebUI sont propres à Open WebUI.' }) : null);
   $('#webui-deploy').classList.toggle('hidden', deployed);
   $('#webui-url').classList.toggle('hidden', !deployed);
+  $('#webui-pwd').classList.toggle('hidden', !deployed);
+  $('#webui-pwd-form').elements.email.placeholder = w.admin_email || 'administrateur par défaut';
   $('#webui-url-form').elements.url.value = w.public_url || '';
   resumeJob();
 }
@@ -1544,6 +1546,17 @@ $('#webui-url-form').addEventListener('submit', async (ev) => {
     out.textContent = d.job ? 'Adresse enregistrée ; Open WebUI est recréé (voir la tâche).' : 'Adresse enregistrée.'; out.classList.add('okmsg');
     if (d.job) followJob(d.job);
     loadWebui();
+  } catch (e) { out.textContent = e.message; out.classList.add('error'); }
+});
+$('#webui-pwd-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, out = $('#webui-pwd-msg');
+  out.className = 'small';
+  if (f.elements.password.value !== f.elements.confirm.value) { out.textContent = 'Les deux mots de passe ne sont pas identiques.'; out.classList.add('error'); return; }
+  try {
+    const d = await api('/api/webui/password', { json: { email: f.elements.email.value.trim(), password: f.elements.password.value } });
+    f.elements.password.value = ''; f.elements.confirm.value = '';
+    out.textContent = 'Mot de passe réinitialisé pour ' + d.email + '.'; out.classList.add('okmsg');
   } catch (e) { out.textContent = e.message; out.classList.add('error'); }
 });
 $('#webui-form').addEventListener('submit', async (ev) => {

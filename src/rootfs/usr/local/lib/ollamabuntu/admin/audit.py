@@ -9,7 +9,7 @@ SECRET_WORDS = ("password", "passwd", "pass", "token", "secret", "key", "hash", 
 # Pas de journal pour ce qui n'est pas une action d'administration (conversations de test, relais d'inférence)
 SKIP_PREFIXES = ("/api/privacy/test", "/api/rag/search", "/api/chat", "/api/fleet/ollama/", "/api/fleet/action", "/api/login")
 LABELS = {
-    "/api/logout": "Déconnexion", "/api/password": "Changement de son mot de passe",
+    "/api/logout": "Déconnexion", "/api/password": "Changement de son mot de passe", "/api/webui/password": "Réinitialisation du mot de passe Open WebUI",
     "/api/users": "Gestion des comptes", "/api/users/create": "Création d'un compte", "/api/users/delete": "Suppression d'un compte", "/api/users/reset": "Réinitialisation d'un mot de passe",
     "/api/models/pull": "Téléchargement d'un modèle", "/api/models/delete": "Suppression d'un modèle", "/api/models/custom": "Création d'un modèle personnalisé",
     "/api/models/context": "Taille de contexte d'un modèle", "/api/ollama-env": "Réglages d'Ollama",

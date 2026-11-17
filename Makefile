@@ -60,6 +60,7 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/ops3_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/catalog_sources_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/webui_url_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/webui_pwd_test.py
 
 # Console web (jsdom requis : npm install --no-save jsdom@24)
 test-ui:
@@ -67,6 +68,7 @@ test-ui:
 	node tests/unit/ops_ui_test.js
 	node tests/unit/batch2_ui_test.js
 	node tests/unit/batch3_ui_test.js
+	node tests/unit/webui_pwd_ui_test.js
 	node tests/unit/modelmap_ui_test.js
 	node tests/unit/lab_ui_test.js
 	node tests/unit/modelupdate_ui_test.js
