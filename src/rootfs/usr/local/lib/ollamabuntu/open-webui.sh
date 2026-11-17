@@ -46,8 +46,10 @@ run_container() {
   [[ -n $mem ]] && lim=(--memory "$mem" --memory-swap "$mem")
   local url=()
   [[ -f /etc/ollamabuntu/open-webui-url.env ]] && url=(--env-file /etc/ollamabuntu/open-webui-url.env)
+  local sso=()
+  [[ -f /etc/ollamabuntu/open-webui-sso.env ]] && sso=(--env-file /etc/ollamabuntu/open-webui-sso.env)
   docker run -d --name "$NAME" --restart always --network host \
-    -v open-webui:/app/backend/data --env-file "$ENVF" "${pol[@]}" "${url[@]}" "${lim[@]}" "$IMAGE" >/dev/null
+    -v open-webui:/app/backend/data --env-file "$ENVF" "${pol[@]}" "${url[@]}" "${sso[@]}" "${lim[@]}" "$IMAGE" >/dev/null
 }
 
 wait_ready() {
@@ -104,6 +106,13 @@ case "${1:-}" in
     wait_ready
     say "Adresse publique appliquée."
     ;;
+  apply-sso)
+    need_docker
+    say "Application de la connexion unique (recréation du conteneur, données conservées)"
+    run_container
+    wait_ready
+    say "Connexion unique appliquée."
+    ;;
   start)   docker start "$NAME" >/dev/null ;;
   stop)    docker stop "$NAME" >/dev/null ;;
   restart) docker restart "$NAME" >/dev/null ;;
@@ -114,8 +123,8 @@ case "${1:-}" in
   purge)
     docker rm -f "$NAME" >/dev/null 2>&1 || true
     docker volume rm open-webui >/dev/null 2>&1 || true
-    rm -f "$ENVF" /etc/ollamabuntu/open-webui-url.env
+    rm -f "$ENVF" /etc/ollamabuntu/open-webui-url.env /etc/ollamabuntu/open-webui-sso.env /etc/ollamabuntu/open-webui-sso.json
     say "Open WebUI et toutes ses données ont été supprimés."
     ;;
-  *) echo "usage : $0 install|update|apply|apply-url|start|stop|restart|remove|purge" >&2; exit 2 ;;
+  *) echo "usage : $0 install|update|apply|apply-url|apply-sso|start|stop|restart|remove|purge" >&2; exit 2 ;;
 esac

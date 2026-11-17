@@ -677,6 +677,31 @@
             <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="webui-url-msg" class="small"></span></div>
           </form>
         </div>
+        <div id="webui-sso" class="card hidden">
+          <h2>Connexion unique (SSO)</h2>
+          <p class="muted small">Permet de se connecter à Open WebUI avec votre fournisseur d'identité (OpenID Connect : Entra ID, Keycloak, Google, Authentik…). Créez chez le fournisseur une application « web » (client confidentiel) avec l'adresse de retour affichée ci-dessous, puis renseignez l'émetteur, l'identifiant et le secret. L'enregistrement recrée le conteneur Open WebUI (données conservées). Ces réglages sont désormais pilotés d'ici : ceux de l'interface d'administration d'Open WebUI ne sont plus conservés au redémarrage.</p>
+          <form id="webui-sso-form" autocomplete="off">
+            <label class="inline"><input type="checkbox" name="enabled"> Activer la connexion unique</label>
+            <label>Nom du bouton<input name="name" maxlength="30" placeholder="SSO"></label>
+            <label>Émetteur (issuer)<input name="issuer" type="text" inputmode="url" maxlength="300" placeholder="https://login.entreprise.com/realms/ia"></label>
+            <label>Identifiant client<input name="client_id" maxlength="200"></label>
+            <label>Secret client<input name="client_secret" type="password" maxlength="500" autocomplete="new-password"></label>
+            <label>Adresse d'Open WebUI<input name="redirect_base" type="text" inputmode="url" maxlength="253" placeholder="https://ia.entreprise.com"></label>
+            <p class="small">Adresse de retour à déclarer chez le fournisseur : <code id="webui-sso-redirect">-</code></p>
+            <label>Scopes<input name="scopes" maxlength="200" placeholder="openid email profile"></label>
+            <label class="inline"><input type="checkbox" name="signup"> Créer le compte à la première connexion</label>
+            <label class="inline"><input type="checkbox" name="merge_by_email"> Rattacher à un compte existant ayant la même adresse e-mail (à éviter si le fournisseur ne vérifie pas les adresses)</label>
+            <label class="inline"><input type="checkbox" name="login_form"> Garder le formulaire e-mail / mot de passe (recommandé : sans lui, une erreur de réglage verrouille tout le monde)</label>
+            <details class="fold mt"><summary>Réglages avancés</summary>
+              <label>Domaines d'e-mail autorisés (séparés par des virgules ; vide = tous)<input name="allowed_domains" maxlength="1000" placeholder="entreprise.com"></label>
+              <label>Revendication des rôles<input name="roles_claim" maxlength="100" placeholder="roles"></label>
+              <label>Rôles autorisés à se connecter (séparés par des virgules ; vide = user, admin)<input name="allowed_roles" maxlength="1000"></label>
+              <label>Rôles qui deviennent administrateurs<input name="admin_roles" maxlength="1000"></label>
+              <label>Revendication des groupes (synchronise les groupes d'Open WebUI ; vide = non)<input name="groups_claim" maxlength="100" placeholder="groups"></label>
+            </details>
+            <div class="row"><button class="btn primary" type="submit">Enregistrer et appliquer</button><button class="btn" type="button" id="webui-sso-test">Tester le fournisseur</button><span id="webui-sso-msg" class="small"></span></div>
+          </form>
+        </div>
         <div id="webui-pwd" class="card hidden">
           <h2>Mot de passe administrateur</h2>
           <p class="muted small">Réinitialise le mot de passe d'un compte Open WebUI directement dans sa base (Open WebUI doit être démarré). Sans adresse, le premier administrateur est utilisé. Les connexions déjà ouvertes restent valables jusqu'à leur expiration ; redémarrez Open WebUI pour les couper.</p>

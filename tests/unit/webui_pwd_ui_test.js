@@ -1,4 +1,4 @@
-// Console web : réinitialisation du mot de passe administrateur d'Open WebUI (écran Open WebUI), en français puis en anglais.
+// Console web, écran Open WebUI : réinitialisation du mot de passe administrateur et connexion unique (SSO), en français puis en anglais.
 // Prérequis : jsdom (NODE_PATH).   Usage : node tests/unit/webui_pwd_ui_test.js
 const { JSDOM } = require('jsdom');
 const fs = require('fs'), path = require('path');
@@ -11,7 +11,8 @@ const ok = (c, m) => { n++; console.log((c ? `[${String(n).padStart(2, '0')}] OK
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function until(fn, ms = 4000) { const t = Date.now(); while (Date.now() - t < ms) { try { if (fn()) return true; } catch (e) { /* attente */ } await sleep(40); } return false; }
 const json = (o, status = 200) => ({ ok: status < 400, status, json: async () => o, blob: async () => ({}) });
-const calls = []; let deployed = true, reply = null;
+const calls = []; let deployed = true, reply = null, ssoReply = null, askAnswer = true;
+const SSO = { enabled: false, name: 'SSO', issuer: '', client_id: '', scopes: 'openid email profile', redirect_base: '', signup: true, merge_by_email: true, login_form: true, allowed_domains: '', roles_claim: '', allowed_roles: '', admin_roles: '', groups_claim: '', secret_set: false, redirect_uri: '', public_url: '' };
 async function fakeFetch(p, o = {}) {
   const body = o.body ? JSON.parse(o.body) : undefined;
   calls.push([o.method || 'GET', p, body]);
@@ -19,6 +20,9 @@ async function fakeFetch(p, o = {}) {
   if (p === '/api/session') return json({ user: 'adm', role: 'admin', version: 'v' });
   if (p === '/api/webui') return json({ docker: true, configured: deployed, container: deployed ? 'running' : null, running: deployed, healthy: deployed, version: '0.6', latest: '0.6',
     tls_port: 8443, admin_email: deployed ? 'alice@x.fr' : null, public_url: '', started: '2026-11-17 10:00:00' });
+  if (p === '/api/webui/sso' && (o.method || 'GET') === 'GET') return json(SSO);
+  if (p === '/api/webui/sso') return ssoReply ? json(ssoReply.body, ssoReply.status) : json({ ok: true, config: Object.assign({}, SSO, body, { secret_set: true }), job: 'j1' });
+  if (p === '/api/webui/sso/test') return ssoReply ? json(ssoReply.body, ssoReply.status) : json({ ok: true, issuer: body.issuer });
   if (p === '/api/webui/password') return reply ? json(reply.body, reply.status) : json({ ok: true, email: body.email || 'alice@x.fr' });
   return json({});
 }
@@ -53,8 +57,40 @@ async function run(l) {
   ok(await until(() => msg.classList.contains('error') && !msg.classList.contains('okmsg') && msg.textContent.includes('zoe@x.fr')), lang + ' : compte inconnu : erreur avec la liste des administrateurs : ' + msg.textContent);
   if (lang === 'en') ok(msg.textContent.startsWith('No Open WebUI account with this address. Administrators:'), 'anglais : erreur traduite');
   reply = null;
+
+  // --- connexion unique
+  const sf = $('#webui-sso-form'), sm = $('#webui-sso-msg'), sub = () => sf.dispatchEvent(new w.Event('submit', { cancelable: true, bubbles: true }));
+  ok(await until(() => !$('#webui-sso').classList.contains('hidden') && sf.elements.redirect_base.value.startsWith('https://srv:8443')), lang + ' : SSO : carte visible, adresse d\'Open WebUI préremplie (adresse du serveur, port 8443)');
+  ok($('#webui-sso-redirect').textContent === 'https://srv:8443/oauth/oidc/callback', lang + ' : SSO : adresse de retour affichée');
+  sf.elements.redirect_base.value = 'https://ia.x.fr/'; sf.elements.redirect_base.dispatchEvent(new w.Event('input'));
+  ok($('#webui-sso-redirect').textContent === 'https://ia.x.fr/oauth/oidc/callback', lang + ' : SSO : adresse de retour mise à jour en direct');
+  ok(sf.elements.signup.checked && sf.elements.merge_by_email.checked && sf.elements.login_form.checked && !sf.elements.enabled.checked, lang + ' : SSO : valeurs par défaut prudentes');
+  sf.elements.enabled.checked = true; sf.elements.issuer.value = 'https://login.x.fr'; sf.elements.client_id.value = 'owui'; sf.elements.client_secret.value = 'sekret'; sf.elements.roles_claim.value = 'roles'; sub();
+  ok(await until(() => sm.classList.contains('okmsg')), lang + ' : SSO : enregistrement confirmé : ' + sm.textContent);
+  const sc = calls.filter((x) => x[1] === '/api/webui/sso' && x[0] === 'POST').pop();
+  ok(sc && sc[2].enabled === true && sc[2].issuer === 'https://login.x.fr' && sc[2].client_id === 'owui' && sc[2].client_secret === 'sekret' && sc[2].roles_claim === 'roles' && sc[2].login_form === true, lang + ' : SSO : réglages envoyés');
+  ok(sf.elements.client_secret.value === '' && sf.elements.client_secret.placeholder !== '', lang + ' : SSO : secret vidé, mention « inchangé » : ' + sf.elements.client_secret.placeholder);
+  sf.elements.client_secret.value = ''; sub(); await sleep(150);
+  const sc2 = calls.filter((x) => x[1] === '/api/webui/sso' && x[0] === 'POST').pop();
+  ok(!('client_secret' in sc2[2]), lang + ' : SSO : secret non renvoyé quand le champ est vide');
+  const posts = () => calls.filter((x) => x[1] === '/api/webui/sso' && x[0] === 'POST').length, before = posts();
+  sf.elements.login_form.checked = false; sub();
+  ok(await until(() => !$('#modal').classList.contains('hidden') && ($('#modal-text').textContent.includes('plus personne') || $('#modal-text').textContent.includes('nobody'))), lang + ' : SSO : formulaire local désactivé : confirmation demandée');
+  $('#modal-cancel').click(); await sleep(200);
+  ok(posts() === before, lang + ' : SSO : annulation : rien n\'est envoyé');
+  sub(); ok(await until(() => !$('#modal').classList.contains('hidden')), lang + ' : SSO : confirmation redemandée');
+  $('#modal-ok').click();
+  ok(await until(() => posts() === before + 1 && calls.filter((x) => x[1] === '/api/webui/sso' && x[0] === 'POST').pop()[2].login_form === false), lang + ' : SSO : confirmation : envoyé avec le formulaire local désactivé');
+  sf.elements.login_form.checked = true;
+  ssoReply = { status: 400, body: { error: 'Émetteur (issuer) : champ obligatoire.' } }; sub();
+  ok(await until(() => sm.classList.contains('error') && sm.textContent.length > 5), lang + ' : SSO : erreur affichée : ' + sm.textContent);
+  if (lang === 'en') ok(sm.textContent === 'Issuer: required field.', 'anglais : erreur SSO traduite');
+  ssoReply = null; sf.elements.issuer.value = 'https://login.x.fr';
+  $('#webui-sso-test').click();
+  ok(await until(() => sm.classList.contains('okmsg') && sm.textContent.includes('login.x.fr')), lang + ' : SSO : essai du fournisseur : ' + sm.textContent);
+  if (lang === 'en') ok(sm.textContent.startsWith('Provider reachable: https://login.x.fr.'), 'anglais : essai traduit');
   deployed = false; w.document.querySelector('#webui-refresh').click();
-  ok(await until(() => $('#webui-pwd').classList.contains('hidden')), lang + ' : carte masquée quand Open WebUI n\'est pas déployé');
+  ok(await until(() => $('#webui-pwd').classList.contains('hidden') && $('#webui-sso').classList.contains('hidden')), lang + ' : cartes masquées quand Open WebUI n\'est pas déployé');
   deployed = true;
 }
 (async () => { await run(); await run('en'); console.log('\n' + n + ' vérifications réussies'); process.exit(0); })();

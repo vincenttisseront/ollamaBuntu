@@ -206,6 +206,7 @@ fi
 systemctl enable --now ollamabuntu-firewall.service
 echo ">>> Paquets de sécurité installés : le pare-feu et les mises à jour automatiques sont actifs."
 """),
+    "webui-apply-sso": ("Application de la connexion unique (SSO) à Open WebUI", "exec /bin/bash /usr/local/lib/ollamabuntu/open-webui.sh apply-sso\n"),
     "webui-apply": ("Application de la politique d'usage de l'IA à Open WebUI", "exec /usr/local/lib/ollamabuntu/open-webui.sh apply\n"),
     "fleet-pull": ("Téléchargement des modèles synchronisés depuis la console principale", """\
 if ! python3 -c 'import json,sys; sys.exit(0 if json.load(open("/etc/ollamabuntu/ai-policy.json")).get("ollama_internet", True) else 1)' 2>/dev/null \\
@@ -7140,6 +7141,116 @@ def webui_reset_password(email, password):
     return out["email"]
 
 
+# Connexion unique (OIDC) d'Open WebUI. Deux fichiers (0600) : la configuration de la console (avec le secret client) et le
+# fichier d'environnement qu'on passe au conteneur. ENABLE_PERSISTENT_CONFIG=false : sans cela, Open WebUI garde en base les
+# valeurs OAUTH_* lues au premier démarrage et ignore les suivantes.
+WEBUI_SSO_FILE = os.path.join(ETC, "open-webui-sso.json")
+WEBUI_SSO_ENV = os.path.join(ETC, "open-webui-sso.env")
+WEBUI_SSO_DEFAULT = {"enabled": False, "name": "SSO", "issuer": "", "client_id": "", "client_secret": "", "scopes": "openid email profile",
+                     "redirect_base": "", "signup": True, "merge_by_email": True, "login_form": True, "allowed_domains": "",
+                     "roles_claim": "", "allowed_roles": "", "admin_roles": "", "groups_claim": ""}
+WEBUI_SSO_CALLBACK = "/oauth/oidc/callback"
+
+
+def _sso_text(d, key, cur, maxlen, label, pattern=None):
+    v = " ".join(str(d.get(key, cur.get(key, "")) or "").split())
+    if len(v) > maxlen or re.search(r"[\x00-\x1f\x7f]", v):
+        raise ValueError("%s : %d caractères au plus, sans caractère de contrôle." % (label, maxlen))
+    if v and pattern and not re.fullmatch(pattern, v):
+        raise ValueError("%s : caractères non autorisés." % label)
+    return v
+
+
+def webui_sso_clean(data, cur=None):
+    cur = dict(WEBUI_SSO_DEFAULT, **(cur or {}))
+    d = data if isinstance(data, dict) else {}
+    o = dict(cur)
+    o["enabled"] = bool(d.get("enabled", cur["enabled"]))
+    for k in ("signup", "merge_by_email", "login_form"):
+        o[k] = bool(d.get(k, cur[k]))
+    o["name"] = _sso_text(d, "name", cur, 30, "Nom du bouton") or "SSO"
+    o["issuer"] = _sso_text(d, "issuer", cur, 300, "Émetteur (issuer)").rstrip("/")
+    o["client_id"] = _sso_text(d, "client_id", cur, 200, "Identifiant client")
+    if d.get("client_secret"):
+        o["client_secret"] = _sso_text(d, "client_secret", {}, 500, "Secret client")
+    o["scopes"] = _sso_text(d, "scopes", cur, 200, "Scopes", r"[A-Za-z0-9_.:/ -]+") or "openid email profile"
+    if "openid" not in o["scopes"].split():
+        raise ValueError("Scopes : « openid » est obligatoire.")
+    base = _sso_text(d, "redirect_base", cur, 253, "Adresse d'Open WebUI")
+    o["redirect_base"] = webui_url_normalize(base) if base else ""
+    for k, label in (("allowed_domains", "Domaines autorisés"), ("allowed_roles", "Rôles autorisés"), ("admin_roles", "Rôles administrateurs")):
+        items = [x.strip() for x in str(d.get(k, cur[k]) or "").replace("\n", ",").split(",") if x.strip()]
+        if len(items) > 50 or any(len(x) > 100 or re.search(r"[\x00-\x1f\x7f=]", x) for x in items):
+            raise ValueError("%s : 50 valeurs au plus, 100 caractères chacune." % label)
+        o[k] = ",".join(items)
+    for k, label in (("roles_claim", "Revendication des rôles"), ("groups_claim", "Revendication des groupes")):
+        o[k] = _sso_text(d, k, cur, 100, label, r"[A-Za-z0-9_.:/-]+")
+    if (o["allowed_roles"] or o["admin_roles"]) and not o["roles_claim"]:
+        raise ValueError("Rôles : indiquez la revendication qui les contient.")
+    if o["enabled"]:
+        if not o["issuer"]:
+            raise ValueError("Émetteur (issuer) : champ obligatoire.")
+        sso.https_url(o["issuer"], "Émetteur (issuer)")
+        if not o["client_id"]:
+            raise ValueError("Identifiant client : champ obligatoire.")
+        if not o["client_secret"]:
+            raise ValueError("Secret client : champ obligatoire.")
+        if not o["redirect_base"]:
+            raise ValueError("Adresse d'Open WebUI : champ obligatoire (elle sert à l'adresse de retour déclarée chez le fournisseur).")
+    return o
+
+
+def webui_sso_env(c):
+    """Variables d'environnement d'Open WebUI. Désactivé : on force des valeurs neutres (le conteneur ne doit pas garder l'ancien réglage)."""
+    e = [("ENABLE_PERSISTENT_CONFIG", "false")]
+    if not c["enabled"]:
+        e += [("ENABLE_OAUTH_SIGNUP", "false"), ("ENABLE_LOGIN_FORM", "true"), ("OAUTH_CLIENT_ID", ""), ("OAUTH_CLIENT_SECRET", ""),
+              ("OPENID_PROVIDER_URL", ""), ("ENABLE_OAUTH_ROLE_MANAGEMENT", "false"), ("ENABLE_OAUTH_GROUP_MANAGEMENT", "false")]
+    else:
+        tf = lambda b: "true" if b else "false"
+        e += [("ENABLE_OAUTH_SIGNUP", tf(c["signup"])), ("OAUTH_MERGE_ACCOUNTS_BY_EMAIL", tf(c["merge_by_email"])), ("ENABLE_LOGIN_FORM", tf(c["login_form"])),
+              ("OAUTH_CLIENT_ID", c["client_id"]), ("OAUTH_CLIENT_SECRET", c["client_secret"]),
+              ("OPENID_PROVIDER_URL", c["issuer"] + "/.well-known/openid-configuration"), ("OAUTH_PROVIDER_NAME", c["name"]),
+              ("OAUTH_SCOPES", c["scopes"]), ("OPENID_REDIRECT_URI", c["redirect_base"] + WEBUI_SSO_CALLBACK),
+              ("OAUTH_ALLOWED_DOMAINS", c["allowed_domains"] or "*"),
+              ("ENABLE_OAUTH_ROLE_MANAGEMENT", tf(c["roles_claim"])), ("ENABLE_OAUTH_GROUP_MANAGEMENT", tf(c["groups_claim"]))]
+        if c["roles_claim"]:
+            e += [("OAUTH_ROLES_CLAIM", c["roles_claim"]), ("OAUTH_ALLOWED_ROLES", c["allowed_roles"] or "user,admin"), ("OAUTH_ADMIN_ROLES", c["admin_roles"])]
+        if c["groups_claim"]:
+            e.append(("OAUTH_GROUP_CLAIM", c["groups_claim"]))
+    return "# Connexion unique d'Open WebUI (console OllamaBuntu)\n" + "".join("%s=%s\n" % kv for kv in e)
+
+
+def webui_sso_load():
+    return dict(WEBUI_SSO_DEFAULT, **load_json_file(WEBUI_SSO_FILE, {}))
+
+
+def webui_sso_view(c=None):
+    c = c or webui_sso_load()
+    v = {k: c[k] for k in WEBUI_SSO_DEFAULT if k != "client_secret"}
+    v["secret_set"] = bool(c["client_secret"])
+    v["redirect_uri"] = (c["redirect_base"] + WEBUI_SSO_CALLBACK) if c["redirect_base"] else ""
+    v["public_url"] = webui_public_url()
+    return v
+
+
+def webui_sso_save(data):
+    c = webui_sso_clean(data, webui_sso_load())
+    atomic_write(WEBUI_SSO_FILE, json.dumps(c, ensure_ascii=False), 0o600)
+    atomic_write(WEBUI_SSO_ENV, webui_sso_env(c), 0o600)
+    return c
+
+
+def webui_sso_test(data):
+    """Le fournisseur publie-t-il un document de découverte cohérent ? (ne prouve pas que l'identifiant et le secret sont valables)"""
+    issuer = " ".join(str((data or {}).get("issuer") or webui_sso_load()["issuer"]).split()).rstrip("/")
+    sso.https_url(issuer, "Émetteur (issuer)")
+    disco = sso.discovery({"issuer": issuer, "ca_pem": ""})
+    return {"ok": True, "issuer": disco["issuer"], "authorization_endpoint": disco["authorization_endpoint"],
+            "scopes": [x for x in (disco.get("scopes_supported") or []) if isinstance(x, str)][:20],
+            "claims": [x for x in (disco.get("claims_supported") or []) if isinstance(x, str)][:30]}
+
+
 async def _pipe(reader, writer):
     import asyncio
     try:
@@ -7191,7 +7302,7 @@ def start_webui_proxy(ctx):
 
 # ---------------------------------------------------------------- serveur ---
 ADMIN_GET = {"/api/accel", "/api/status", "/api/gpu", "/api/logs", "/api/logs/live", "/api/metrics", "/api/requests", "/api/requests/settings", "/api/fleet/balance", "/api/jobs", "/api/users", "/api/ollama-env",
-             "/api/updates", "/api/models/insights", "/api/webui", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/redirects", "/api/fit", "/api/fit/hf", "/api/llama", "/api/llama/logs", "/api/power", "/api/costs", "/api/costs/export", "/api/privacy", "/api/rag", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
+             "/api/updates", "/api/models/insights", "/api/webui", "/api/webui/sso", "/api/update/online", "/api/hf/search", "/api/hf/files", "/api/alerts", "/api/tuning", "/api/limits", "/api/queue", "/api/redirects", "/api/fit", "/api/fit/hf", "/api/llama", "/api/llama/logs", "/api/power", "/api/costs", "/api/costs/export", "/api/privacy", "/api/rag", "/api/sso/config", "/api/fleet/rules", "/api/update/backups", "/api/usage", "/api/requests/export", "/api/prom", "/api/gpu/guard", "/api/hw", "/api/perf", "/api/audit", "/api/audit/export", "/api/report", "/api/models/disk", "/api/lab", "/api/mu", "/api/mu/check"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -7459,6 +7570,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, model_insights(refresh))
             if path == "/api/webui":
                 return self.send_json(200, webui_status())
+            if path == "/api/webui/sso":
+                return self.send_json(200, webui_sso_view())
             if path == "/api/models":
                 code, data = ollama_json("GET", "/api/tags")
                 if code == 200 and isinstance(data.get("models"), list):
@@ -7935,6 +8048,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self.send_json(502, {"error": str(e)})
                 print("mot de passe Open WebUI réinitialisé pour %s (par %s)" % (done, user), flush=True)
                 return self.send_json(200, {"ok": True, "email": done})
+            if path == "/api/webui/sso":
+                try:
+                    c = webui_sso_save(data)
+                except ValueError as e:
+                    return self.send_json(400, {"error": str(e)})
+                print("connexion unique d'Open WebUI : %s (par %s)" % ("activée" if c["enabled"] else "désactivée", user), flush=True)
+                out = {"ok": True, "config": webui_sso_view(c)}
+                if webui_deployed():
+                    try:
+                        out["job"] = start_job("webui-apply-sso")
+                    except (OSError, subprocess.SubprocessError) as e:
+                        return self.send_json(500, {"error": "réglage enregistré, mais impossible de l'appliquer : %s" % e})
+                return self.send_json(200, out)
+            if path == "/api/webui/sso/test":
+                try:
+                    return self.send_json(200, webui_sso_test(data))
+                except ValueError as e:
+                    return self.send_json(400, {"error": str(e)})
             if path == "/api/webui/deploy":
                 webui_configure(str(data.get("email", "")).strip(), str(data.get("password", "")), str(data.get("name", "")))
                 try:
