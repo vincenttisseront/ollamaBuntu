@@ -669,6 +669,14 @@
       <div class="section-title"><h1>Open WebUI</h1><button id="webui-refresh" class="btn" type="button">Actualiser</button></div>
       <div class="grid">
         <div id="webui-status" class="card"></div>
+        <div id="webui-url" class="card hidden">
+          <h2>Adresse publique</h2>
+          <p class="muted small">Adresse sous laquelle les utilisateurs ouvrent Open WebUI, par exemple un nom DNS ou un reverse proxy placé devant ce serveur (https://ia.entreprise.com). Elle sert au bouton « Ouvrir Open WebUI » et est transmise à Open WebUI (WEBUI_URL). Ce nom doit joindre le port 8443 de ce serveur, en HTTPS. Laissez vide pour utiliser l'adresse du serveur et le port 8443.</p>
+          <form id="webui-url-form" autocomplete="off">
+            <label>Adresse<input name="url" type="text" inputmode="url" maxlength="253" placeholder="https://ia.entreprise.com"></label>
+            <div class="row"><button class="btn primary" type="submit">Enregistrer</button><span id="webui-url-msg" class="small"></span></div>
+          </form>
+        </div>
         <div id="webui-deploy" class="card hidden">
           <h2>Déployer Open WebUI</h2>
           <p class="muted small">Interface de chat complète (historique, documents, comptes) branchée sur l'Ollama de ce serveur, publiée en HTTPS sur le port 8443. Nécessite un accès Internet (Docker et une image de plusieurs Go) et 10 Go libres.</p>

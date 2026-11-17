@@ -65,6 +65,7 @@ node tests/unit/lab_ui_test.js              # console : Laboratoire (comparateur
 node tests/unit/modelmap_ui_test.js         # console : modèles de remplacement par listes déroulantes, proposition automatique (jsdom, FR et EN)
 node tests/unit/accel_ui_test.js            # console : Performance > Caches, Préchauffage prédictif, Mesure continue, Cache de contexte vérifié, Parallélisme, Journal d'accélération (français et anglais)
 python3 tests/unit/hf_test.py            # recherche Hugging Face (faux serveur local)
+python3 tests/unit/webui_url_test.py       # Open WebUI : adresse publique (validation, enregistrement)
 python3 tests/unit/gpu_auto_test.py
 bash    tests/unit/crypt_engine_test.sh      # nécessite : cryptsetup, swtpm, tpm2-tools, clevis
 python3 tests/unit/online_update_test.py     # nécessite : openssl

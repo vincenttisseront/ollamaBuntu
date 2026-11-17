@@ -44,8 +44,10 @@ run_container() {
   local lim=() mem=""
   [[ -f /etc/ollamabuntu/open-webui.limits ]] && mem=$(sed -n 's/^MEM=\([0-9]\{1,4\}[mg]\)$/\1/p' /etc/ollamabuntu/open-webui.limits | head -n1)
   [[ -n $mem ]] && lim=(--memory "$mem" --memory-swap "$mem")
+  local url=()
+  [[ -f /etc/ollamabuntu/open-webui-url.env ]] && url=(--env-file /etc/ollamabuntu/open-webui-url.env)
   docker run -d --name "$NAME" --restart always --network host \
-    -v open-webui:/app/backend/data --env-file "$ENVF" "${pol[@]}" "${lim[@]}" "$IMAGE" >/dev/null
+    -v open-webui:/app/backend/data --env-file "$ENVF" "${pol[@]}" "${url[@]}" "${lim[@]}" "$IMAGE" >/dev/null
 }
 
 wait_ready() {
@@ -95,6 +97,13 @@ case "${1:-}" in
     wait_ready
     say "Politique appliquée."
     ;;
+  apply-url)
+    need_docker
+    say "Application de l'adresse publique (recréation du conteneur, données conservées)"
+    run_container
+    wait_ready
+    say "Adresse publique appliquée."
+    ;;
   start)   docker start "$NAME" >/dev/null ;;
   stop)    docker stop "$NAME" >/dev/null ;;
   restart) docker restart "$NAME" >/dev/null ;;
@@ -105,8 +114,8 @@ case "${1:-}" in
   purge)
     docker rm -f "$NAME" >/dev/null 2>&1 || true
     docker volume rm open-webui >/dev/null 2>&1 || true
-    rm -f "$ENVF"
+    rm -f "$ENVF" /etc/ollamabuntu/open-webui-url.env
     say "Open WebUI et toutes ses données ont été supprimés."
     ;;
-  *) echo "usage : $0 install|update|start|stop|restart|remove|purge" >&2; exit 2 ;;
+  *) echo "usage : $0 install|update|apply|apply-url|start|stop|restart|remove|purge" >&2; exit 2 ;;
 esac

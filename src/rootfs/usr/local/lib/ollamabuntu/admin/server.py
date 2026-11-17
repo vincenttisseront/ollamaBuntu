@@ -226,6 +226,7 @@ exit $rc
     "config-reload": ("Rechargement après restauration de la configuration", "systemctl restart ollama.service ollamabuntu-router.service ollamabuntu-firewall.service || true\nexec systemctl restart ollamabuntu-admin.service\n"),
     "appliance-rollback": ("Retour à la version précédente de l'appliance", "exit 1\n"),
     "webui-install": ("Déploiement d'Open WebUI", "exec /bin/bash /usr/local/lib/ollamabuntu/open-webui.sh install\n"),
+    "webui-apply-url": ("Application de l'adresse publique d'Open WebUI", "exec /bin/bash /usr/local/lib/ollamabuntu/open-webui.sh apply-url\n"),
     "webui-update": ("Mise à jour d'Open WebUI", "exec /bin/bash /usr/local/lib/ollamabuntu/open-webui.sh update\n"),
     "webui-remove": ("Suppression du conteneur Open WebUI", "exec /bin/bash /usr/local/lib/ollamabuntu/open-webui.sh remove\n"),
     "webui-purge": ("Suppression d'Open WebUI et de ses données", "exec /bin/bash /usr/local/lib/ollamabuntu/open-webui.sh purge\n"),
@@ -7007,11 +7008,43 @@ WEBUI_PORT = int(os.environ.get("OB_WEBUI_PORT", "3000"))
 WEBUI_TLS_PORT = int(os.environ.get("OB_WEBUI_TLS_PORT", "8443"))
 WEBUI_HELPER = os.environ.get("OB_WEBUI_HELPER", "/usr/local/lib/ollamabuntu/open-webui.sh")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Adresse publique : fichier d'environnement passé au conteneur en plus de la configuration (WEBUI_URL).
+WEBUI_URL_FILE = os.path.join(ETC, "open-webui-url.env")
+WEBUI_URL_RE = re.compile(r"^(https?)://((?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*|\[[0-9A-Fa-f:]{2,45}\])(?::([0-9]{1,5}))?/?$")
+
+
+def webui_url_normalize(raw):
+    """Adresse publique d'Open WebUI : schéma://nom[:port], sans chemin (Open WebUI ne gère pas de sous-chemin),
+    sans identifiants, requête ni ancre. Vide = adresse du serveur et port 8443. Renvoie l'adresse sans « / » final."""
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    m = WEBUI_URL_RE.match(raw) if len(raw) <= 253 else None
+    if not m or (m.group(3) and not 1 <= int(m.group(3)) <= 65535):
+        raise ValueError("Adresse invalide : attendu https://nom[:port] (ex. https://ia.entreprise.com), sans chemin, identifiants ni paramètres.")
+    return raw.rstrip("/")
+
+
+def webui_public_url():
+    for line in read_text(WEBUI_URL_FILE).splitlines():
+        if line.startswith("WEBUI_URL="):
+            return line.split("=", 1)[1].strip()
+    return ""
+
+
+def webui_set_url(raw):
+    url = webui_url_normalize(raw)
+    if url:
+        atomic_write(WEBUI_URL_FILE, "# Adresse publique d'Open WebUI (console OllamaBuntu)\nWEBUI_URL=%s\n" % url, 0o600)
+    elif os.path.exists(WEBUI_URL_FILE):
+        os.remove(WEBUI_URL_FILE)
+    return url
 
 
 def webui_status():
     st = {"docker": bool(shutil.which("docker")), "configured": os.path.exists(WEBUI_ENV), "container": None,
-          "running": False, "version": None, "latest": None, "tls_port": WEBUI_TLS_PORT, "admin_email": None}
+          "running": False, "version": None, "latest": None, "tls_port": WEBUI_TLS_PORT, "admin_email": None,
+          "public_url": webui_public_url()}
     for line in read_text(WEBUI_ENV).splitlines():
         if line.startswith("WEBUI_ADMIN_EMAIL="):
             st["admin_email"] = line.split("=", 1)[1]
@@ -7825,6 +7858,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return self.send_json(200, model_check(name))
                 except (OSError, ValueError) as e:
                     return self.send_json(502, {"error": "Registre Ollama injoignable : %s" % e})
+            if path == "/api/webui/url":
+                old = webui_public_url()
+                try:
+                    new = webui_set_url(str(data.get("url", "")))
+                except ValueError as e:
+                    return self.send_json(400, {"error": str(e)})
+                print("adresse publique d'Open WebUI : %s (par %s)" % (new or "(aucune)", user), flush=True)
+                if not (webui_deployed() and new != old):
+                    return self.send_json(200, {"ok": True, "url": new})
+                try:
+                    return self.send_json(200, {"ok": True, "url": new, "job": start_job("webui-apply-url")})
+                except (OSError, subprocess.SubprocessError) as e:
+                    return self.send_json(500, {"error": "adresse enregistrée, mais impossible d'appliquer : %s" % e})
             if path == "/api/webui/deploy":
                 webui_configure(str(data.get("email", "")).strip(), str(data.get("password", "")), str(data.get("name", "")))
                 try:

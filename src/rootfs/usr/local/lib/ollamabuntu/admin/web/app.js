@@ -1506,7 +1506,7 @@ async function loadWebui() {
   let w;
   try { w = await api('/api/webui'); } catch (e) { $('#webui-status').replaceChildren(el('p', { class: 'error', text: e.message })); return; }
   const deployed = w.container !== null;
-  const url = 'https://' + location.hostname + ':' + w.tls_port + '/';
+  const url = w.public_url ? w.public_url + '/' : 'https://' + location.hostname + ':' + w.tls_port + '/';
   const rows = [['Docker', w.docker ? 'installé' : 'non installé'], ['Conteneur', w.container || 'absent']];
   if (deployed) rows.push(['Version', (w.version || '?') + (w.latest && w.version && w.latest !== w.version ? ' (version ' + w.latest + ' disponible)' : '')],
     ['Démarré le', w.started || '-'], ['Administrateur', w.admin_email || '-'], ['Adresse', url]);
@@ -1521,6 +1521,8 @@ async function loadWebui() {
       btn('Supprimer (garder les données)', 'webui-remove', 'danger'), btn('Tout supprimer', 'webui-purge', 'danger')) : null,
     deployed ? el('p', { class: 'muted small', text: 'Le certificat est celui de la console (auto-signé). Les comptes Open WebUI sont propres à Open WebUI.' }) : null);
   $('#webui-deploy').classList.toggle('hidden', deployed);
+  $('#webui-url').classList.toggle('hidden', !deployed);
+  $('#webui-url-form').elements.url.value = w.public_url || '';
   resumeJob();
 }
 async function webuiAction(act, label) {
@@ -1533,6 +1535,17 @@ async function webuiAction(act, label) {
   loadWebui();
 }
 $('#webui-refresh').addEventListener('click', loadWebui);
+$('#webui-url-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target, out = $('#webui-url-msg');
+  out.className = 'small';
+  try {
+    const d = await api('/api/webui/url', { json: { url: f.elements.url.value.trim() } });
+    out.textContent = d.job ? 'Adresse enregistrée ; Open WebUI est recréé (voir la tâche).' : 'Adresse enregistrée.'; out.classList.add('okmsg');
+    if (d.job) followJob(d.job);
+    loadWebui();
+  } catch (e) { out.textContent = e.message; out.classList.add('error'); }
+});
 $('#webui-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target, out = $('#webui-msg');
