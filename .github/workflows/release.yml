@@ -2,8 +2,11 @@
 # La release contient l'archive de mise à jour en ligne, sa somme SHA-256 et sa signature Ed25519 ;
 # les appliances la détectent depuis leur console web (Système > Appliance) et la vérifient avant de l'appliquer.
 name: Release
+# Deux façons de déclencher : un tag vAAAA.MM.JJ-HHMM, ou un push sur main dont le message de commit contient « [release] »
+# (le tag est alors créé ici, daté de maintenant, heure de Paris ; les notes sont le message de commit).
 on:
   push:
+    branches: [main]
     tags:
       - 'v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9][0-9][0-9]'
 
@@ -12,17 +15,24 @@ permissions:
 
 jobs:
   bundle:
+    if: github.ref_type == 'tag' || contains(github.event.head_commit.message, '[release]')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Version à publier
+        id: ver
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then tag="$GITHUB_REF_NAME"; else tag="v$(TZ=Europe/Paris date +%Y.%m.%d-%H%M)"; fi
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          echo "Version : $tag"
       - name: Release déjà publiée depuis un poste (tools/release/publish-local.sh) ?
         id: chk
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; echo "Release déjà publiée : rien à faire."; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; echo "Release déjà publiée : rien à faire."; fi
       - uses: actions/setup-node@v4
         if: steps.chk.outputs.exists != 'true'
         with:
@@ -48,7 +58,7 @@ jobs:
           umask 077
           keyfile="$RUNNER_TEMP/update-signing-key.pem"
           printf '%s\n' "$SIGNING_KEY" > "$keyfile"
-          export OB_VERSION="${GITHUB_REF_NAME#v}" OB_SIGNING_KEY="$keyfile"
+          export OB_VERSION="${TAG#v}" OB_SIGNING_KEY="$keyfile"
           ./build.sh --bundle
           rm -f "$keyfile"
           ls -l ollamabuntu-update-*.tar.gz SHA256SUMS SHA256SUMS.sig
@@ -58,11 +68,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # message du tag (annoté) = notes de version ; « [preview] » dans ce message = préversion (canal « préversions » seulement)
-          msg="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            # message du tag (annoté) = notes de version ; « [preview] » dans ce message = préversion (canal « préversions » seulement)
+            msg="$(git tag -l --format='%(contents)' "$TAG")"
+            target=()
+          else
+            msg="$(git log -1 --format=%B "$GITHUB_SHA")"
+            target=(--target "$GITHUB_SHA")
+          fi
           flags=()
           if printf '%s' "$msg" | grep -q '\[preview\]'; then flags+=(--prerelease); fi
-          notes="$(printf '%s' "$msg" | sed 's/\[preview\]//g')"
-          [ -n "$(printf '%s' "$notes" | tr -d '[:space:]')" ] || notes="OllamaBuntu ${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" "${flags[@]}" --title "OllamaBuntu ${GITHUB_REF_NAME#v}" --notes "$notes" \
+          notes="$(printf '%s' "$msg" | sed -e 's/\[preview\]//g' -e 's/\[release\]//g' | grep -v -E '^(Co-Authored-By|Claude-Session):')"
+          [ -n "$(printf '%s' "$notes" | tr -d '[:space:]')" ] || notes="OllamaBuntu ${TAG#v}"
+          gh release create "$TAG" "${flags[@]}" "${target[@]}" --title "OllamaBuntu ${TAG#v}" --notes "$notes" \
             ollamabuntu-update-*.tar.gz SHA256SUMS SHA256SUMS.sig

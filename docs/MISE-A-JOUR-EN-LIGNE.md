@@ -53,7 +53,11 @@ Une fois :
    Perdre la clé impose de livrer une nouvelle clé publique par ISO ou par une mise à jour signée de l'ancienne clé ; la divulguer permet à
    quiconque d'installer du code sur toutes les appliances : la révoquer exige alors une nouvelle ISO.
 
-À chaque version :
+À chaque version, sans tag à pousser : un commit sur `main` dont le message contient **`[release]`** déclenche la publication
+(le workflow crée le tag daté de maintenant, heure de Paris, construit, signe et publie ; les notes sont le message du commit).
+Sans `[release]`, un push sur `main` ne publie rien. Il faut que le secret `OB_UPDATE_SIGNING_KEY` soit enregistré.
+
+Autre méthode, par tag :
 
 ```sh
 git push origin main
