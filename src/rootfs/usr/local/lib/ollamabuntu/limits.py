@@ -36,6 +36,7 @@ class Limiter:
         self._seq = 0
         self._total = 0
         self._waits = []   # (instant, secondes d'attente, priorité) des requêtes admises après avoir attendu
+        self._peaks = []   # (instant, taille de la file) à chaque arrivée : sert au pic de file d'attente de la console
         self.dirty = threading.Event()
 
     @staticmethod
@@ -75,6 +76,8 @@ class Limiter:
             me = {"kid": kid, "cap": cap, "prio": priority_of(prio), "seq": self._seq, "t": t0, "info": dict(info or {})}
             self._tickets.append(me)
             self._waiting[kid] = self._waiting.get(kid, 0) + 1
+            self._peaks.append((t0, len(self._tickets)))
+            del self._peaks[:-300]
             self.dirty.set()
             try:
                 while not self._my_turn(me, total, clock()):
@@ -125,6 +128,12 @@ class Limiter:
             ts = sorted(self._tickets, key=lambda t: self._rank(t, now))
             return [{"kid": t["kid"], "who": t["info"].get("who"), "model": t["info"].get("model"), "prio": t["prio"], "eff": self._eff(t, now),
                      "waited": round(now - t["t"], 1)} for t in ts]
+
+    def peak_waiting(self, window=15, now=None):
+        """Plus grande taille de la file d'attente sur les `window` dernières secondes (au moins la taille actuelle)."""
+        now = now or time.time()
+        with self._cv:
+            return max([len(self._tickets)] + [n for t, n in self._peaks if now - t <= window])
 
     def total_running(self):
         with self._cv:

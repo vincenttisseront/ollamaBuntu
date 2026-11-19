@@ -2779,7 +2779,9 @@ async function loadPerf(force) {
     lineChart({ title: 'Processeur et mémoire', unit: '%', max: 100, span: m.span, series: [{ name: 'Processeur', points: pts((p) => p.cpu) }, { name: 'Mémoire', points: pts((p) => p.mem) }] }),
     lineChart({ title: 'Requêtes par minute', unit: '', span: m.span, decimals: 1, series: [{ name: 'Requêtes', points: pts((p) => p.rpm) }] }),
     lineChart({ title: 'Jetons par seconde', unit: 't/s', span: m.span, decimals: 1, series: [{ name: 'Vitesse par requête', points: pts((p) => p.tps) }, { name: 'Débit total', points: pts((p) => p.tok_s) }] }),
-    lineChart({ title: 'Temps avant le premier jeton', unit: 'ms', span: m.span, series: [{ name: 'Premier jeton', points: pts((p) => p.ttft) }] }));
+    lineChart({ title: 'Temps avant le premier jeton', unit: 'ms', span: m.span, series: [{ name: 'Premier jeton', points: pts((p) => p.ttft) }] }),
+    lineChart({ title: 'File d\'attente', unit: '', span: m.span, max: Math.ceil(Math.max(4, ...S.map((p) => Math.max(p.qw || 0, p.qa || 0))) / 2) * 2,
+      series: [{ name: 'En attente (pic)', points: pts((p) => p.qw) }, { name: 'En cours', points: pts((p) => p.qa) }] }));
   $('#perf-note').textContent = gp.length ? '' : 'Aucun GPU mesurable (NVIDIA ou AMD) : les graphiques GPU restent vides.';
 }
 for (const b of $$('#perf-range button')) b.addEventListener('click', () => {

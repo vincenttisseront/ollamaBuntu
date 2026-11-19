@@ -1392,7 +1392,7 @@ def limits_writer():
         if _tokens.dirty.is_set() or time.time() - last > 5:
             _tokens.dirty.clear()
         limits.write_json(LIMITS_FILE, {"t": int(time.time()), "queue": _limiter.snapshot(), "tokens": _tokens.snapshot(), "waiting": _limiter.waiting_list(),
-                                        "active": _limiter.total_running(), "waits": _limiter.wait_stats(), "wake": dict(_wake)})
+                                        "active": _limiter.total_running(), "peak": _limiter.peak_waiting(), "waits": _limiter.wait_stats(), "wake": dict(_wake)})
         last = time.time()
         time.sleep(2)
 

@@ -652,10 +652,12 @@
 "Embeddings pour la recherche documentaire (RAG), très rapide.": "Embeddings for document search (RAG), very fast.",
 "Emplacement PCI": "PCI slot",
 "Empreinte du certificat à vérifier lors de l'ajout :": "Certificate fingerprint to check when adding:",
+"En attente (pic)": "Waiting (peak)",
 "En attente :": "Waiting:",
 "En attente de la fin des tâches précédentes...": "Waiting for previous tasks to finish...",
 "En cas d'échec, reprendre avec le modèle demandé": "On failure, retry with the requested model",
 "En cas de perte d'accès : menu console du serveur, « Pare-feu : autoriser l'administration depuis tous les réseaux ».": "If you lose access: server console menu, “Firewall: allow administration from all networks”.",
+"En cours": "Running",
 "En cours :": "Running:",
 "En erreur ou interrompues": "Failed or interrupted",
 "En marche": "Running",
@@ -5089,6 +5091,14 @@
 "No SMTP password"
 ],
 [
+"En attente \\(pic\\) : (.+)",
+"Waiting (peak): {1}"
+],
+[
+"En cours : (.+)",
+"Running: {1}"
+],
+[
 "Pilote NVIDIA (\\S+) chargé\\.",
 "NVIDIA driver {1} loaded."
 ],
@@ -5301,7 +5311,7 @@
 "live - {1}"
 ],
 [
-"(Charge GPU|Mémoire vidéo occupée|Processeur et mémoire|Requêtes par minute|Jetons par seconde|Temps avant le premier jeton) : (.+)",
+"(Charge GPU|Mémoire vidéo occupée|Processeur et mémoire|Requêtes par minute|Jetons par seconde|Temps avant le premier jeton|File d'attente) : (.+)",
 "{1}: {2}"
 ],
 [

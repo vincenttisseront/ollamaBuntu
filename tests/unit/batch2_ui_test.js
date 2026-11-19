@@ -29,7 +29,7 @@ async function fakeFetch(p, o = {}) {
     events: { key_expiry: "Clé d'API expirée ou bientôt expirée" }, active: [{ key: 'disk', severity: 'warning', text: 'Disque occupé à 95 %' }, { key: "key_expiry:RH", severity: 'info', text: "Clé d'API « RH » expire dans 3 jour(s)" }], last_error: '' });
   if (p === '/api/fleet/servers') return json({ servers: [{ id: 's1', name: 'Srv1', state: 'en ligne', route: true, data: { gpu_live: [{ util: 45, mem_used: 3 * GB, mem_total: 8 * GB }], ollama: { running: [{ name: 'gemma4:12b' }] } } },
     { id: 's2', name: 'Srv2', state: 'hors ligne', error: 'délai dépassé', route: false, data: null }], actions: {}, sync_kinds: {}, local_models: [] });
-  if (p.startsWith('/api/metrics')) return json({ span: 3600, interval: 10, gpus: { '0000:01:00.0': 'Quadro RTX 4000' }, series: [{ t: now - 60, cpu: 5, mem: 20, gpus: { '0000:01:00.0': { u: 50, m: 40, t: 66, p: 90 } }, rpm: 1, tok_s: 2, tps: 30, ttft: 200 }] });
+  if (p.startsWith('/api/metrics')) return json({ span: 3600, interval: 10, gpus: { '0000:01:00.0': 'Quadro RTX 4000' }, series: [{ t: now - 60, cpu: 5, mem: 20, gpus: { '0000:01:00.0': { u: 50, m: 40, t: 66, p: 90 } }, rpm: 1, tok_s: 2, tps: 30, ttft: 200, qw: 3, qa: 1 }] });
   if (p.startsWith('/api/requests/export')) return json({});
   if (p.startsWith('/api/requests/settings')) return json({ prompt_excerpt: false, chars: 120, days: 7 });
   if (p.startsWith('/api/requests')) return json({ requests: REQS, summary: [], prompt_excerpt: false });
@@ -96,6 +96,7 @@ function make(lang) {
 
   // 4. graphes GPU
   ok(await until(() => $('#perf-charts').textContent.includes('Température GPU') && $('#perf-charts').textContent.includes('Puissance GPU')), 'graphiques : température et puissance des GPU');
+  ok($('#perf-charts').textContent.includes("File d'attente") && $('#perf-charts').textContent.includes('En attente (pic) : 3') && $('#perf-charts').textContent.includes('En cours : 1'), 'graphiques : file d\'attente (pic en attente et requêtes en cours)');
 
   // 5. requêtes : filtres et export
   w.location.hash = '#logs/requests';
@@ -181,6 +182,7 @@ function make(lang) {
   ok($e('#prom-card').textContent.includes('Prometheus export') && $e('#prom-create').textContent === 'Generate a token', 'anglais : export Prometheus');
   e.location.hash = '#logs/requests';
   ok(await until(() => $e('#rf-export').textContent === 'Export as CSV'), 'anglais : export CSV');
+  ok(await until(() => $e('#perf-charts').textContent.includes('Queue') && $e('#perf-charts').textContent.includes('Waiting (peak): 3') && $e('#perf-charts').textContent.includes('Running: 1')), 'anglais : graphique de la file d\'attente');
   console.log('\n' + n + ' vérifications réussies');
   process.exit(0);
 })();

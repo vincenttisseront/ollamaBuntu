@@ -60,6 +60,7 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/ops3_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/catalog_sources_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/webui_url_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/queue_chart_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/webui_pwd_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/webui_sso_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/webui_searx_test.py

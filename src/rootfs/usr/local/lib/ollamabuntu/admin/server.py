@@ -5565,7 +5565,11 @@ def take_sample():
     reqs = [r for r in fresh if r.get("status") == 200]
     tps = [r["tps"] for r in reqs if r.get("tps")]
     ttft = [r["ttft_ms"] for r in reqs if r.get("ttft_ms") is not None]
-    s = {"t": int(time.time()), "cpu": cpu, "mem": mem, "gpus": gpus, "req": len(reqs),
+    lim = load_json_file(ROUTER_LIMITS, {})   # file d'attente du routeur : 0 si son état n'est plus à jour (routeur arrêté)
+    live = time.time() - int(lim.get("t") or 0) < 30
+    qw = int(lim.get("peak", len(lim.get("waiting") or [])) or 0) if live else 0
+    qa = int(lim.get("active") or 0) if live else 0
+    s = {"t": int(time.time()), "cpu": cpu, "mem": mem, "gpus": gpus, "req": len(reqs), "qw": qw, "qa": qa,
          "tok": sum(r.get("out_tok") or 0 for r in reqs), "tps": round(sum(tps) / len(tps), 1) if tps else None,
          "ttft": round(sum(ttft) / len(ttft)) if ttft else None}
     with _metrics_lock:
@@ -5624,7 +5628,9 @@ def metrics_view(span):
         series.append({"t": int(sum(x["t"] for x in xs) / len(xs)), "cpu": avg([x["cpu"] for x in xs if x["cpu"] is not None]),
                        "mem": avg([x["mem"] for x in xs if x["mem"] is not None]), "gpus": gp,
                        "rpm": round(sum(x["req"] for x in xs) * 60.0 / dur, 2), "tok_s": round(sum(x["tok"] for x in xs) / dur, 2),
-                       "tps": avg([x["tps"] for x in xs if x["tps"] is not None]), "ttft": avg([x["ttft"] for x in xs if x["ttft"] is not None])})
+                       "tps": avg([x["tps"] for x in xs if x["tps"] is not None]), "ttft": avg([x["ttft"] for x in xs if x["ttft"] is not None]),
+                       "qw": max([x["qw"] for x in xs if x.get("qw") is not None], default=None),   # pic : une file brève reste visible
+                       "qa": avg([x["qa"] for x in xs if x.get("qa") is not None])})
     return {"span": span, "interval": METRICS_EVERY, "gpus": names, "series": series}
 
 

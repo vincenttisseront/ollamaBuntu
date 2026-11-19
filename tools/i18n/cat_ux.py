@@ -21,6 +21,6 @@ E = {
 }
 P = [
 (r"en direct - (.+)", "live - {1}"),
-(r"(Charge GPU|Mémoire vidéo occupée|Processeur et mémoire|Requêtes par minute|Jetons par seconde|Temps avant le premier jeton) : (.+)", "{1}: {2}"),
+(r"(Charge GPU|Mémoire vidéo occupée|Processeur et mémoire|Requêtes par minute|Jetons par seconde|Temps avant le premier jeton|File d'attente) : (.+)", "{1}: {2}"),
 (r"(Processeur|Mémoire|Requêtes|Vitesse par requête|Débit total|Premier jeton) : (.+)", "{1}: {2}"),
 ]

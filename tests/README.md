@@ -67,6 +67,7 @@ node tests/unit/modelmap_ui_test.js         # console : modèles de remplacement
 node tests/unit/accel_ui_test.js            # console : Performance > Caches, Préchauffage prédictif, Mesure continue, Cache de contexte vérifié, Parallélisme, Journal d'accélération (français et anglais)
 python3 tests/unit/hf_test.py            # recherche Hugging Face (faux serveur local)
 python3 tests/unit/webui_url_test.py       # Open WebUI : adresse publique (validation, enregistrement)
+python3 tests/unit/queue_chart_test.py     # graphique « File d'attente » (pic du limiteur, échantillon, regroupement)
 python3 tests/unit/webui_pwd_test.py       # Open WebUI : réinitialisation du mot de passe administrateur (script réel sur SQLite temporaire ; bcrypt requis)
 python3 tests/unit/webui_sso_test.py       # Open WebUI : connexion unique OIDC (validation, fichiers d'environnement, secret, essai du fournisseur)
 python3 tests/unit/webui_searx_test.py     # SearXNG : déploiement par le script (faux docker), état, surveillant, aucune commande pour l'arrêter
