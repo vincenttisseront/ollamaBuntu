@@ -1904,15 +1904,24 @@ def logfmt(line):
 
 
 def parse_discovery(text):
+    """Dernière détection du matériel qui a donné un résultat. Ollama récent relance « discovering available GPUs » à des moments où
+    aucune ligne « inference compute » ne suit : on ne prend donc pas le dernier bloc à l'aveugle, mais le dernier bloc qui contient un résultat."""
     lines = text.splitlines()
-    starts = [i for i, l in enumerate(lines) if "discovering available GPUs" in l]
-    used, dropped = [], []
-    for line in lines[starts[-1] if starts else 0:]:
-        if 'msg="inference compute"' in line:
-            used.append(logfmt(line))
-        elif "dropping integrated GPU" in line:
-            dropped.append(logfmt(line))
-    return used, dropped
+    starts = [i for i, l in enumerate(lines) if "discovering available GPUs" in l] or [0]
+    ends = starts[1:] + [len(lines)]
+    first = (None, None)
+    for a, b in reversed(list(zip(starts, ends))):
+        used, dropped = [], []
+        for line in lines[a:b]:
+            if 'msg="inference compute"' in line:
+                used.append(logfmt(line))
+            elif "dropping integrated GPU" in line:
+                dropped.append(logfmt(line))
+        if used:
+            return used, dropped
+        if first == (None, None):
+            first = (used, dropped)
+    return first if first != (None, None) else ([], [])
 
 
 _LOG_CACHE = {}
