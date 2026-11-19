@@ -873,7 +873,7 @@ $('#key-form').addEventListener('submit', async (ev) => {
   const f = ev.target;
   try {
     const r = await api('/api/publication/keys/create', { json: { name: f.elements.name.value.trim(), perms: checkedValues(f, 'perm'), models: checkedValues(f, 'model'), deny: checkedValues(f, 'deny'),
-      max_concurrent: Number(f.elements.max_concurrent.value) || 0, priority: prioNum(f.elements.priority.value), team: f.elements.team.value.trim(), words: f.elements.words.value, collections: f.elements.collections.value, max_ctx: Number(f.elements.max_ctx.value) || 0, max_output: Number(f.elements.max_output.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
+      max_concurrent: Number(f.elements.max_concurrent.value) || 0, priority: prioNum(f.elements.priority.value), substitution: f.elements.substitution.value, hedge: f.elements.hedge.checked, team: f.elements.team.value.trim(), words: f.elements.words.value, collections: f.elements.collections.value, max_ctx: Number(f.elements.max_ctx.value) || 0, max_output: Number(f.elements.max_output.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
     f.elements.name.value = ''; f.elements.expires.value = ''; $('#key-msg').textContent = '';
     await loadPublication();
     const code = el('code', { class: 'token', text: r.token });
@@ -2306,7 +2306,10 @@ async function loadBalance() {
   const sel = $('#bal-strategy');
   if (w_active() !== sel) sel.value = d.strategy;
   if (w_active() !== $('#bal-affinity')) $('#bal-affinity').checked = d.affinity !== false;
-  if (w_active() !== $('#bal-substitute')) $('#bal-substitute').checked = d.substitute === true;
+  if (w_active() !== $('#bal-substitute')) $('#bal-substitute').value = d.substitute_mode || (d.substitute ? 'always' : 'strict');
+  if (w_active() !== $('#bal-overflow')) $('#bal-overflow').value = String(d.overflow_wait || 8);
+  $('#bal-overflow').disabled = $('#bal-substitute').value !== 'overflow';
+  if (w_active() !== $('#bal-prewarm')) $('#bal-prewarm').checked = d.prewarm === true;
   $('#bal-strategy-help').textContent = BAL_HELP[sel.value] || '';
   const items = [];
   if (!d.servers.length) items.push(el('li', { text: 'Aucun serveur dans le parc : ajoutez-en un (onglet « Ajouter un serveur »).' }));
@@ -2316,13 +2319,14 @@ async function loadBalance() {
   const rs = d.rescued || { count: 0, lost: 0 };
   if (rs.count || rs.lost) items.push(el('li', { class: rs.lost ? '' : 'okmsg', text: 'Reprise automatique (24 h) : ' + rs.count + ' requête(s) sauvée(s) par un autre serveur' + (rs.lost ? ', ' + rs.lost + ' perdue(s) faute de serveur disponible' : '') + '.' }));
   $('#bal-issues').replaceChildren(...items);
-  const rows = [{ name: 'Ce serveur', models: d.local.models, served: d.local.served, last: d.local.last, failures: d.local.failures }].concat(d.servers);
+  const rows = [{ id: 'local', slots: d.slots_local || 0, name: 'Ce serveur', models: d.local.models, served: d.local.served, last: d.local.last, failures: d.local.failures }].concat(d.servers);
   $('#bal-servers').replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
-    el('thead', {}, el('tr', {}, ...['Serveur', 'État', 'Répartition', 'Modèles en commun', 'Requêtes servies (24 h)', 'Échecs (24 h)', 'Dernière requête'].map((c, i) => el('th', { class: i >= 3 ? 'num' : '', text: c })))),
+    el('thead', {}, el('tr', {}, ...['Serveur', 'État', 'Répartition', 'Places', 'Modèles en commun', 'Requêtes servies (24 h)', 'Échecs (24 h)', 'Dernière requête'].map((c, i) => el('th', { class: i >= 3 ? 'num' : '', text: c })))),
     el('tbody', {}, ...rows.map((r, i) => el('tr', {},
       el('td', { class: 'name', text: r.name }),
       el('td', {}, i ? pill(r.state, FLEET_KIND[r.state] || 'warn') : pill('en ligne', 'ok')),
       el('td', {}, i ? (r.route ? pill('activée', 'ok') : pill('désactivée', 'warn')) : '-'),
+      el('td', { class: 'num' }, balSlots(r, i)),
       el('td', { class: 'num', text: i ? r.common + ' / ' + r.models + (r.swaps ? ' (+' + r.swaps + ' en remplacement)' : '') : String(r.models) }),
       el('td', { class: 'num', text: String(r.served) }),
       el('td', { class: 'num', text: r.failures ? String(r.failures) : '-' }),
@@ -2337,6 +2341,16 @@ async function loadBalance() {
   $('#bal-test').disabled = !usable || !multi.length;
 }
 const w_active = () => document.activeElement;
+function balSlots(r, i) {
+  const inp = el('input', { type: 'number', min: '0', max: '64', value: String(r.slots || 0), class: 'slots', 'aria-label': 'Places de ' + r.name, style: 'width:4.5em' });
+  inp.addEventListener('change', async () => {
+    const slots = {};
+    for (const x of $$('#bal-servers input.slots')) if (Number(x.value) > 0) slots[x.dataset.id] = Number(x.value);
+    await balSave({ slots });
+  });
+  inp.dataset.id = i ? r.id : 'local';
+  return inp;
+}
 $('#bal-strategy').addEventListener('change', async () => {
   $('#bal-strategy-help').textContent = BAL_HELP[$('#bal-strategy').value] || '';
   try { await api('/api/fleet/balance/strategy', { json: { strategy: $('#bal-strategy').value } }); $('#bal-msg').className = 'small okmsg'; $('#bal-msg').textContent = 'Enregistré.'; }
@@ -2958,6 +2972,8 @@ function keyLimits(k, u) {
   if (k.words && k.words.length) parts.push(k.words.length + ' terme(s) interdit(s)');
   if (k.collections && k.collections.length) parts.push('documents : ' + k.collections.join(', '));
   if (k.priority !== undefined && k.priority !== null && k.priority !== 2) parts.push('priorité ' + PRIO_NAME[k.priority]);
+  if (k.substitution) parts.push('modèle différent : ' + ({ strict: 'jamais', overflow: 'au débordement', always: 'toujours' }[k.substitution] || k.substitution));
+  if (k.hedge) parts.push('requêtes doublées si lentes');
   if (k.max_ctx) parts.push('contexte ≤ ' + n(k.max_ctx) + ' jetons');
   if (k.max_output) parts.push('réponse ≤ ' + n(k.max_output) + ' jetons');
   if (!parts.length && u && u.total) parts.push(n(u.total) + ' jetons au total');
@@ -3714,17 +3730,24 @@ async function keyCaps(k) {
   const out = el('input', { type: 'number', min: '0', max: '1000000', value: String(k.max_output || 0), 'aria-label': 'Réponse maximale' });
   const prio = el('select', { 'aria-label': 'Priorité dans la file d\'attente' }, ...[0, 1, 2, 3].map((p) => el('option', { value: String(p), text: PRIO_NAME[p].charAt(0).toUpperCase() + PRIO_NAME[p].slice(1) })));
   prio.value = String(prioNum(k.priority === undefined || k.priority === null ? 2 : k.priority));
+  const subst = el('select', { 'aria-label': 'Modèle différent pour cette clé' }, el('option', { value: '', text: 'Selon le réglage de la répartition' }), el('option', { value: 'strict', text: 'Jamais (exactement le modèle demandé)' }), el('option', { value: 'overflow', text: 'En cas de débordement' }), el('option', { value: 'always', text: 'Toujours' }));
+  subst.value = k.substitution || '';
+  const hedge = el('input', { type: 'checkbox', 'aria-label': 'Doubler les requêtes lentes' });
+  hedge.checked = k.hedge === true;
   const team = el('input', { type: 'text', maxlength: '40', list: 'team-list', value: k.team || '', 'aria-label': 'Équipe' });
   const words = el('input', { type: 'text', maxlength: '600', value: (k.words || []).join(', '), placeholder: 'ex. salaire, projet orion', 'aria-label': 'Termes interdits' });
   const colls = el('input', { type: 'text', maxlength: '600', value: (k.collections || []).join(', '), placeholder: 'ex. RH, Juridique', 'aria-label': 'Bases de documents autorisées' });
   const ok = await modal({ title: 'Plafonds de la clé « ' + k.name + ' »', message: 'Ramène les demandes qui dépassent ces valeurs au plafond (en-tête de réponse X-OllamaBuntu-Clamped). 0 = sans plafond. Le contexte n\'est plafonné que s\'il est demandé explicitement. La priorité décide de l\'ordre de passage quand le serveur est saturé ; « critique » passe toujours en premier, sans vieillissement.',
-    body: el('div', { class: 'row' }, el('label', {}, 'Contexte maximal (jetons) ', ctx), el('label', {}, 'Réponse maximale (jetons) ', out), el('label', {}, 'Priorité dans la file d\'attente ', prio), el('label', {}, 'Équipe (pour répartir les coûts) ', team), el('label', {}, 'Termes interdits (séparés par des virgules) ', words), el('label', {}, 'Bases de documents autorisées (vide = toutes) ', colls)), ok: 'Enregistrer' });
+    body: el('div', { class: 'row' }, el('label', {}, 'Contexte maximal (jetons) ', ctx), el('label', {}, 'Réponse maximale (jetons) ', out), el('label', {}, 'Priorité dans la file d\'attente ', prio), el('label', {}, 'Modèle différent pour répartir la charge ', subst), el('label', {}, 'Doubler les requêtes lentes sur un second serveur ', hedge), el('label', {}, 'Équipe (pour répartir les coûts) ', team), el('label', {}, 'Termes interdits (séparés par des virgules) ', words), el('label', {}, 'Bases de documents autorisées (vide = toutes) ', colls)), ok: 'Enregistrer' });
   if (!ok) return;
-  try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0, priority: prioNum(prio.value), team: team.value.trim(), words: words.value, collections: colls.value } }); await loadPublication(); } catch (e) { fail(e.message); }
+  try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0, priority: prioNum(prio.value), substitution: subst.value, hedge: hedge.checked, team: team.value.trim(), words: words.value, collections: colls.value } }); await loadPublication(); } catch (e) { fail(e.message); }
 }
-$('#bal-substitute').addEventListener('change', async () => {
-  try { await api('/api/fleet/balance/strategy', { json: { substitute: $('#bal-substitute').checked } }); $('#bal-msg').className = 'small okmsg'; $('#bal-msg').textContent = 'Enregistré.'; } catch (e) { $('#bal-msg').className = 'small error'; $('#bal-msg').textContent = e.message; }
-});
+async function balSave(body) {
+  try { await api('/api/fleet/balance/strategy', { json: body }); $('#bal-msg').className = 'small okmsg'; $('#bal-msg').textContent = 'Enregistré.'; } catch (e) { $('#bal-msg').className = 'small error'; $('#bal-msg').textContent = e.message; }
+}
+$('#bal-substitute').addEventListener('change', () => { $('#bal-overflow').disabled = $('#bal-substitute').value !== 'overflow'; balSave({ substitute_mode: $('#bal-substitute').value }); });
+$('#bal-overflow').addEventListener('change', () => balSave({ overflow_wait: Number($('#bal-overflow').value) || 8 }));
+$('#bal-prewarm').addEventListener('change', () => balSave({ prewarm: $('#bal-prewarm').checked }));
 $('#bal-affinity').addEventListener('change', async () => {
   try { await api('/api/fleet/balance/strategy', { json: { affinity: $('#bal-affinity').checked } }); $('#bal-msg').className = 'small okmsg'; $('#bal-msg').textContent = 'Enregistré.'; } catch (e) { $('#bal-msg').className = 'small error'; $('#bal-msg').textContent = e.message; }
 });

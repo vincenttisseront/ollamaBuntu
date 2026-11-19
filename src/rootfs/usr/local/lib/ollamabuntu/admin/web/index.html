@@ -530,7 +530,9 @@
               <label>Équipe (facultatif, pour répartir les coûts) <input name="team" maxlength="40" list="team-list" placeholder="ex. Ressources humaines"></label><datalist id="team-list"></datalist>
               <label>Termes interdits pour cette clé (facultatif, séparés par des virgules) <input name="words" maxlength="600" placeholder="ex. salaire, projet orion"></label>
               <label>Bases de documents autorisées (facultatif, vide = toutes) <input name="collections" maxlength="600" placeholder="ex. RH, Juridique"></label>
-              <label>Priorité dans la file d'attente <select name="priority"><option value="0">Critique (passe toujours en premier, places réservées)</option><option value="1">Haute (passe en premier)</option><option value="2" selected>Normale</option><option value="3">Basse (traitements de fond)</option></select></label></div>
+              <label>Priorité dans la file d'attente <select name="priority"><option value="0">Critique (passe toujours en premier, places réservées)</option><option value="1">Haute (passe en premier)</option><option value="2" selected>Normale</option><option value="3">Basse (traitements de fond)</option></select></label>
+              <label>Modèle différent pour cette clé <select name="substitution"><option value="">Selon le réglage de la répartition</option><option value="strict">Jamais (exactement le modèle demandé)</option><option value="overflow">En cas de débordement</option><option value="always">Toujours</option></select></label>
+              <label class="check"><input type="checkbox" name="hedge"> Doubler les requêtes lentes : si le serveur choisi tarde à répondre, la même requête part aussi sur un autre serveur et la première réponse gagne (clés critiques)</label></div>
             <p class="muted small">Au-delà du plafond, les requêtes d'un client attendent leur tour (jusqu'à 10 minutes). Au-delà d'un quota, elles sont refusées (erreur 429) jusqu'à la période suivante.</p>
             <div class="row"><button class="btn primary" type="submit">Créer la clé</button><span id="key-msg" class="small"></span></div>
           </form>
@@ -834,11 +836,15 @@
         <div class="row"><label>Stratégie <select id="bal-strategy"><option value="spread">Répartir : le serveur le moins occupé, à tour de rôle</option><option value="warm">Privilégier le modèle déjà chargé en mémoire</option></select></label><span id="bal-msg" class="small" aria-live="polite"></span></div>
         <p class="muted small" id="bal-strategy-help"></p>
         <label class="check"><input type="checkbox" id="bal-affinity"> Garder une conversation sur le même serveur (le cache du début de prompt y est déjà chaud, la première réponse est plus rapide). La charge reste prioritaire : un serveur nettement plus occupé que les autres est abandonné.</label>
-        <label class="check"><input type="checkbox" id="bal-substitute"> Accepter un modèle différent pour répartir la charge : un serveur qui n'a pas le modèle demandé répond avec son modèle le plus proche (même nature, même famille, déjà en mémoire, taille voisine), même sans modèle de remplacement réglé. Les requêtes avec images restent sur les serveurs qui ont exactement le modèle. Les réponses peuvent donc varier d'un serveur à l'autre.</label>
+        <div class="row"><label>Modèle différent pour répartir la charge <select id="bal-substitute"><option value="strict">Jamais : seuls les serveurs qui ont exactement le modèle demandé répondent</option><option value="overflow">En cas de débordement : un serveur qui n'a pas le modèle répond avec son modèle le plus proche seulement si l'attente sur les autres dépasse le délai ci-dessous</option><option value="always">Toujours : un serveur sans le modèle répond avec son modèle le plus proche (même nature, même famille, déjà en mémoire, taille voisine)</option></select></label>
+          <label>Délai de débordement (secondes) <input id="bal-overflow" type="number" min="1" max="600" value="8"></label></div>
+        <p class="muted small">Les requêtes avec images restent sur les serveurs qui ont exactement le modèle. Avec un remplacement, les réponses peuvent varier d'un serveur à l'autre. Chaque clé d'API peut avoir son propre réglage (Plafonds).</p>
+        <label class="check"><input type="checkbox" id="bal-prewarm"> Charger à l'avance les modèles que les clients demandent d'ordinaire à cette heure, sur les serveurs du parc qui n'ont rien en mémoire et ne servent personne (les nuits et week-ends sont lissés sur plusieurs jours).</label>
         <ul id="bal-issues" class="alerts"></ul>
       </div>
       <div class="card" data-panel="balance" data-label="Répartition de charge">
         <h2>État par serveur</h2>
+        <p class="muted small">« Places » : nombre de requêtes que le routeur envoie en même temps à un serveur (0 = sans limite, Ollama gère sa file). Au-delà, les requêtes attendent dans une file centrale et partent vers le premier serveur qui se libère, par ordre de priorité.</p>
         <div id="bal-servers"></div>
         <h3>Modèles</h3>
         <div id="bal-models"></div>

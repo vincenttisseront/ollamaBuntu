@@ -81,7 +81,7 @@ async function fakeFetch(p, o = {}) {
       { name: 'llama3.3:70b', source: 'Ollama', category: 'Conversation', caps: [], description: 'Petit modèle polyvalent de Meta, à l\'aise même sur processeur.', installed: false, available: true, size: 42 * GB, params: '70B', quant: 'Q4_K_M', fit: { level: 'trop', label: 'Trop gros pour ce serveur' } },
       { name: 'hf.co/unsloth/Magistral-Small-2509-GGUF:Q4_K_M', source: 'Hugging Face', category: 'Raisonnement', caps: ['raisonnement'], description: 'Mistral Magistral Small : raisonnement pas à pas, vision, bon en français (Hugging Face).', installed: false, available: false, fit: null }] });
   if (p === '/api/models') return json({ models: [{ name: 'gemma4:12b' }, { name: 'llama3.2:3b' }, { name: 'x-cloud' }] });
-  if (p === '/api/fleet/balance') return json({ strategy: 'spread', affinity: true, rescued: { count: 3, lost: 1 }, local: { models: 2, served: 5, last: null, failures: 0 }, servers: [{ id: 's1', name: 'Srv1', state: 'en ligne', route: true, models: 2, common: 2, served: 4, last: null, issues: [], failures: 2 }], models: [], active: true });
+  if (p === '/api/fleet/balance') return json({ strategy: 'spread', affinity: true, substitute_mode: 'overflow', overflow_wait: 12, prewarm: false, slots_local: 2, rescued: { count: 3, lost: 1 }, local: { models: 2, served: 5, last: null, failures: 0 }, servers: [{ id: 's1', name: 'Srv1', state: 'en ligne', route: true, slots: 3, models: 2, common: 2, served: 4, last: null, issues: [], failures: 2 }], models: [], active: true });
   if (p === '/api/fleet/balance/strategy') return json({ ok: true });
   if (p === '/api/limits') return json({ keys: [] });
   if (p === '/api/publication') return json({ enabled: true, tls: true, port: 11443, auth: true, allow: [], anonymous: { perms: [], models: [] }, urls: ['https://srv:11443'], router: {}, keys: [
@@ -263,10 +263,19 @@ const $$e_tabs = (win, v) => [...win.document.querySelectorAll('#view-' + v + ' 
   $$('#pub-keys button').find((b) => b.textContent === 'Plafonds').click(); await sleep(100);
   const caps = $$('#modal-extra input'); caps[0].value = '4096'; caps[1].value = '256'; $('#modal-ok').click();
   ok(await until(() => calls.some((c) => c[1] === '/api/publication/keys/update' && c[2].id === 'k1' && c[2].max_ctx === 4096 && c[2].max_output === 256)), 'plafonds modifiés depuis la liste');
+  ok(calls.some((c) => c[1] === '/api/publication/keys/update' && c[2].id === 'k1' && c[2].substitution === '' && c[2].hedge === false), 'plafonds : remplacement de modèle et doublement transmis (par défaut : selon la répartition, sans doublement)');
   ok(await go('#fleet/balance', () => $('#bal-affinity').checked), 'parc : affinité de session active par défaut');
   ok($('#bal-issues').textContent.includes('Reprise automatique (24 h) : 3 requête(s) sauvée(s) par un autre serveur, 1 perdue(s) faute de serveur disponible.') && $$('#bal-servers th').map((x) => x.textContent).includes('Échecs (24 h)') && $$('#bal-servers tbody tr')[1].textContent.includes('2'), 'parc : requêtes sauvées par la reprise automatique et échecs par serveur');
   $('#bal-affinity').checked = false; $('#bal-affinity').dispatchEvent(new w.Event('change'));
   ok(await until(() => calls.some((c) => c[1] === '/api/fleet/balance/strategy' && c[2].affinity === false && c[2].strategy === undefined)), 'affinité désactivée');
+  ok($('#bal-substitute').value === 'overflow' && $('#bal-overflow').value === '12' && !$('#bal-overflow').disabled && $('#bal-prewarm').checked === false, 'parc : mode de remplacement, délai de débordement et préchargement affichés');
+  ok($$('#bal-servers input.slots').map((x) => x.value).join(',') === '2,3', 'parc : places de ce serveur et de chaque serveur du parc');
+  $('#bal-substitute').value = 'strict'; $('#bal-substitute').dispatchEvent(new w.Event('change'));
+  ok(await until(() => calls.some((c) => c[1] === '/api/fleet/balance/strategy' && c[2].substitute_mode === 'strict')) && $('#bal-overflow').disabled, 'mode de remplacement enregistré ; délai inactif hors du mode débordement');
+  $('#bal-prewarm').checked = true; $('#bal-prewarm').dispatchEvent(new w.Event('change'));
+  ok(await until(() => calls.some((c) => c[1] === '/api/fleet/balance/strategy' && c[2].prewarm === true)), 'préchargement activé');
+  const sl = $$('#bal-servers input.slots'); sl[1].value = '5'; sl[1].dispatchEvent(new w.Event('change'));
+  ok(await until(() => calls.some((c) => c[1] === '/api/fleet/balance/strategy' && c[2].slots && c[2].slots.local === 2 && c[2].slots.s1 === 5)), 'places enregistrées pour tous les serveurs');
 
   // --- journal des requêtes : la colonne Demande indique pourquoi elle est vide
   ok(await go('#dashboard', () => $('#dash-requests').textContent.includes('DocManagement')) && $('#dash-requests td.prompt').textContent === 'non enregistré' && $('#dash-requests .pill.warn').textContent === 'repris' && !$('#dash-req-note').classList.contains('hidden'), 'tableau de bord : « non enregistré » (et non « - ») quand l\'extrait est désactivé');

@@ -35,6 +35,8 @@ python3 tests/unit/gpu_journal_flood_test.py   # détection GPU : journal noyé,
 python3 tests/unit/gpu_discovery_blocks_test.py  # détection GPU : dernier bloc avec résultat
 python3 tests/unit/balance_swap_test.py        # carte Répartition : serveurs utilisables avec un modèle de remplacement
 python3 tests/unit/flex_balance_test.py          # répartition avec modèle différent (remplacement automatique)
+python3 tests/unit/balancing_test.py             # vitesse mesurée, coût estimé, file centrale (ordre), préchargement, réglages de la console
+python3 tests/unit/balance_queue_test.py         # places par serveur, refus 429 après attente, requêtes doublées (serveurs simulés HTTP/HTTPS)
 python3 tests/unit/prio_critical_test.py       # priorité critique + places réservées du plafond global
 python3 tests/unit/queue_test.py                 # file d'attente : priorités, vieillissement, plafond global, file pleine, délai dépassé, routeur en vrais échanges HTTP
 python3 tests/unit/privacy_test.py               # confidentialité : motifs (IBAN, carte, sécu, téléphone, e-mail, IP, secrets), anonymisation avant le modèle, termes interdits globaux et par clé, routeur de bout en bout

@@ -2416,6 +2416,9 @@ def key_create(data):
                "deny": [x for x in KEY_RESTRICTIONS if x in (data.get("deny") or [])],
                "enabled": True, "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
         key.update(validate_limits(data))
+        for opt in ("substitution", "hedge"):
+            if not key.get(opt):
+                key.pop(opt, None)
         if data.get("team"):
             key["team"] = costs.team_clean(data["team"])
         if data.get("words"):
@@ -2475,6 +2478,12 @@ def validate_limits(data, current=None):
         if pr not in (0, 1, 2, 3):
             raise ValueError("priorité : 0 (critique), 1 (haute), 2 (normale) ou 3 (basse)")
         out["priority"] = pr
+    if "substitution" in data:
+        if data["substitution"] not in ("", None) + SUBSTITUTE_MODES:
+            raise ValueError("remplacement de modèle : strict, overflow ou always")
+        out["substitution"] = data["substitution"] or ""
+    if "hedge" in data:
+        out["hedge"] = bool(data["hedge"])
     return out
 
 
@@ -2497,8 +2506,12 @@ def key_update(data):
             key["enabled"] = bool(data["enabled"])
         if "deny" in data:
             key["deny"] = [x for x in KEY_RESTRICTIONS if x in (data.get("deny") or [])]
-        if any(k in data for k in LIMIT_FIELDS) or "priority" in data:
+        if any(k in data for k in LIMIT_FIELDS) or any(k in data for k in ("priority", "substitution", "hedge")):
             key.update(validate_limits(data, key))
+            if not key.get("substitution"):
+                key.pop("substitution", None)
+            if not key.get("hedge"):
+                key.pop("hedge", None)
         if "expires" in data:
             key["expires"] = validate_expiry(data.get("expires"))
         if "collections" in data:
@@ -5264,7 +5277,7 @@ def limits_view():
     for k in load_publication().get("keys", []):
         t, q = tokens.get(k["id"]) or {}, queue.get(k["id"]) or {}
         keys.append({"id": k["id"], "name": k["name"], "max_concurrent": k.get("max_concurrent", 0), "quota_day": k.get("quota_day", 0), "quota_month": k.get("quota_month", 0),
-                     "max_ctx": k.get("max_ctx", 0), "max_output": k.get("max_output", 0), "priority": k.get("priority", 2), "running": q.get("running", 0), "waiting": q.get("waiting", 0), "day": t.get("day", 0), "month": t.get("month", 0), "total": t.get("total", 0), "requests": t.get("req", 0)})
+                     "max_ctx": k.get("max_ctx", 0), "max_output": k.get("max_output", 0), "priority": k.get("priority", 2), "substitution": k.get("substitution", ""), "hedge": k.get("hedge") is True, "running": q.get("running", 0), "waiting": q.get("waiting", 0), "day": t.get("day", 0), "month": t.get("month", 0), "total": t.get("total", 0), "requests": t.get("req", 0)})
     return {"keys": keys, "queue_total": {"running": sum(v.get("running", 0) for v in queue.values()), "waiting": sum(v.get("waiting", 0) for v in queue.values())},
             "updated": lim.get("t")}
 
@@ -5933,15 +5946,81 @@ def balance_affinity():
     return load_json_file(BALANCE_FILE, {}).get("affinity", True) is not False
 
 
+SUBSTITUTE_MODES = ("strict", "overflow", "always")
+
+
+def balance_conf():
+    d = load_json_file(BALANCE_FILE, {})
+    mode = d.get("substitute_mode")
+    if mode not in SUBSTITUTE_MODES:
+        mode = "always" if d.get("substitute") is True else "strict"
+    slots = d.get("slots") if isinstance(d.get("slots"), dict) else {}
+    try:
+        wait = max(1, min(int(d.get("overflow_wait", 8)), 600))
+    except (TypeError, ValueError):
+        wait = 8
+    return {"strategy": "warm" if d.get("strategy") == "warm" else "spread", "affinity": d.get("affinity", True) is not False,
+            "substitute_mode": mode, "overflow_wait": wait, "prewarm": d.get("prewarm") is True,
+            "slots": {str(k): int(v) for k, v in slots.items() if isinstance(v, int) and 0 < v <= 64}}
+
+
 def balance_substitute():
-    return load_json_file(BALANCE_FILE, {}).get("substitute", False) is True
+    return balance_conf()["substitute_mode"] != "strict"
+
+
+def set_balance(data):
+    """Enregistre les réglages de répartition ; seuls les champs présents changent."""
+    cur = balance_conf()
+    if "strategy" in data:
+        if data["strategy"] not in BALANCE_STRATEGIES:
+            raise ValueError("stratégie inconnue")
+        cur["strategy"] = data["strategy"]
+    if "affinity" in data:
+        cur["affinity"] = bool(data["affinity"])
+    if "substitute_mode" in data:
+        if data["substitute_mode"] not in SUBSTITUTE_MODES:
+            raise ValueError("mode de remplacement inconnu")
+        cur["substitute_mode"] = data["substitute_mode"]
+    elif "substitute" in data:   # ancien réglage (case à cocher)
+        cur["substitute_mode"] = "always" if data["substitute"] else "strict"
+    if "overflow_wait" in data:
+        try:
+            w = int(data["overflow_wait"])
+        except (TypeError, ValueError):
+            raise ValueError("attente invalide")
+        if not 1 <= w <= 600:
+            raise ValueError("attente : 1 à 600 secondes")
+        cur["overflow_wait"] = w
+    if "prewarm" in data:
+        cur["prewarm"] = bool(data["prewarm"])
+    if "slots" in data:
+        if not isinstance(data["slots"], dict):
+            raise ValueError("places invalides")
+        known = {"local"} | {s["id"] for s in load_fleet()}
+        slots = {}
+        for k, v in data["slots"].items():
+            if k not in known:
+                continue
+            try:
+                n = int(v or 0)
+            except (TypeError, ValueError):
+                raise ValueError("places invalides")
+            if not 0 <= n <= 64:
+                raise ValueError("places : 0 (sans limite) à 64")
+            if n:
+                slots[k] = n
+        cur["slots"] = slots
+    cur["substitute"] = cur["substitute_mode"] != "strict"   # lisible par une ancienne version du routeur
+    atomic_write(BALANCE_FILE, json.dumps(cur), 0o644)
 
 
 def set_balance_strategy(value, affinity=None, substitute=None):
-    if value not in BALANCE_STRATEGIES:
-        raise ValueError("stratégie inconnue")
-    atomic_write(BALANCE_FILE, json.dumps({"strategy": value, "affinity": balance_affinity() if affinity is None else bool(affinity),
-                                           "substitute": balance_substitute() if substitute is None else bool(substitute)}), 0o644)
+    d = {"strategy": value}
+    if affinity is not None:
+        d["affinity"] = affinity
+    if substitute is not None:
+        d["substitute"] = substitute
+    set_balance(d)
 
 
 def balance_view():
@@ -5968,7 +6047,8 @@ def balance_view():
         s["count"] += 1
         s["last"] = max(s["last"], r.get("ts") or 0)
     servers, on = [], {n: ["local"] for n in local}
-    subst, swap_on = balance_substitute(), {}
+    conf = balance_conf()
+    subst, swap_on = conf["substitute_mode"] != "strict", {}
     for s in load_fleet():
         st = _fleet_state.get(s["id"]) or {}
         d = st.get("data") or {}
@@ -6002,10 +6082,11 @@ def balance_view():
             on.setdefault(name, []).append(s["name"])
         sv = served.get(s["name"], {})
         servers.append({"id": s["id"], "name": s["name"], "state": st.get("state", "en attente"), "route": bool(s.get("route_token")),
-                        "models": len(names), "common": len(common), "swaps": len(swaps), "served": sv.get("count", 0), "last": sv.get("last") or None, "issues": issues,
+                        "slots": conf["slots"].get(s["id"], 0), "models": len(names), "common": len(common), "swaps": len(swaps), "served": sv.get("count", 0), "last": sv.get("last") or None, "issues": issues,
                         "failures": fails.get(s["name"], 0)})
     loc = served.get("", {})
-    return {"strategy": balance_strategy(), "affinity": balance_affinity(), "substitute": balance_substitute(), "rescued": {"count": rescued, "lost": lost},
+    return {"strategy": conf["strategy"], "affinity": conf["affinity"], "substitute": conf["substitute_mode"] != "strict", "substitute_mode": conf["substitute_mode"],
+            "overflow_wait": conf["overflow_wait"], "prewarm": conf["prewarm"], "slots_local": conf["slots"].get("local", 0), "rescued": {"count": rescued, "lost": lost},
             "local": {"models": len(local), "served": loc.get("count", 0), "last": loc.get("last") or None, "failures": fails.get("local", 0)},
             "servers": servers, "models": [{"name": k, "on": v, "swap": swap_on.get(k, [])} for k, v in sorted(on.items())], "active": any(not x["issues"] for x in servers)}
 
@@ -8097,7 +8178,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 clear_requests()
                 return self.send_json(200, {"ok": True})
             if path == "/api/fleet/balance/strategy":
-                set_balance_strategy(str(data.get("strategy") or balance_strategy()), data.get("affinity") if "affinity" in data else None, data.get("substitute") if "substitute" in data else None)
+                set_balance(data)
                 return self.send_json(200, {"ok": True})
             if path == "/api/fleet/balance/test":
                 return self.send_json(200, balance_test(data.get("model")))

@@ -27,6 +27,7 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import limits  # noqa: E402
+import balancing  # noqa: E402
 import modelpick  # noqa: E402
 import privacy  # noqa: E402
 import rag  # noqa: E402
@@ -64,6 +65,11 @@ _local_models = {"t": 0.0, "names": set(), "tags": []}
 _rr = {}   # tour de rôle par modèle : deux modèles qui alternent ne doivent pas se fausser l'un l'autre
 _inflight = {}   # requêtes en cours par serveur : "local" ou identifiant d'un serveur du parc
 _inflight_lock = threading.Lock()
+_slot_cv = threading.Condition(_inflight_lock)   # réveille les requêtes qui attendent une place sur un serveur du parc
+_waiters = balancing.Waiters()
+_perf = balancing.Perf()
+POP_FILE = os.environ.get("OB_ROUTER_POP", "/var/lib/ollamabuntu-router/popularity.json")
+_pop = balancing.Popularity(POP_FILE)   # requêtes par modèle et par heure : chargement à l'avance
 COLD_COST = 1.5   # stratégie « modèle déjà chargé » : charger un modèle vaut 1,5 requête en attente
 BALANCE_FILE = os.path.join(ETC, "balance.json")
 REQLOG_CONF = os.path.join(ETC, "request-log.json")
@@ -76,8 +82,52 @@ _aff = limits.Affinity()
 auto_substitute = modelpick.auto_substitute   # règle partagée avec la console (carte « Répartition de charge »)
 
 
+SUBSTITUTE_MODES = ("strict", "overflow", "always")
+
+
+def balance_conf():
+    """Réglages de la répartition (balance.json, écrit par la console) : remplacement de modèle, places par serveur, préchargement."""
+    d = hot_json(BALANCE_FILE, _bal)
+    mode = d.get("substitute_mode")
+    if mode not in SUBSTITUTE_MODES:
+        mode = "always" if d.get("substitute") is True else "strict"
+    slots = {}
+    for k, v in (d.get("slots") or {}).items() if isinstance(d.get("slots"), dict) else ():
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            continue
+        if 0 < n <= 64:
+            slots[str(k)] = n   # 0 ou absent : pas de limite, comme avant (Ollama gère sa propre file)
+    try:
+        wait = max(1.0, min(float(d.get("overflow_wait", 8)), 600.0))
+    except (TypeError, ValueError):
+        wait = 8.0
+    return {"substitute_mode": mode, "slots": slots, "overflow_wait": wait, "prewarm": d.get("prewarm") is True}
+
+
+class _CertError(OSError):
+    """Le certificat présenté par un serveur du parc n'est pas celui dont l'empreinte est épinglée."""
+
+
+HEDGE_MIN = float(os.environ.get("OB_ROUTER_HEDGE_MIN", "3"))   # délai minimal (s) avant de doubler une requête lente
+
+
+def hedge_delay(cand, model):
+    """Attente du premier serveur avant de doubler la requête : le double de son délai habituel avant la première réponse, au moins HEDGE_MIN."""
+    ikey = "local" if cand[0] == "local" else cand[3]["id"]
+    t = _perf.ttft(ikey, (cand[3] or {}).get("use_model") or norm(model))
+    return max(HEDGE_MIN, 2.0 * t) if t else max(HEDGE_MIN, 10.0)
+
+
 def substitute_enabled():
-    return hot_json(BALANCE_FILE, _bal).get("substitute", False) is True
+    return balance_conf()["substitute_mode"] != "strict"
+
+
+def key_substitution(key):
+    """Remplacement de modèle voulu pour cette clé : son réglage, sinon celui de la console."""
+    v = (key or {}).get("substitution")
+    return v if v in SUBSTITUTE_MODES else balance_conf()["substitute_mode"]
 
 
 def origin_label(v):
@@ -114,6 +164,8 @@ def sleeping_for(model, fl):
 def inflight_add(key, delta):
     with _inflight_lock:
         _inflight[key] = max(0, _inflight.get(key, 0) + delta)
+        if delta < 0:
+            _slot_cv.notify_all()   # une place se libère : les requêtes en attente de ce serveur se réveillent
 
 
 def hot_json(path, cache):
@@ -701,12 +753,16 @@ class Router(http.server.BaseHTTPRequestHandler):
             self.wfile.write(raw)
 
     @staticmethod
-    def candidates(model, fl, kid=None, session=None, flex=False):
-        """Serveurs capables de répondre : le modèle déjà en mémoire d'abord, puis le moins chargé.
-        Une conversation (session) retourne au serveur qui l'a déjà traitée tant qu'il n'est pas nettement plus occupé que les autres."""
+    def candidates(model, fl, kid=None, session=None, flex=False, mode=None, ticket=None):
+        """Serveurs capables de répondre, du meilleur au moins bon : celui qui finira la requête le plus tôt (durée mesurée de ce modèle sur ce
+        serveur, requêtes déjà en cours, modèle à charger). Une conversation (session) retourne au serveur qui l'a déjà traitée tant qu'il n'est
+        pas nettement plus occupé que les autres. mode : remplacement de modèle (strict, overflow : seulement si les serveurs qui ont le modèle
+        sont chargés, always). ticket : requête qui peut attendre une place ; retourne alors balancing.WAIT si tous les serveurs à places limitées sont pleins."""
         out = []
         loc = fl.get("local") or {}
-        flex = flex and substitute_enabled()
+        conf = balance_conf()
+        mode = (mode or conf["substitute_mode"]) if flex else "strict"
+        flex = mode != "strict"
         want = next((m for m in local_models()["tags"] if norm(m.get("name") or m.get("model")) == model), None)
         if model in local_models()["names"]:
             out.append(("local", model in {norm(x) for x in loc.get("loaded", [])}, float(loc.get("load") or 0), None))
@@ -729,96 +785,246 @@ class Router(http.server.BaseHTTPRequestHandler):
             out, matched = limits.apply_rules(out, rules, kid, model)
         if matched and not out:
             return []
+        sid = lambda c: "local" if c[0] == "local" else c[3]["id"]
+        swapped = lambda c: bool(c[3] and c[3].get("use_model") and c[3]["use_model"] != model)
+        slots = conf["slots"]
         with _inflight_lock:
             strategy = balance_strategy()
             turn = _rr.get(model, 0)
             _rr[model] = turn + 1
+            busy = lambda c: _inflight.get(sid(c), 0)
+            par = lambda c: slots.get(sid(c), 0) or 1
+            svcs, _known = _perf.services([(sid(c), (c[3] or {}).get("use_model") or model) for c in out])
+            if mode == "overflow" and any(swapped(c) for c in out) and any(not swapped(c) for c in out):
+                # le modèle demandé d'abord : un autre modèle ne sert que si les serveurs qui l'ont sont déjà chargés
+                wait = min(balancing.queue_delay(svcs[i], busy(c), par(c)) for i, c in enumerate(out) if not swapped(c))
+                if wait <= conf["overflow_wait"]:
+                    keep = [i for i, c in enumerate(out) if not swapped(c)]
+                    out, svcs = [out[i] for i in keep], [svcs[i] for i in keep]
             size = max(len(out), 1)
 
+            def full(c):
+                lim = slots.get(sid(c), 0)
+                return lim > 0 and busy(c) >= lim
+
             def score(i, c):
-                busy = _inflight.get("local" if c[0] == "local" else c[3]["id"], 0)   # requêtes en cours, mesurées par ce routeur
                 rank = (i + turn) % size   # à égalité, les serveurs se relaient
                 if strategy == "warm":   # modèle déjà en mémoire d'abord, sauf si ce serveur est déjà occupé
-                    return (busy + (0 if c[1] else COLD_COST) + c[2] / 400.0, rank)
-                return (busy, rank)
+                    cst = balancing.cost(svcs[i], busy(c), par(c), 0 if c[1] else COLD_COST, c[2])
+                else:
+                    cst = balancing.cost(svcs[i], busy(c), par(c))
+                return (full(c), round(cst, 1), rank)
             ordered = [c for _, c in sorted(((score(i, c), c) for i, c in enumerate(out)), key=lambda t: t[0])]
             if session and len(ordered) > 1 and affinity_enabled():
-                sid = lambda c: "local" if c[0] == "local" else c[3]["id"]
                 by_id = {sid(c): c for c in ordered}
                 new_ids, _hit = _aff.order(session, [sid(c) for c in ordered], {i: _inflight.get(i, 0) for i in by_id})
-                ordered = [by_id[i] for i in new_ids]
-            if ordered and any(c[0] == "remote" for c in ordered):   # choix et réservation d'un seul geste : deux requêtes simultanées ne visent pas le même serveur
-                first = ordered[0]
-                k = "local" if first[0] == "local" else first[3]["id"]
+                ordered = sorted([by_id[i] for i in new_ids], key=full)   # une place pleine reste derrière, même pour l'affinité
+            if ticket is not None:   # file centrale : tant qu'aucune place n'est libre (ou qu'une requête mieux classée l'attend), on attend
+                now = time.time()
+                if any(slots.get(sid(c), 0) for c in ordered):
+                    free = [sid(c) for c in ordered if not full(c)]
+                    if not free or _waiters.must_yield(ticket, free, now):
+                        if not ticket["queued"]:
+                            _waiters.register(ticket, [sid(c) for c in ordered])
+                        return balancing.WAIT
+                if ticket["queued"]:
+                    _waiters.drop(ticket)
+            if ordered and any(c[0] == "remote" or c[3] for c in ordered):   # choix et réservation d'un seul geste : deux requêtes simultanées ne visent pas le même serveur
+                k = sid(ordered[0])
                 _inflight[k] = _inflight.get(k, 0) + 1
         return ordered
 
+    def _open(self, cand, method, path, body, headers, model, table):
+        """Connexion à un serveur candidat, envoi de la requête, attente des en-têtes de réponse. Retourne (connexion, réponse, étiquette) ;
+        lève OSError (ou ssl/http) si le serveur est injoignable, _CertError si son certificat n'est pas celui attendu."""
+        kind, _loaded, _load, srv = cand
+        conn = None
+        try:
+            if kind == "local":
+                target = table.get(norm(model), MAIN)
+                conn = http.client.HTTPConnection(*split(target), timeout=3600)
+                lbody = body
+                if srv and srv.get("use_model") and srv["use_model"] != norm(model):   # modèle différent choisi automatiquement
+                    try:
+                        d = json.loads(body)
+                        d["model"] = srv["use_model"]
+                        lbody = json.dumps(d).encode()
+                    except (ValueError, TypeError, AttributeError):
+                        lbody = body
+                conn.request(method, self.path, body=lbody, headers=dict(headers, **{"Content-Length": str(len(lbody))}))
+                return conn, conn.getresponse(), target
+            u = urllib.parse.urlsplit(srv["url"])
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE   # certificat autosigné : empreinte épinglée vérifiée ci-dessous
+            conn = http.client.HTTPSConnection(u.hostname, u.port or 443, context=ctx, timeout=3600)
+            conn.connect()
+            h = hashlib.sha256(conn.sock.getpeercert(binary_form=True)).hexdigest().upper()
+            if ":".join(h[i:i + 2] for i in range(0, 64, 2)) != srv["fingerprint"]:
+                raise _CertError(srv["name"])
+            rbody = body
+            if srv.get("use_model") and srv["use_model"] != norm(model):   # le serveur reçoit son modèle de remplacement
+                try:
+                    d = json.loads(body)
+                    d["model"] = srv["use_model"]
+                    rbody = json.dumps(d).encode()
+                except (ValueError, TypeError, AttributeError):
+                    rbody = body
+            conn.request(method, "/api/fleet/ollama" + self.path, body=rbody,
+                         headers=dict(headers, **{"Content-Length": str(len(rbody))}, Authorization="Bearer " + srv["token"],
+                                      **{"X-OB": "1", "X-OB-From": origin_label(socket.gethostname()), "X-OB-Client": origin_label((self.req_meta or {}).get("client") or "local")}))
+            return conn, conn.getresponse(), "serveur:" + srv["name"]
+        except BaseException:
+            if conn is not None:
+                conn.close()
+            raise
+
+    @staticmethod
+    def _drop(conn, ikey):
+        """Abandonne une tentative : coupe la connexion (même si un autre fil attend dessus) et libère la place du serveur."""
+        try:
+            if conn.sock is not None:
+                conn.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            conn.close()
+        except OSError:
+            pass
+        inflight_add(ikey, -1)
+
+    def _race(self, first, second, last2, method, path, body, headers, model, table):
+        """Requête doublée : la première tentative part tout de suite ; si elle n'a rien répondu après `délai`, la même requête part sur le
+        serveur suivant et la première réponse valable l'emporte (l'autre connexion est coupée). Retourne (rang gagnant, connexion, réponse, étiquette)
+        ou None si les deux ont échoué (échecs déjà notés)."""
+        import queue
+        q, lock, st = queue.Queue(), threading.Lock(), {"winner": None}
+
+        def run(rank, cand, last):
+            ikey = "local" if cand[0] == "local" else cand[3]["id"]
+            try:
+                conn, resp, label = self._open(cand, method, path, body, headers, model, table)
+            except (OSError, ssl.SSLError, http.client.HTTPException) as e:
+                with lock:
+                    q.put((rank, "err", e, None))
+                return
+            if retry_status(resp.status, cand[0], last):
+                conn.close()
+                with lock:
+                    q.put((rank, "status", resp.status, None))
+                return
+            with lock:
+                if st["winner"] is not None:   # une autre tentative a déjà gagné : celle-ci se retire
+                    self._drop(conn, ikey)
+                    return
+                q.put((rank, "ok", (conn, resp, label), None))
+
+        cands = [first, second]
+        delay = hedge_delay(first, model)
+        threading.Thread(target=run, args=(0, first, False), daemon=True).start()
+        started, got = 1, 0
+        t_end = time.time() + delay
+        while got < started or started < 2:
+            try:
+                rank, kind, val, _ = q.get(timeout=max(0.05, t_end - time.time()) if started < 2 else 3700)
+            except queue.Empty:
+                if started < 2:   # le premier serveur tarde : on double la requête
+                    inflight_add("local" if second[0] == "local" else second[3]["id"], 1)
+                    threading.Thread(target=run, args=(1, second, last2), daemon=True).start()
+                    started += 1
+                    if self.req_meta is not None:
+                        self.req_meta["hedged"] = True
+                    continue
+                break
+            got += 1
+            c = cands[rank]
+            ikey = "local" if c[0] == "local" else c[3]["id"]
+            name = "local" if c[0] == "local" else c[3]["name"]
+            if kind == "ok":
+                with lock:
+                    st["winner"] = rank
+                    while True:   # une autre réponse arrivée dans l'intervalle : on la ferme
+                        try:
+                            r2, k2, v2, _ = q.get_nowait()
+                        except queue.Empty:
+                            break
+                        i2 = "local" if cands[r2][0] == "local" else cands[r2][3]["id"]
+                        if k2 == "ok":
+                            self._drop(v2[0], i2)
+                        else:
+                            self._lost(cands[r2], k2, v2)
+                            inflight_add(i2, -1)
+                return (rank,) + val
+            if kind == "err" and isinstance(val, _CertError):
+                print("répartition : certificat inattendu pour %s, serveur écarté" % name, flush=True)
+            else:
+                self._lost(c, kind, val)
+            inflight_add(ikey, -1)
+            if started < 2:   # échec avant le délai : c'est un simple basculement
+                inflight_add("local" if second[0] == "local" else second[3]["id"], 1)
+                threading.Thread(target=run, args=(1, second, last2), daemon=True).start()
+                started += 1
+        return None
+
+    def _lost(self, cand, kind, val):
+        name = "local" if cand[0] == "local" else cand[3]["name"]
+        ikey = "local" if cand[0] == "local" else cand[3]["id"]
+        if kind == "status":
+            print("répartition : %s a répondu %d, serveur suivant" % (name, val), flush=True)
+            self.note_failure(ikey, name, str(val))
+        else:
+            print("répartition : %s indisponible (%s), serveur suivant" % (name, val), flush=True)
+            self.note_failure(ikey, name, "injoignable")
+
     def balanced(self, method, path, body, cands, model, esc=None, allowed=None):
         """Envoie la requête au premier serveur capable ; en cas d'échec avant le premier octet envoyé au client (connexion refusée, erreur 5xx,
-        réponse vide ou coupée), la même requête est rejouée sur le serveur suivant. Les échecs sont mémorisés (disjoncteur) et journalisés."""
+        réponse vide ou coupée), la même requête est rejouée sur le serveur suivant. Les échecs sont mémorisés (disjoncteur) et journalisés.
+        Une clé « doubler les requêtes lentes » lance en plus la requête sur le serveur suivant si le premier tarde."""
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP and k.lower() not in ("content-length", "authorization", "x-api-key")}
         headers["Content-Length"] = str(len(body))
         table, _ = routes()
-        for idx, (kind, _loaded, _load, srv) in enumerate(cands):
+        hedge = (getattr(self, "_key", None) or {}).get("hedge") is True and len(cands) >= 2 and self.req_meta is not None and self.command != "HEAD"
+        idx = 0
+        while idx < len(cands):
+            cand = cands[idx]
+            kind, _loaded, _load, srv = cand
             ikey = "local" if kind == "local" else srv["id"]
             name = "local" if kind == "local" else srv["name"]
             last = idx == len(cands) - 1
             if idx:
                 inflight_add(ikey, 1)   # le premier choix est déjà réservé par candidates()
-            conn = None
-            try:
-                if kind == "local":
-                    target = table.get(norm(model), MAIN)
-                    conn = http.client.HTTPConnection(*split(target), timeout=3600)
-                    lbody = body
-                    if srv and srv.get("use_model") and srv["use_model"] != norm(model):   # modèle différent choisi automatiquement
-                        try:
-                            d = json.loads(body)
-                            d["model"] = srv["use_model"]
-                            lbody = json.dumps(d).encode()
-                        except (ValueError, TypeError, AttributeError):
-                            lbody = body
-                    conn.request(method, self.path, body=lbody, headers=dict(headers, **{"Content-Length": str(len(lbody))}))
-                    label = target
-                else:
-                    u = urllib.parse.urlsplit(srv["url"])
-                    ctx = ssl.create_default_context()
-                    ctx.check_hostname = False
-                    ctx.verify_mode = ssl.CERT_NONE   # certificat autosigné : empreinte épinglée vérifiée ci-dessous
-                    conn = http.client.HTTPSConnection(u.hostname, u.port or 443, context=ctx, timeout=3600)
-                    conn.connect()
-                    h = hashlib.sha256(conn.sock.getpeercert(binary_form=True)).hexdigest().upper()
-                    if ":".join(h[i:i + 2] for i in range(0, 64, 2)) != srv["fingerprint"]:
-                        print("répartition : certificat inattendu pour %s, serveur écarté" % srv["name"], flush=True)
-                        conn.close()
-                        inflight_add(ikey, -1)
-                        continue
-                    rbody = body
-                    if srv.get("use_model") and srv["use_model"] != norm(model):   # le serveur reçoit son modèle de remplacement
-                        try:
-                            d = json.loads(body)
-                            d["model"] = srv["use_model"]
-                            rbody = json.dumps(d).encode()
-                        except (ValueError, TypeError, AttributeError):
-                            rbody = body
-                    conn.request(method, "/api/fleet/ollama" + self.path, body=rbody,
-                                 headers=dict(headers, **{"Content-Length": str(len(rbody))}, Authorization="Bearer " + srv["token"],
-                                              **{"X-OB": "1", "X-OB-From": origin_label(socket.gethostname()), "X-OB-Client": origin_label((self.req_meta or {}).get("client") or "local")}))
-                    label = "serveur:" + srv["name"]
-                resp = conn.getresponse()
-            except (OSError, ssl.SSLError, http.client.HTTPException) as e:
-                print("répartition : %s indisponible (%s), serveur suivant" % (name, e), flush=True)
-                self.note_failure(ikey, name, "injoignable")
-                inflight_add(ikey, -1)
-                if conn is not None:
+            if hedge and idx == 0:
+                won = self._race(cand, cands[1], len(cands) == 2, method, path, body, headers, model, table)
+                if won is None:
+                    idx = 2
+                    continue
+                idx, conn, resp, label = won
+                cand = cands[idx]
+                kind, _loaded, _load, srv = cand
+                ikey = "local" if kind == "local" else srv["id"]
+                name = "local" if kind == "local" else srv["name"]
+                last = idx == len(cands) - 1
+            else:
+                try:
+                    conn, resp, label = self._open(cand, method, path, body, headers, model, table)
+                except _CertError:
+                    print("répartition : certificat inattendu pour %s, serveur écarté" % name, flush=True)
+                    inflight_add(ikey, -1)
+                    idx += 1
+                    continue
+                except (OSError, ssl.SSLError, http.client.HTTPException) as e:
+                    print("répartition : %s indisponible (%s), serveur suivant" % (name, e), flush=True)
+                    self.note_failure(ikey, name, "injoignable")
+                    inflight_add(ikey, -1)
+                    idx += 1
+                    continue
+                if retry_status(resp.status, kind, last):
+                    print("répartition : %s a répondu %d, serveur suivant" % (name, resp.status), flush=True)
+                    self.note_failure(ikey, name, str(resp.status))
                     conn.close()
-                continue
-            if retry_status(resp.status, kind, last):
-                print("répartition : %s a répondu %d, serveur suivant" % (name, resp.status), flush=True)
-                self.note_failure(ikey, name, str(resp.status))
-                conn.close()
-                inflight_add(ikey, -1)
-                continue
+                    inflight_add(ikey, -1)
+                    idx += 1
+                    continue
             first, ttft0 = None, None
             if self.req_meta is not None and not last and self.command != "HEAD" and resp.status < 400:
                 try:   # on attend le premier octet avant de répondre au client : tant qu'il n'a rien reçu, on peut encore changer de serveur
@@ -830,11 +1036,13 @@ class Router(http.server.BaseHTTPRequestHandler):
                     self.note_failure(ikey, name, "réponse vide ou coupée")
                     conn.close()
                     inflight_add(ikey, -1)
+                    idx += 1
                     continue
                 ttft0 = time.time() - self.t0
             if resp.status < 500:
                 _health.ok(ikey)
             self._inflight_key = ikey
+            self._perf_ctx = (ikey, (srv or {}).get("use_model") or norm(model))
             return self.stream_back(resp, conn, label, first, ttft0)
         if esc:
             done = self._escalate(method, path, body, allowed, esc, "aucun serveur disponible")
@@ -896,6 +1104,9 @@ class Router(http.server.BaseHTTPRequestHandler):
             if self.req_meta is not None:
                 elapsed = time.time() - getattr(self, "t0", time.time())
                 met = request_metrics(tail, elapsed, ttft)
+                ctx = getattr(self, "_perf_ctx", None)
+                if ctx and resp.status == 200 and not aborted:   # puissance mesurée de ce serveur pour ce modèle
+                    _perf.update(ctx[0], ctx[1], ttft, elapsed, met.get("out_tok"))
                 if collect is not None and not aborted:
                     self.cache_save(collect, ctype, elapsed, met)
                 log_request(dict(self.req_meta, ts=round(self.t0, 3), instance=label, status=resp.status, aborted=aborted,
@@ -1180,6 +1391,7 @@ class Router(http.server.BaseHTTPRequestHandler):
 
     def _relay(self):
         self.t0, self.req_meta, self._inflight_key, self._retried, self._cache_store = time.time(), None, None, [], None
+        self._perf_ctx = None
         method = self.command
         path = urllib.parse.urlsplit(self.path).path
         try:
@@ -1207,6 +1419,8 @@ class Router(http.server.BaseHTTPRequestHandler):
         if path in INFERENCE:   # requêtes mesurées : utilisation des modèles
             self.req_meta = {"client": "local" if r is None else r[0], "ip": self.client_address[0], "path": path,
                              "model": self.model_of(path, body) if body else None}
+            if self.req_meta.get("model"):
+                _pop.hit(norm(self.req_meta["model"]))
             via = origin_label(self.headers.get("X-OB-Via"))
             if via and self.client_address[0] in ("127.0.0.1", "::1"):   # relayée par la console de ce serveur pour un autre serveur du parc (seule la console locale peut l'annoncer)
                 origin = origin_label(self.headers.get("X-OB-Origin"))
@@ -1316,8 +1530,29 @@ class Router(http.server.BaseHTTPRequestHandler):
         if fl.get("servers") and body and not path.startswith(MANAGEMENT) and self.category(method, path) in ("inference", "read"):
             model = self.model_of(path, body)
             if model:
-                cands = self.candidates(norm(model), fl, getattr(self, "_kid", None), limits.session_key(self.headers, body, getattr(self, "_kid", None), norm(model)),
-                                        flex=not uses_vision(body))   # un modèle choisi automatiquement n'est pas sûr de lire les images
+                key = getattr(self, "_key", None) or {}
+                skey = limits.session_key(self.headers, body, getattr(self, "_kid", None), norm(model))
+                tk = _waiters.ticket(key.get("priority"), norm(model))
+                waited = time.time()
+                try:
+                    while True:   # file centrale : si tous les serveurs à places limitées sont pleins, la requête attend ici, pas dans la file d'Ollama
+                        cands = self.candidates(norm(model), fleet(), getattr(self, "_kid", None), skey,
+                                                flex=not uses_vision(body),   # un modèle choisi automatiquement n'est pas sûr de lire les images
+                                                mode=key_substitution(key), ticket=tk)
+                        if cands is not balancing.WAIT:
+                            break
+                        if time.time() - waited >= QUEUE_WAIT:
+                            if self.req_meta is not None:
+                                log_request(dict(self.req_meta, ts=round(self.t0, 3), instance="-", status=429, aborted=False, ms=round((time.time() - self.t0) * 1000),
+                                                 ttft_ms=None, retried=[], queued_s=round(time.time() - waited, 1)))
+                            return self.json_reply(429, {"error": "tous les serveurs du parc sont occupés pour « %s » depuis %d s : réessayez" % (model, QUEUE_WAIT)}, {"Retry-After": "30"})
+                        with _slot_cv:
+                            _slot_cv.wait(1.0)
+                finally:
+                    with _inflight_lock:
+                        _waiters.drop(tk)
+                if time.time() - waited >= 0.05 and self.req_meta is not None:
+                    self.req_meta["queued_s"] = round(time.time() - waited, 1)
                 if not cands and fl.get("rules"):
                     if esc:
                         done = self._escalate(method, path, body, allowed, esc, "aucun serveur autorisé")
@@ -1369,6 +1604,8 @@ class Router(http.server.BaseHTTPRequestHandler):
             if done is not None:
                 return done
             return self.json_reply(502, {"error": "le modèle servi a répondu %d" % resp.status})
+        if self.req_meta is not None and self.req_meta.get("model"):
+            self._perf_ctx = ("local", norm(self.req_meta["model"]))
         return self.stream_back(resp, conn, target)
 
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = relay
@@ -1437,6 +1674,80 @@ def limits_writer():
         time.sleep(2)
 
 
+PREWARM_EVERY = float(os.environ.get("OB_ROUTER_PREWARM_EVERY", "60"))
+PREWARM_KEEP = os.environ.get("OB_ROUTER_PREWARM_KEEP", "10m")   # durée de conservation en mémoire d'un modèle chargé à l'avance
+_prewarmed = {}   # (serveur, modèle) -> heure du dernier préchargement
+
+
+def prewarm_send(kind, srv, model, table=None):
+    """Charge `model` en mémoire sur un serveur (requête /api/generate sans prompt). Retourne True si le serveur a accepté."""
+    body = json.dumps({"model": model, "prompt": "", "stream": False, "keep_alive": PREWARM_KEEP}).encode()
+    try:
+        if kind == "local":
+            conn = http.client.HTTPConnection(*split((table or routes()[0]).get(model, MAIN)), timeout=600)
+            conn.request("POST", "/api/generate", body=body, headers={"Content-Type": "application/json", "Content-Length": str(len(body))})
+        else:
+            u = urllib.parse.urlsplit(srv["url"])
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            conn = http.client.HTTPSConnection(u.hostname, u.port or 443, context=ctx, timeout=600)
+            conn.connect()
+            h = hashlib.sha256(conn.sock.getpeercert(binary_form=True)).hexdigest().upper()
+            if ":".join(h[i:i + 2] for i in range(0, 64, 2)) != srv["fingerprint"]:
+                conn.close()
+                return False
+            conn.request("POST", "/api/fleet/ollama/api/generate", body=body,
+                         headers={"Content-Type": "application/json", "Content-Length": str(len(body)), "Authorization": "Bearer " + srv["token"],
+                                  "X-OB": "1", "X-OB-From": origin_label(socket.gethostname()), "X-OB-Client": "préchargement"})
+        r = conn.getresponse()
+        r.read()
+        conn.close()
+        return r.status == 200
+    except (OSError, ssl.SSLError, http.client.HTTPException):
+        return False
+
+
+def prewarm_plan(expected, fl, inflight, now, done):
+    """Quels modèles charger où : les modèles attendus (du plus demandé au moins demandé) vont, un par serveur, sur les serveurs
+    du parc qui n'ont rien en mémoire et ne servent personne. Un même couple (serveur, modèle) n'est rejoué qu'après 10 minutes.
+    Retourne [("local" | "remote", serveur ou None, modèle)]."""
+    if not expected:
+        return []
+    cands = []
+    loc = fl.get("local") or {}
+    if not loc.get("loaded") and not inflight.get("local", 0):
+        cands.append(("local", None, "local", {norm(m.get("name") or m.get("model")) for m in local_models()["tags"]}))
+    for sv in fl.get("servers", []):
+        if sv.get("online") and sv.get("token") and not sv.get("loaded") and not inflight.get(sv["id"], 0):
+            cands.append(("remote", sv, sv["id"], {norm(m.get("name") or m.get("model")) for m in sv.get("models", [])}))
+    plan, used = [], set()
+    for kind, sv, sid, have in cands:
+        for m in expected:
+            if m in have and m not in used and now - done.get((sid, m), 0) >= 600:
+                plan.append((kind, sv, m))
+                used.add(m)
+                done[(sid, m)] = now
+                break
+    return plan
+
+
+def prewarm_loop():
+    while True:
+        time.sleep(PREWARM_EVERY)
+        try:
+            _pop.save()
+            if not balance_conf()["prewarm"]:
+                continue
+            with _inflight_lock:
+                inflight = dict(_inflight)
+            for kind, sv, model in prewarm_plan(_pop.expected(), fleet(), inflight, time.time(), _prewarmed):
+                print("préchargement : %s sur %s" % (model, "ce serveur" if kind == "local" else sv["name"]), flush=True)
+                threading.Thread(target=prewarm_send, args=(kind, sv, model), daemon=True).start()
+        except Exception as e:   # un incident de préchargement ne doit jamais gêner le routeur
+            print("préchargement : %s" % e, flush=True)
+
+
 def main():
     try:
         with open(USAGE_FILE, encoding="utf-8") as f:
@@ -1467,6 +1778,7 @@ def main():
     threading.Thread(target=usage_writer, daemon=True).start()
     threading.Thread(target=limits_writer, daemon=True).start()
     threading.Thread(target=cache_writer, daemon=True).start()
+    threading.Thread(target=prewarm_loop, daemon=True).start()
     for srv in servers[1:]:
         threading.Thread(target=srv.serve_forever, daemon=True).start()
     servers[0].serve_forever()
