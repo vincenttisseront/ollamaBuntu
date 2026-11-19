@@ -220,7 +220,12 @@ apply_update() {
     cp -f "$SRC"/debs/*.deb "$T/var/cache/ollamabuntu/debs/"
   fi
 
-  if [[ $NEW_OLLAMA != "$old_ollama" || ! -x $T/usr/local/bin/ollama ]]; then
+  have_archive=0
+  for f in "$SRC"/ollama-linux-amd64.tar.zst "$SRC"/ollama-linux-amd64.tgz; do [[ -f $f ]] && have_archive=1; done
+  if [[ $have_archive == 0 && -x $T/usr/local/bin/ollama ]]; then
+    # mise à jour manuelle sans archive Ollama : ne jamais vider /usr/local/lib/ollama (moteur et bibliothèques GPU) sans pouvoir le réinstaller
+    step "Ollama : aucune archive fournie, installation actuelle conservée (utilisez « ollamabuntu-update --online » pour passer à $NEW_OLLAMA)"
+  elif [[ $NEW_OLLAMA != "$old_ollama" || ! -x $T/usr/local/bin/ollama ]]; then
     step "Ollama : $old_ollama -> $NEW_OLLAMA"
     if compgen -G "$T/usr/local/lib/ollama/rocm*" >/dev/null && ! compgen -G "$SRC/ollama-linux-amd64-rocm.*" >/dev/null; then
       say "      module ROCm retiré (lié à l'ancienne version) : réinstallez-le depuis l'onglet GPU"
