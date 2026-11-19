@@ -38,6 +38,7 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # modules partagés avec le routeur
+import modelpick  # noqa: E402  choix d'un modèle de remplacement (partagé avec le routeur)
 import privacy  # noqa: E402  détection et masquage des données sensibles, termes interdits
 import rag  # noqa: E402  base de documents : extraction, découpage, vecteurs, recherche
 import power  # noqa: E402  réveil (Wake-on-LAN) et mise en veille des serveurs du parc
@@ -5967,6 +5968,7 @@ def balance_view():
         s["count"] += 1
         s["last"] = max(s["last"], r.get("ts") or 0)
     servers, on = [], {n: ["local"] for n in local}
+    subst, swap_on = balance_substitute(), {}
     for s in load_fleet():
         st = _fleet_state.get(s["id"]) or {}
         d = st.get("data") or {}
@@ -5981,16 +5983,31 @@ def balance_view():
             issues.append("old-version")   # serveur resté sur une version qui n'annonce pas ses modèles
         elif not common:
             issues.append("no-common-model")
+        swaps = {}   # modèles locaux que ce serveur n'a pas et auquel il répondrait avec un autre modèle (option « modèle différent »)
+        if subst and st.get("state") == "en ligne" and "model_tags" in d:
+            running = {modelpick.norm(x) for x in ((d.get("ollama") or {}).get("running") or []) if isinstance(x, str)} | \
+                {modelpick.norm(m.get("name")) for m in ((d.get("ollama") or {}).get("running") or []) if isinstance(m, dict)}
+            for t in tags:
+                n = short_name(t.get("name", ""))
+                if n in names:
+                    continue
+                use = modelpick.auto_substitute(d.get("model_tags") or [], modelpick.norm(t.get("name", "")), t, running)
+                if use:
+                    swaps[n] = short_name(use)
+        if swaps and "no-common-model" in issues:
+            issues.remove("no-common-model")
+        for n, use in swaps.items():
+            swap_on.setdefault(n, []).append({"server": s["name"], "use": use})
         for name in names:
             on.setdefault(name, []).append(s["name"])
         sv = served.get(s["name"], {})
         servers.append({"id": s["id"], "name": s["name"], "state": st.get("state", "en attente"), "route": bool(s.get("route_token")),
-                        "models": len(names), "common": len(common), "served": sv.get("count", 0), "last": sv.get("last") or None, "issues": issues,
+                        "models": len(names), "common": len(common), "swaps": len(swaps), "served": sv.get("count", 0), "last": sv.get("last") or None, "issues": issues,
                         "failures": fails.get(s["name"], 0)})
     loc = served.get("", {})
     return {"strategy": balance_strategy(), "affinity": balance_affinity(), "substitute": balance_substitute(), "rescued": {"count": rescued, "lost": lost},
             "local": {"models": len(local), "served": loc.get("count", 0), "last": loc.get("last") or None, "failures": fails.get("local", 0)},
-            "servers": servers, "models": [{"name": k, "on": v} for k, v in sorted(on.items())], "active": any(not x["issues"] for x in servers)}
+            "servers": servers, "models": [{"name": k, "on": v, "swap": swap_on.get(k, [])} for k, v in sorted(on.items())], "active": any(not x["issues"] for x in servers)}
 
 
 def balance_test(model, count=4):

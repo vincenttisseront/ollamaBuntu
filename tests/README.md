@@ -33,6 +33,7 @@ python3 tests/unit/router_failover_test.py      # routeur : reprise automatique 
 python3 tests/unit/fleet_origin_test.py        # requêtes relayées par un autre serveur : origine dans le journal
 python3 tests/unit/gpu_journal_flood_test.py   # détection GPU : journal noyé, requête ciblée de secours
 python3 tests/unit/gpu_discovery_blocks_test.py  # détection GPU : dernier bloc avec résultat
+python3 tests/unit/balance_swap_test.py        # carte Répartition : serveurs utilisables avec un modèle de remplacement
 python3 tests/unit/flex_balance_test.py          # répartition avec modèle différent (remplacement automatique)
 python3 tests/unit/prio_critical_test.py       # priorité critique + places réservées du plafond global
 python3 tests/unit/queue_test.py                 # file d'attente : priorités, vieillissement, plafond global, file pleine, délai dépassé, routeur en vrais échanges HTTP

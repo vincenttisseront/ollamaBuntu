@@ -2323,17 +2323,17 @@ async function loadBalance() {
       el('td', { class: 'name', text: r.name }),
       el('td', {}, i ? pill(r.state, FLEET_KIND[r.state] || 'warn') : pill('en ligne', 'ok')),
       el('td', {}, i ? (r.route ? pill('activée', 'ok') : pill('désactivée', 'warn')) : '-'),
-      el('td', { class: 'num', text: i ? r.common + ' / ' + r.models : String(r.models) }),
+      el('td', { class: 'num', text: i ? r.common + ' / ' + r.models + (r.swaps ? ' (+' + r.swaps + ' en remplacement)' : '') : String(r.models) }),
       el('td', { class: 'num', text: String(r.served) }),
       el('td', { class: 'num', text: r.failures ? String(r.failures) : '-' }),
       el('td', { class: 'num', text: r.last ? fmtDate(r.last) : '-' })))))));
-  const multi = d.models.filter((m) => m.on.length > 1);
+  const multi = d.models.filter((m) => m.on.length > 1 || (m.swap || []).length);
   balState.multi = multi.map((m) => m.name);
   $('#bal-models').replaceChildren(d.models.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
     el('thead', {}, el('tr', {}, ...['Modèle', 'Présent sur', 'Répartissable'].map((c) => el('th', { text: c })))),
     el('tbody', {}, ...d.models.map((m) => el('tr', {}, el('td', { class: 'name', text: m.name }),
       el('td', {}, ...m.on.flatMap((x, i) => [i ? ', ' : '', x === 'local' ? 'Ce serveur' : x])),
-      el('td', { text: m.on.length > 1 ? 'oui' : 'non (un seul serveur)' })))))) : el('p', { class: 'muted small', text: 'Aucun modèle installé.' }));
+      el('td', { text: m.on.length > 1 ? 'oui' : (m.swap || []).length ? 'oui, avec un modèle différent (' + m.swap.map((x) => x.server + ' → ' + x.use).join(' ; ') + ')' : 'non (un seul serveur)' })))))) : el('p', { class: 'muted small', text: 'Aucun modèle installé.' }));
   $('#bal-test').disabled = !usable || !multi.length;
 }
 const w_active = () => document.activeElement;

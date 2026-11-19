@@ -4131,6 +4131,14 @@
 "{1} (not found)"
 ],
 [
+"^(\\d+) / (\\d+) \\(\\+(\\d+) en remplacement\\)$",
+"{1} / {2} (+{3} as replacement)"
+],
+[
+"^oui, avec un modèle différent \\((.*)\\)$",
+"yes, with a different model ({1})"
+],
+[
 "(.+) téléchargements",
 "{1} downloads"
 ],

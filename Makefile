@@ -18,6 +18,7 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/queue_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/prio_critical_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/flex_balance_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/balance_swap_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/gpu_discovery_blocks_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/gpu_journal_flood_test.py
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/unit/fleet_origin_test.py
