@@ -30,6 +30,7 @@ node tests/unit/batch2_ui_test.js          # console : thème, cloche, statistiq
 node tests/unit/batch3_ui_test.js          # console : Performance, disponibilité GPU, matériel, audit, rapport, espace disque, plafonds, catalogue multi-registres (jsdom, FR et EN)
 node tests/unit/webui_pwd_ui_test.js         # console : Open WebUI, mot de passe administrateur et connexion unique (jsdom, FR et EN)
 python3 tests/unit/router_failover_test.py      # routeur : reprise automatique sur un autre serveur (vrais échanges HTTPS simulés), disjoncteur, requêtes sauvées
+python3 tests/unit/gpu_journal_flood_test.py   # détection GPU : journal noyé, requête ciblée de secours
 python3 tests/unit/gpu_discovery_blocks_test.py  # détection GPU : dernier bloc avec résultat
 python3 tests/unit/flex_balance_test.py          # répartition avec modèle différent (remplacement automatique)
 python3 tests/unit/prio_critical_test.py       # priorité critique + places réservées du plafond global

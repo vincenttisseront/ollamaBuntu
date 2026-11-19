@@ -1951,10 +1951,19 @@ def _ollama_log_text(unit="ollama.service"):
     # sort vite des 5000 dernières lignes du journal (une ligne par requête) et le GPU passerait à tort pour « non utilisé ».
     out = run(["journalctl", "-u", unit, "-b", "-g", JOURNAL_GREP, "-n", "20000", "--no-pager", "-o", "cat"], timeout=8)
     if out and "discovering available GPUs" in out:
-        return out
-    return run(["journalctl", "-u", unit, "-b", "-n", "5000", "--no-pager", "-o", "cat"], timeout=15)   # journalctl sans -g, ou démarrage sans détection
+        text = out
+    else:
+        text = run(["journalctl", "-u", unit, "-b", "-n", "5000", "--no-pager", "-o", "cat"], timeout=15) or ""   # journalctl sans -g, ou démarrage sans détection
+    if "inference compute" not in text:
+        # Le filtre large peut être noyé (llama-server très bavard, plus de 20 000 lignes) ou échouer : requête ciblée sur la seule détection,
+        # placée avant le reste pour que le dernier bloc de détection avec résultat reste celui qui compte.
+        narrow = run(["journalctl", "-u", unit, "-b", "-g", DISCOVERY_GREP, "-n", "400", "--no-pager", "-o", "cat"], timeout=15)
+        if narrow and "inference compute" in narrow:
+            text = narrow + "\n" + text
+    return text
 
 
+DISCOVERY_GREP = r"discovering available GPUs|inference compute|dropping integrated GPU"
 JOURNAL_GREP = r"discovering available GPUs|inference compute|dropping integrated GPU|rocm|amdgpu|\bhip\b|kfd|gfx[0-9]|hsa"
 
 
