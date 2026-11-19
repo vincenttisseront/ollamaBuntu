@@ -530,7 +530,7 @@
               <label>Équipe (facultatif, pour répartir les coûts) <input name="team" maxlength="40" list="team-list" placeholder="ex. Ressources humaines"></label><datalist id="team-list"></datalist>
               <label>Termes interdits pour cette clé (facultatif, séparés par des virgules) <input name="words" maxlength="600" placeholder="ex. salaire, projet orion"></label>
               <label>Bases de documents autorisées (facultatif, vide = toutes) <input name="collections" maxlength="600" placeholder="ex. RH, Juridique"></label>
-              <label>Priorité dans la file d'attente <select name="priority"><option value="1">Haute (passe en premier)</option><option value="2" selected>Normale</option><option value="3">Basse (traitements de fond)</option></select></label></div>
+              <label>Priorité dans la file d'attente <select name="priority"><option value="0">Critique (passe toujours en premier, places réservées)</option><option value="1">Haute (passe en premier)</option><option value="2" selected>Normale</option><option value="3">Basse (traitements de fond)</option></select></label></div>
             <p class="muted small">Au-delà du plafond, les requêtes d'un client attendent leur tour (jusqu'à 10 minutes). Au-delà d'un quota, elles sont refusées (erreur 429) jusqu'à la période suivante.</p>
             <div class="row"><button class="btn primary" type="submit">Créer la clé</button><span id="key-msg" class="small"></span></div>
           </form>
@@ -844,7 +844,7 @@
       </div>
       <div class="card" data-panel="queue" data-label="File d'attente">
         <div class="card-head"><h2>File d'attente</h2><button id="queue-refresh" class="btn" type="button">Actualiser</button></div>
-        <p class="muted small">Quand le serveur est saturé, les requêtes attendent leur tour : celle d'une clé de priorité haute passe avant une clé de priorité basse (une requête qui attend longtemps gagne un niveau toutes les 2 minutes, aucune ne reste bloquée). La priorité de chaque clé se règle dans Système &gt; Publication de l'API &gt; Plafonds.</p>
+        <p class="muted small">Quand le serveur est saturé, les requêtes attendent leur tour : celle d'une clé de priorité haute passe avant une clé de priorité basse (une requête qui attend longtemps gagne un niveau toutes les 2 minutes, aucune ne reste bloquée). Une clé de priorité critique passe toujours en premier, sans vieillissement, et peut utiliser des places que les autres clés n'ont pas le droit de prendre (réglage « places réservées »). La priorité de chaque clé se règle dans Système &gt; Publication de l'API &gt; Plafonds.</p>
         <div id="queue-state"></div>
         <h3>Ce qui attend</h3>
         <div id="queue-list"></div>
@@ -855,6 +855,7 @@
         <form id="queue-form" class="pool-form row">
           <label>Requêtes simultanées au total <input name="max_active" type="number" min="0" max="256" value="0"></label>
           <label>Taille maximale de la file (au-delà : refus immédiat, erreur 429) <input name="max_queue" type="number" min="0" max="10000" value="0"></label>
+          <label>Places réservées aux clés critiques (sur le total ci-dessus ; les autres clés n'en prennent jamais plus que le total moins ces places) <input name="reserved" type="number" min="0" max="255" value="0"></label>
           <button class="btn primary" type="submit">Enregistrer</button><span id="queue-msg" class="small" aria-live="polite"></span>
         </form>
         <p class="muted small" id="queue-hint"></p>

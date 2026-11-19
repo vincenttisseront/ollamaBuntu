@@ -79,7 +79,7 @@ async function scenario(lang) {
   ok(await until(() => T('#queue-list').includes(L('Aucune donnée du routeur', 'No data from the router'))), L('routeur muet : on ne prétend pas que la file est vide', 'EN: no data'));
   // priorité d'une clé
   const sel = $('#key-form').elements.priority;
-  ok(sel.value === '2' && [...sel.options].map((o) => o.text).join('|') === L('Haute (passe en premier)|Normale|Basse (traitements de fond)', 'High (goes first)|Normal|Low (background jobs)'), L('création de clé : priorité normale par défaut', 'EN: new key priority'));
+  ok(sel.value === '2' && [...sel.options].map((o) => o.text).join('|') === L('Critique (passe toujours en premier, places réservées)|Haute (passe en premier)|Normale|Basse (traitements de fond)', 'Critical (always goes first, reserved slots)|High (goes first)|Normal|Low (background jobs)'), L('création de clé : priorité normale par défaut', 'EN: new key priority'));
   $('#key-form').elements.name.value = 'Fond'; sel.value = '3';
   $('#key-form').dispatchEvent(new w.Event('submit', { cancelable: true }));
   ok(await until(() => calls.some((c) => c[1] === '/api/publication/keys/create' && c[2].priority === 3 && c[2].name === 'Fond')), L('priorité envoyée à la création de la clé', 'EN: priority on create'));

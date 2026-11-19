@@ -873,7 +873,7 @@ $('#key-form').addEventListener('submit', async (ev) => {
   const f = ev.target;
   try {
     const r = await api('/api/publication/keys/create', { json: { name: f.elements.name.value.trim(), perms: checkedValues(f, 'perm'), models: checkedValues(f, 'model'), deny: checkedValues(f, 'deny'),
-      max_concurrent: Number(f.elements.max_concurrent.value) || 0, priority: Number(f.elements.priority.value) || 2, team: f.elements.team.value.trim(), words: f.elements.words.value, collections: f.elements.collections.value, max_ctx: Number(f.elements.max_ctx.value) || 0, max_output: Number(f.elements.max_output.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
+      max_concurrent: Number(f.elements.max_concurrent.value) || 0, priority: prioNum(f.elements.priority.value), team: f.elements.team.value.trim(), words: f.elements.words.value, collections: f.elements.collections.value, max_ctx: Number(f.elements.max_ctx.value) || 0, max_output: Number(f.elements.max_output.value) || 0, quota_day: Number(f.elements.quota_day.value) || 0, quota_month: Number(f.elements.quota_month.value) || 0, expires: f.elements.expires.value } });
     f.elements.name.value = ''; f.elements.expires.value = ''; $('#key-msg').textContent = '';
     await loadPublication();
     const code = el('code', { class: 'token', text: r.token });
@@ -2280,23 +2280,24 @@ async function loadQueue() {
   const f = $('#queue-form');
   if (w_active() !== f.elements.max_active) f.elements.max_active.value = d.settings.max_active;
   if (w_active() !== f.elements.max_queue) f.elements.max_queue.value = d.settings.max_queue;
+  if (w_active() !== f.elements.reserved) f.elements.reserved.value = d.settings.reserved || 0;
   $('#queue-hint').textContent = 'Ollama traite déjà ' + d.parallel + ' requête(s) en parallèle par modèle ; un plafond de ' + Math.max(1, d.parallel) * 2 + ' à ' + Math.max(1, d.parallel) * 4 + ' est un point de départ raisonnable pour une carte de 24 Go.';
   const w = d.waits || {}, byPrio = Object.entries(w.by_prio || {}).map(([p, x]) => 'priorité ' + PRIO_NAME[p] + ' : ' + fmtWait(x.avg) + ' en moyenne');
   $('#queue-state').replaceChildren(
-    el('div', { class: 'row' }, el('span', {}, 'En cours : ', el('strong', { text: String(d.active) }), d.settings.max_active ? ' / ' + d.settings.max_active : ''), el('span', {}, 'En attente : ', el('strong', { text: String(d.waiting.length) }))),
+    el('div', { class: 'row' }, el('span', {}, 'En cours : ', el('strong', { text: String(d.active) }), d.settings.max_active ? ' / ' + d.settings.max_active : '', d.settings.reserved ? ' (dont ' + d.settings.reserved + ' réservée(s) aux clés critiques)' : ''), el('span', {}, 'En attente : ', el('strong', { text: String(d.waiting.length) }))),
     el('div', { class: 'muted small', text: w.n ? 'Dernière heure : ' + w.n + ' requête(s) ont attendu, ' + fmtWait(w.avg) + ' en moyenne, ' + fmtWait(w.max) + ' au plus.' : 'Dernière heure : aucune requête n\'a eu à attendre.' }),
     ...byPrio.map((x) => el('div', { class: 'muted small', text: x })));
   $('#queue-list').replaceChildren(d.waiting.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'dense' },
     el('thead', {}, el('tr', {}, ...['N°', 'Client', 'Modèle', 'Priorité', 'Attend depuis'].map((c, i) => el('th', { class: i === 4 ? 'num' : '', text: c })))),
     el('tbody', {}, ...d.waiting.map((x, i) => el('tr', {}, el('td', { text: String(i + 1) }), el('td', { class: 'name', text: x.who || '-' }), el('td', { text: x.model || '-' }),
-      el('td', {}, pill(PRIO_NAME[x.prio] || 'normale', x.prio === 1 ? 'ok' : x.prio === 3 ? 'warn' : 'info'), x.eff < x.prio ? el('span', { class: 'muted small', text: ' (monte à ' + PRIO_NAME[x.eff] + ')' }) : null),
+      el('td', {}, pill(PRIO_NAME[x.prio] || 'normale', x.prio === 0 ? 'err' : x.prio === 1 ? 'ok' : x.prio === 3 ? 'warn' : 'info'), x.eff < x.prio ? el('span', { class: 'muted small', text: ' (monte à ' + PRIO_NAME[x.eff] + ')' }) : null),
       el('td', { class: 'num', text: fmtWait(x.waited) })))))) : el('p', { class: 'muted', text: d.live ? 'Rien n\'attend : le serveur absorbe toutes les requêtes.' : 'Aucune donnée du routeur pour le moment.' }));
 }
 $('#queue-refresh').addEventListener('click', loadQueue);
 $('#queue-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target;
-  try { await api('/api/queue/config', { json: { max_active: Number(f.elements.max_active.value) || 0, max_queue: Number(f.elements.max_queue.value) || 0 } }); $('#queue-msg').className = 'small okmsg'; $('#queue-msg').textContent = 'Enregistré.'; loadQueue(); }
+  try { await api('/api/queue/config', { json: { max_active: Number(f.elements.max_active.value) || 0, max_queue: Number(f.elements.max_queue.value) || 0, reserved: Number(f.elements.reserved.value) || 0 } }); $('#queue-msg').className = 'small okmsg'; $('#queue-msg').textContent = 'Enregistré.'; loadQueue(); }
   catch (e) { $('#queue-msg').className = 'small error'; $('#queue-msg').textContent = e.message; }
 });
 async function loadBalance() {
@@ -2941,7 +2942,8 @@ async function tuningApply(m) {
 $('#tuning-refresh').addEventListener('click', loadTuning);
 
 /* ------------------------------------------------ limites des clés */
-const PRIO_NAME = { 1: 'haute', 2: 'normale', 3: 'basse' };
+const PRIO_NAME = { 0: 'critique', 1: 'haute', 2: 'normale', 3: 'basse' };
+const prioNum = (v) => { const n = Number(v); return [0, 1, 2, 3].includes(n) && v !== '' ? n : 2; };
 function keyLimits(k, u) {
   const n = (x) => (x >= 1e6 ? DEC((x / 1e6).toFixed(1)) + ' M' : x >= 1e3 ? DEC((x / 1e3).toFixed(0)) + ' k' : String(x));
   const parts = [];
@@ -2954,7 +2956,7 @@ function keyLimits(k, u) {
   if (k.team) parts.push('équipe : ' + k.team);
   if (k.words && k.words.length) parts.push(k.words.length + ' terme(s) interdit(s)');
   if (k.collections && k.collections.length) parts.push('documents : ' + k.collections.join(', '));
-  if (k.priority && k.priority !== 2) parts.push('priorité ' + PRIO_NAME[k.priority]);
+  if (k.priority !== undefined && k.priority !== null && k.priority !== 2) parts.push('priorité ' + PRIO_NAME[k.priority]);
   if (k.max_ctx) parts.push('contexte ≤ ' + n(k.max_ctx) + ' jetons');
   if (k.max_output) parts.push('réponse ≤ ' + n(k.max_output) + ' jetons');
   if (!parts.length && u && u.total) parts.push(n(u.total) + ' jetons au total');
@@ -3709,15 +3711,15 @@ $('#md-delete').addEventListener('click', async () => {
 async function keyCaps(k) {
   const ctx = el('input', { type: 'number', min: '0', max: '2000000', value: String(k.max_ctx || 0), 'aria-label': 'Contexte maximal' });
   const out = el('input', { type: 'number', min: '0', max: '1000000', value: String(k.max_output || 0), 'aria-label': 'Réponse maximale' });
-  const prio = el('select', { 'aria-label': 'Priorité dans la file d\'attente' }, ...[1, 2, 3].map((p) => el('option', { value: String(p), text: PRIO_NAME[p].charAt(0).toUpperCase() + PRIO_NAME[p].slice(1) })));
-  prio.value = String(k.priority || 2);
+  const prio = el('select', { 'aria-label': 'Priorité dans la file d\'attente' }, ...[0, 1, 2, 3].map((p) => el('option', { value: String(p), text: PRIO_NAME[p].charAt(0).toUpperCase() + PRIO_NAME[p].slice(1) })));
+  prio.value = String(prioNum(k.priority === undefined || k.priority === null ? 2 : k.priority));
   const team = el('input', { type: 'text', maxlength: '40', list: 'team-list', value: k.team || '', 'aria-label': 'Équipe' });
   const words = el('input', { type: 'text', maxlength: '600', value: (k.words || []).join(', '), placeholder: 'ex. salaire, projet orion', 'aria-label': 'Termes interdits' });
   const colls = el('input', { type: 'text', maxlength: '600', value: (k.collections || []).join(', '), placeholder: 'ex. RH, Juridique', 'aria-label': 'Bases de documents autorisées' });
-  const ok = await modal({ title: 'Plafonds de la clé « ' + k.name + ' »', message: 'Ramène les demandes qui dépassent ces valeurs au plafond (en-tête de réponse X-OllamaBuntu-Clamped). 0 = sans plafond. Le contexte n\'est plafonné que s\'il est demandé explicitement. La priorité décide de l\'ordre de passage quand le serveur est saturé.',
+  const ok = await modal({ title: 'Plafonds de la clé « ' + k.name + ' »', message: 'Ramène les demandes qui dépassent ces valeurs au plafond (en-tête de réponse X-OllamaBuntu-Clamped). 0 = sans plafond. Le contexte n\'est plafonné que s\'il est demandé explicitement. La priorité décide de l\'ordre de passage quand le serveur est saturé ; « critique » passe toujours en premier, sans vieillissement.',
     body: el('div', { class: 'row' }, el('label', {}, 'Contexte maximal (jetons) ', ctx), el('label', {}, 'Réponse maximale (jetons) ', out), el('label', {}, 'Priorité dans la file d\'attente ', prio), el('label', {}, 'Équipe (pour répartir les coûts) ', team), el('label', {}, 'Termes interdits (séparés par des virgules) ', words), el('label', {}, 'Bases de documents autorisées (vide = toutes) ', colls)), ok: 'Enregistrer' });
   if (!ok) return;
-  try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0, priority: Number(prio.value), team: team.value.trim(), words: words.value, collections: colls.value } }); await loadPublication(); } catch (e) { fail(e.message); }
+  try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0, priority: prioNum(prio.value), team: team.value.trim(), words: words.value, collections: colls.value } }); await loadPublication(); } catch (e) { fail(e.message); }
 }
 $('#bal-affinity').addEventListener('change', async () => {
   try { await api('/api/fleet/balance/strategy', { json: { affinity: $('#bal-affinity').checked } }); $('#bal-msg').className = 'small okmsg'; $('#bal-msg').textContent = 'Enregistré.'; } catch (e) { $('#bal-msg').className = 'small error'; $('#bal-msg').textContent = e.message; }

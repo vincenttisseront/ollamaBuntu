@@ -2437,8 +2437,8 @@ def validate_limits(data, current=None):
             pr = int(data["priority"])
         except (TypeError, ValueError):
             raise ValueError("priorité invalide")
-        if pr not in (1, 2, 3):
-            raise ValueError("priorité : 1 (haute), 2 (normale) ou 3 (basse)")
+        if pr not in (0, 1, 2, 3):
+            raise ValueError("priorité : 0 (critique), 1 (haute), 2 (normale) ou 3 (basse)")
         out["priority"] = pr
     return out
 
@@ -5235,8 +5235,8 @@ def limits_view():
 
 
 QUEUE_CONF = os.path.join(ETC, "queue.json")   # lu à chaud par le routeur
-QUEUE_LIMITS = {"max_active": (0, 256), "max_queue": (0, 10000)}
-PRIO_NAMES = {1: "haute", 2: "normale", 3: "basse"}
+QUEUE_LIMITS = {"max_active": (0, 256), "max_queue": (0, 10000), "reserved": (0, 255)}
+PRIO_NAMES = {0: "critique", 1: "haute", 2: "normale", 3: "basse"}
 
 
 def queue_settings():
@@ -5253,7 +5253,7 @@ def queue_settings():
 def queue_save(data):
     """Plafond global de requêtes en cours (protège la mémoire de la carte graphique) et taille maximale de la file ; 0 = sans limite."""
     new = queue_settings()
-    labels = {"max_active": "requêtes simultanées au total", "max_queue": "taille de la file"}
+    labels = {"max_active": "requêtes simultanées au total", "max_queue": "taille de la file", "reserved": "places réservées aux clés critiques"}
     for k, (lo, hi) in QUEUE_LIMITS.items():
         if k in data:
             try:
@@ -5263,6 +5263,10 @@ def queue_save(data):
             if not lo <= v <= hi:
                 raise ValueError("%s : %d à %d (0 = sans limite)" % (labels[k], lo, hi))
             new[k] = v
+    if new["reserved"] and new["max_active"] and new["reserved"] >= new["max_active"]:
+        raise ValueError("places réservées aux clés critiques : moins que le total de requêtes simultanées (%d)" % new["max_active"])
+    if new["reserved"] and not new["max_active"]:
+        raise ValueError("places réservées aux clés critiques : indiquez d'abord un plafond de requêtes simultanées au total")
     atomic_write(QUEUE_CONF, json.dumps(new), 0o644)
     return new
 

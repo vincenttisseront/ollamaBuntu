@@ -500,6 +500,7 @@
 "Criticité": "Severity",
 "Criticité des correctifs de sécurité (avis Ubuntu) :": "Severity of security fixes (Ubuntu notices):",
 "Criticité des mises à jour de sécurité": "Security update severity",
+"Critique (passe toujours en premier, places réservées)": "Critical (always goes first, reserved slots)",
 "Création d'un compte": "Account creation",
 "Création d'un modèle personnalisé": "Custom model creation",
 "Création d'une clé d'API": "API key creation",
@@ -1296,6 +1297,7 @@
 "Pilote inactif": "Driver inactive",
 "Pilote prêt mais carte non utilisée par Ollama : redémarrez Ollama, sinon consultez Journaux > Ollama.": "Driver ready but card not used by Ollama: restart Ollama, otherwise see Logs > Ollama.",
 "Pilotes Vulkan Intel / AMD, installés à la demande": "Intel / AMD Vulkan drivers, installed on demand",
+"Places réservées aux clés critiques (sur le total ci-dessus ; les autres clés n'en prennent jamais plus que le total moins ces places)": "Slots reserved for critical keys (out of the total above; other keys never take more than the total minus these slots)",
 "Plafond de mémoire": "Memory limit",
 "Plafonds": "Limits",
 "Plafonner la mémoire d'Open WebUI": "Limit Open WebUI's memory",
@@ -1351,6 +1353,7 @@
 "Pénalité de répétition": "Repetition penalty",
 "Période affichée": "Displayed period",
 "Quand le serveur est saturé, les requêtes attendent leur tour : celle d'une clé de priorité haute passe avant une clé de priorité basse (une requête qui attend longtemps gagne un niveau toutes les 2 minutes, aucune ne reste bloquée). La priorité de chaque clé se règle dans Système > Publication de l'API > Plafonds.": "When the server is saturated, requests wait their turn: a request from a high-priority key goes before a low-priority key (a request that waits a long time rises one level every 2 minutes, none stays blocked). Each key's priority is set in System > API publication > Limits.",
+"Quand le serveur est saturé, les requêtes attendent leur tour : celle d'une clé de priorité haute passe avant une clé de priorité basse (une requête qui attend longtemps gagne un niveau toutes les 2 minutes, aucune ne reste bloquée). Une clé de priorité critique passe toujours en premier, sans vieillissement, et peut utiliser des places que les autres clés n'ont pas le droit de prendre (réglage « places réservées »). La priorité de chaque clé se règle dans Système > Publication de l'API > Plafonds.": "When the server is saturated, requests wait their turn: one from a high-priority key goes before one from a low-priority key (a request that waits a long time gains a level every 2 minutes, none stays stuck). A critical-priority key always goes first, without ageing, and can use slots the other keys are not allowed to take (“reserved slots” setting). Each key's priority is set in System > API publication > Limits.",
 "Quand on demande": "When asked for",
 "Quand plusieurs serveurs ont le même modèle, cette console envoie chaque requête à l'un d'eux. Un serveur n'est utilisé que si la répartition y est activée, s'il est en ligne et s'il a le modèle demandé.": "When several servers have the same model, this console sends each request to one of them. A server is used only if balancing is enabled on it, it is online and it has the requested model.",
 "Quand une application demande un modèle par son nom, la console peut le faire répondre par un autre : l'application n'a rien à changer. Exemple : toutes les demandes pour « gemma4:12b » servies par « Qwen3 ». Avec un pourcentage inférieur à 100, seule une partie des demandes est redirigée, pour comparer deux modèles en situation réelle. Les droits des clés d'accès s'appliquent au modèle demandé. Une règle ne s'enchaîne pas avec une autre.": "When an application asks for a model by name, the console can have another one answer: the application does not need to change. Example: all requests for \"gemma4:12b\" served by \"Qwen3\". With a percentage below 100, only part of the requests is redirected, so you can compare two models in real use. Access-key rights apply to the requested model. A rule is never chained with another one.",
@@ -1372,6 +1375,7 @@
 "ROCm (cartes AMD)": "ROCm (AMD cards)",
 "Raisonnement": "Reasoning",
 "Ramène les demandes qui dépassent ces valeurs au plafond (en-tête de réponse X-OllamaBuntu-Clamped). 0 = sans plafond. Le contexte n'est plafonné que s'il est demandé explicitement.": "Brings requests that exceed these values down to the limit (response header X-OllamaBuntu-Clamped). 0 = no limit. The context is limited only when it is explicitly requested.",
+"Ramène les demandes qui dépassent ces valeurs au plafond (en-tête de réponse X-OllamaBuntu-Clamped). 0 = sans plafond. Le contexte n'est plafonné que s'il est demandé explicitement. La priorité décide de l'ordre de passage quand le serveur est saturé ; « critique » passe toujours en premier, sans vieillissement.": "Brings requests that exceed these values down to the ceiling (X-OllamaBuntu-Clamped response header). 0 = no ceiling. The context is only capped if explicitly requested. The priority decides the order of passage when the server is saturated; “critical” always goes first, without ageing.",
 "Ramène les demandes qui dépassent ces valeurs au plafond (en-tête de réponse X-OllamaBuntu-Clamped). 0 = sans plafond. Le contexte n'est plafonné que s'il est demandé explicitement. La priorité décide de l'ordre de passage quand le serveur est saturé.": "Brings requests that exceed these values back to the limit (response header X-OllamaBuntu-Clamped). 0 = no limit. The context is only capped when it is requested explicitly. The priority decides the order of passage when the server is saturated.",
 "Rapport": "Report",
 "Rapport d'essai envoyé.": "Test report sent.",
@@ -2247,6 +2251,7 @@
 "phrase secrète trop courte (12 caractères au minimum)": "passphrase too short (12 characters minimum)",
 "pilote rechargé": "driver reloaded",
 "pilote(s) :": "driver(s):",
+"places réservées aux clés critiques : indiquez d'abord un plafond de requêtes simultanées au total": "slots reserved for critical keys: first set a ceiling of simultaneous requests in total",
 "plafond hors limites (512 Mo à 64 Go)": "limit out of range (512 MB to 64 GB)",
 "plafond invalide (ex. 2g ou 1536m)": "invalid limit (e.g. 2g or 1536m)",
 "politique d'usage de l'IA": "AI usage policy",
@@ -2255,6 +2260,7 @@
 "pour ouvrir le menu de l'appliance.": "to open the appliance menu.",
 "première connexion). Empreinte SHA-256 à comparer :": "first connection). SHA-256 fingerprint to compare:",
 "prenom.nom@entreprise.com": "firstname.lastname@company.com",
+"priorité : 0 (critique), 1 (haute), 2 (normale) ou 3 (basse)": "priority: 0 (critical), 1 (high), 2 (normal) or 3 (low)",
 "priorité : 1 (haute), 2 (normale) ou 3 (basse)": "priority: 1 (high), 2 (normal) or 3 (low)",
 "priorité basse": "low priority",
 "priorité haute": "high priority",
@@ -2393,6 +2399,7 @@
 "une tâche est en cours sur ce serveur : mise en veille refusée": "a task is running on this server: sleep refused",
 "utilisation": "use",
 "valeur invalide": "invalid value",
+"valeur invalide : places réservées aux clés critiques": "invalid value: slots reserved for critical keys",
 "valeur invalide : requêtes simultanées au total": "invalid value: simultaneous requests in total",
 "valeur invalide : taille de la file": "invalid value: queue size",
 "validé": "validated",
@@ -5089,6 +5096,18 @@
 [
 "Aucun mot de passe SMTP",
 "No SMTP password"
+],
+[
+"\\(dont (\\d+) réservée\\(s\\) aux clés critiques\\)",
+"({1} of them reserved for critical keys)"
+],
+[
+"places réservées aux clés critiques : (\\d+) à (\\d+) \\(0 = sans limite\\)",
+"slots reserved for critical keys: {1} to {2} (0 = no limit)"
+],
+[
+"places réservées aux clés critiques : moins que le total de requêtes simultanées \\((\\d+)\\)",
+"slots reserved for critical keys: fewer than the total of simultaneous requests ({1})"
 ],
 [
 "En attente \\(pic\\) : (.+)",

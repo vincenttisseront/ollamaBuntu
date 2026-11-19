@@ -9,7 +9,7 @@ import threading
 import time
 
 
-PRIORITIES = (1, 2, 3)   # 1 haute, 2 normale, 3 basse
+PRIORITIES = (0, 1, 2, 3)   # 0 critique (jamais vieilli, places réservées), 1 haute, 2 normale, 3 basse
 AGING = 120              # une requête qui attend gagne un niveau de priorité toutes les 120 s : aucune ne reste bloquée indéfiniment
 
 
@@ -24,7 +24,9 @@ def priority_of(v):
 class Limiter:
     """File d'attente des requêtes d'inférence.
     - Au plus `cap` requêtes en cours par clé ; au plus `total` en même temps pour tout le serveur (protège la mémoire de la carte graphique).
-    - Quand il faut attendre, la requête de plus haute priorité passe d'abord, à priorité égale la plus ancienne (avec vieillissement).
+    - Quand il faut attendre, la requête de plus haute priorité passe d'abord, à priorité égale la plus ancienne (avec vieillissement,
+      sauf la priorité critique : elle passe toujours avant les autres et ne vieillit pas).
+    - `reserve` places du plafond global ne servent qu'aux requêtes critiques : les autres n'en occupent jamais plus de total - reserve.
     - Une requête dont la clé a atteint son plafond ne bloque pas les autres.
     Chaque requête attend au plus `wait` secondes."""
 
@@ -35,6 +37,7 @@ class Limiter:
         self._tickets = []
         self._seq = 0
         self._total = 0
+        self._total_nc = 0   # requêtes en cours qui ne sont pas critiques
         self._waits = []   # (instant, secondes d'attente, priorité) des requêtes admises après avoir attendu
         self._peaks = []   # (instant, taille de la file) à chaque arrivée : sert au pic de file d'attente de la console
         self.dirty = threading.Event()
@@ -45,6 +48,8 @@ class Limiter:
         return bool(kid) and (int(cap or 0) > 0 or int(total or 0) > 0)
 
     def _eff(self, t, now):
+        if t["prio"] == 0:
+            return 0
         return max(1, t["prio"] - int((now - t["t"]) // AGING))
 
     def _rank(self, t, now):
@@ -53,15 +58,25 @@ class Limiter:
     def _blocked(self, t):
         return t["cap"] > 0 and self._running.get(t["kid"], 0) >= t["cap"]
 
-    def _my_turn(self, me, total, now):
+    def _full_for(self, prio, total, reserve):
+        """Plus de place pour une requête de cette priorité ? (les dernières places du plafond global sont réservées aux critiques)"""
+        if total <= 0:
+            return False
+        if self._total >= total:
+            return True
+        reserve = max(0, min(int(reserve or 0), total - 1))
+        return prio != 0 and reserve > 0 and self._total_nc >= total - reserve
+
+    def _my_turn(self, me, total, now, reserve=0):
         if self._blocked(me):
             return False
-        if total > 0 and self._total >= total:
+        if self._full_for(me["prio"], total, reserve):
             return False
         mine = self._rank(me, now)
-        return not any(w is not me and not self._blocked(w) and self._rank(w, now) < mine for w in self._tickets)
+        return not any(w is not me and not self._blocked(w) and not self._full_for(w["prio"], total, reserve) and self._rank(w, now) < mine
+                       for w in self._tickets)
 
-    def acquire_ex(self, kid, cap, wait, prio=2, total=0, info=None, max_queue=0, now=None):
+    def acquire_ex(self, kid, cap, wait, prio=2, total=0, info=None, max_queue=0, now=None, reserve=0):
         """Retourne (admis, raison). raison : None | « timeout » (attente trop longue) | « full » (file pleine)."""
         cap, total = int(cap or 0), int(total or 0)
         if not self.gated(kid, cap, total):
@@ -70,7 +85,7 @@ class Limiter:
         t0 = clock()
         deadline = t0 + wait
         with self._cv:
-            if max_queue and len(self._tickets) >= int(max_queue) and not self._can_go_now(kid, cap, total, t0):
+            if max_queue and len(self._tickets) >= int(max_queue) and not self._can_go_now(kid, cap, total, t0, priority_of(prio), reserve):
                 return False, "full"
             self._seq += 1
             me = {"kid": kid, "cap": cap, "prio": priority_of(prio), "seq": self._seq, "t": t0, "info": dict(info or {})}
@@ -80,13 +95,15 @@ class Limiter:
             del self._peaks[:-300]
             self.dirty.set()
             try:
-                while not self._my_turn(me, total, clock()):
+                while not self._my_turn(me, total, clock(), reserve):
                     left = deadline - clock()
                     if left <= 0:
                         return False, "timeout"
                     self._cv.wait(min(left, 2))
                 self._running[kid] = self._running.get(kid, 0) + 1
                 self._total += 1
+                if me["prio"] != 0:
+                    self._total_nc += 1
                 waited = clock() - t0
                 if waited >= 0.05:
                     self._waits.append((clock(), waited, me["prio"]))
@@ -98,20 +115,24 @@ class Limiter:
                 self._cv.notify_all()   # le suivant de la file peut maintenant passer
                 self.dirty.set()
 
-    def _can_go_now(self, kid, cap, total, now):
+    def _can_go_now(self, kid, cap, total, now, prio=2, reserve=0):
         if cap > 0 and self._running.get(kid, 0) >= cap:
             return False
-        return not (total > 0 and self._total >= total) and not self._tickets
+        ahead = [t for t in self._tickets if prio != 0 or t["prio"] == 0]   # une critique n'est devancée que par d'autres critiques
+        return not self._full_for(prio, total, reserve) and not ahead
 
     def acquire(self, kid, cap, wait, **kw):
         return self.acquire_ex(kid, cap, wait, **kw)[0]
 
-    def release(self, kid):
+    def release(self, kid, prio=None):
+        """`prio` : priorité de la requête qui se termine (0 = critique). Sans elle, la requête est comptée comme non critique."""
         with self._cv:
             if self._running.get(kid, 0) > 0:
                 self._running[kid] -= 1
                 if self._total > 0:
                     self._total -= 1
+                if prio != 0 and self._total_nc > 0:
+                    self._total_nc -= 1
             self._cv.notify_all()
         self.dirty.set()
 

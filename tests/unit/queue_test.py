@@ -72,14 +72,15 @@ ok(limits.Limiter.gated("k", 0, 0) is False and limits.Limiter.gated("k", 2, 0) 
 # --- 5. console : priorité d'une clé, réglages globaux, vue
 ok(server.validate_limits({"priority": "1"}) == {"priority": 1, "max_concurrent": 0, "quota_day": 0, "quota_month": 0, "max_ctx": 0, "max_output": 0}, "priorité lue à la création de la clé")
 ok(server.validate_limits({"priority": 3}, {"priority": 2}) == {"priority": 3}, "mise à jour partielle : seule la priorité change")
-ok(raises(server.validate_limits, {"priority": 4}) and raises(server.validate_limits, {"priority": 0}) and raises(server.validate_limits, {"priority": "haute"}), "priorité hors 1 à 3 refusée")
+ok(raises(server.validate_limits, {"priority": 4}) and raises(server.validate_limits, {"priority": -1}) and raises(server.validate_limits, {"priority": "haute"}), "priorité hors 0 à 3 refusée")
+ok(server.validate_limits({"priority": 0}, {"priority": 2}) == {"priority": 0}, "priorité 0 (critique) acceptée")
 server.QUEUE_CONF = os.path.join(tmp, "queue-admin.json"); server.ROUTER_LIMITS = os.path.join(tmp, "limits.json")
 server.load_publication = lambda: {"keys": [{"id": "k1", "name": "Direction", "priority": 1}, {"id": "k2", "name": "Batch", "priority": 3, "max_concurrent": 1}]}
 server.read_env = lambda: {"OLLAMA_NUM_PARALLEL": "4"}
-ok(server.queue_settings() == {"max_active": 0, "max_queue": 0}, "par défaut : aucune limite globale")
-ok(server.queue_save({"max_active": "4", "max_queue": 20}) == {"max_active": 4, "max_queue": 20} and server.queue_settings()["max_active"] == 4, "réglages enregistrés")
+ok(server.queue_settings() == {"max_active": 0, "max_queue": 0, "reserved": 0}, "par défaut : aucune limite globale")
+ok(server.queue_save({"max_active": "4", "max_queue": 20}) == {"max_active": 4, "max_queue": 20, "reserved": 0} and server.queue_settings()["max_active"] == 4, "réglages enregistrés")
 ok(oct(os.stat(server.QUEUE_CONF).st_mode & 0o777) == "0o644", "fichier lisible par le routeur (aucun secret)")
-ok(server.queue_save({"max_queue": 5}) == {"max_active": 4, "max_queue": 5}, "mise à jour partielle")
+ok(server.queue_save({"max_queue": 5}) == {"max_active": 4, "max_queue": 5, "reserved": 0}, "mise à jour partielle")
 ok(raises(server.queue_save, {"max_active": 999}) and raises(server.queue_save, {"max_queue": -1}) and raises(server.queue_save, {"max_active": "abc"}), "valeurs hors bornes refusées")
 v = server.queue_view()
 ok(not v["live"] and v["waiting"] == [] and v["parallel"] == 4 and [(k["name"], k["priority"]) for k in v["keys"]] == [("Direction", 1), ("Batch", 3)], "sans données du routeur : file vide, priorités des clés listées")
@@ -126,9 +127,9 @@ def write_conf(**c):
     os.utime(router.QUEUE_CONF, (time.time() + len(c) + n, time.time() + len(c) + n))
 
 st, _ = ask("dir", "libre"); ok(st == 200 and hits == ["libre"], "sans plafond : la requête passe directement")
-ok(router.queue_conf() == {"max_active": 0, "max_queue": 0}, "routeur : aucune limite globale par défaut")
+ok(router.queue_conf() == {"max_active": 0, "max_queue": 0, "reserved": 0}, "routeur : aucune limite globale par défaut")
 write_conf(max_active=1, max_queue=1)
-ok(router.queue_conf() == {"max_active": 1, "max_queue": 1}, "routeur : réglages de la console relus à chaud")
+ok(router.queue_conf() == {"max_active": 1, "max_queue": 1, "reserved": 0}, "routeur : réglages de la console relus à chaud")
 del hits[:]; res = []
 t_bg = threading.Thread(target=ask, args=("bg", "occupe", 1.0, res)); t_bg.start(); time.sleep(0.3)
 t_bat = threading.Thread(target=ask, args=("bat", "batch", 0.05, res)); t_bat.start(); time.sleep(0.2)

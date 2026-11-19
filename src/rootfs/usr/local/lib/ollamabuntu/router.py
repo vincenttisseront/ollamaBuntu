@@ -127,7 +127,7 @@ def queue_conf():
             return max(0, min(int(d.get(k) or 0), hi))
         except (TypeError, ValueError):
             return 0
-    return {"max_active": num("max_active", 256), "max_queue": num("max_queue", 10000)}
+    return {"max_active": num("max_active", 256), "max_queue": num("max_queue", 10000), "reserved": num("reserved", 255)}
 
 
 REDIRECT_CONF = os.path.join(ETC, "redirects.json")   # écrit par la console : « les demandes pour X sont servies par Y »
@@ -1137,12 +1137,12 @@ class Router(http.server.BaseHTTPRequestHandler):
         print("accès refusé %s %s %s : %s" % (self.client_address[0], self.command, self.path[:80], message), flush=True)
 
     def relay(self):
-        self._key, self._slot, self._kid = None, None, None
+        self._key, self._slot, self._kid, self._slot_prio = None, None, None, None
         try:
             self._relay()
         finally:
             if self._slot:
-                _limiter.release(self._slot)
+                _limiter.release(self._slot, self._slot_prio)
                 self._slot = None
 
     def _relay(self):
@@ -1235,13 +1235,14 @@ class Router(http.server.BaseHTTPRequestHandler):
                 gk, gwho, gkey = "local", "local", {}
             qc = queue_conf()
             ok, why = _limiter.acquire_ex(gk, gkey.get("max_concurrent"), QUEUE_WAIT, prio=gkey.get("priority"), total=qc["max_active"],
-                                          info={"who": gwho, "model": (self.req_meta or {}).get("model")}, max_queue=qc["max_queue"])
+                                          info={"who": gwho, "model": (self.req_meta or {}).get("model")}, max_queue=qc["max_queue"], reserve=qc["reserved"])
             if not ok:
                 if why == "full":
                     return self.deny(429, "file d'attente pleine (%d requêtes déjà en attente) : réessayez dans un instant" % qc["max_queue"])
                 return self.deny(429, "trop de requêtes en cours pour « %s » : attente de %d s dépassée" % (gwho, QUEUE_WAIT))
             if limits.Limiter.gated(gk, gkey.get("max_concurrent"), qc["max_active"]):
                 self._slot = gk
+                self._slot_prio = limits.priority_of(gkey.get("priority"))
         self._kid = kid if r is not None else None
         body = with_context(path, body)
         self._clamped = []
