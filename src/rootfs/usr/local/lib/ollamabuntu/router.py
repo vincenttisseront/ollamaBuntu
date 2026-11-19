@@ -104,6 +104,11 @@ def substitute_enabled():
     return hot_json(BALANCE_FILE, _bal).get("substitute", False) is True
 
 
+def origin_label(v):
+    """Texte court et sûr pour un nom de client ou de serveur transmis dans un en-tête (pas de retour à la ligne, 60 caractères)."""
+    return re.sub(r"[^\w .@:/+-]", "?", str(v or ""))[:60].strip()
+
+
 def remote_use(s, model, flex=False, want=None):
     """Modèle que ce serveur du parc utiliserait pour répondre à `model` (le même, ou le modèle de remplacement choisi par l'administrateur,
     ou, si `flex`, un modèle choisi automatiquement), sinon None."""
@@ -821,7 +826,8 @@ class Router(http.server.BaseHTTPRequestHandler):
                         except (ValueError, TypeError, AttributeError):
                             rbody = body
                     conn.request(method, "/api/fleet/ollama" + self.path, body=rbody,
-                                 headers=dict(headers, **{"Content-Length": str(len(rbody))}, Authorization="Bearer " + srv["token"], **{"X-OB": "1"}))
+                                 headers=dict(headers, **{"Content-Length": str(len(rbody))}, Authorization="Bearer " + srv["token"],
+                                              **{"X-OB": "1", "X-OB-From": origin_label(socket.gethostname()), "X-OB-Client": origin_label((self.req_meta or {}).get("client") or "local")}))
                     label = "serveur:" + srv["name"]
                 resp = conn.getresponse()
             except (OSError, ssl.SSLError, http.client.HTTPException) as e:
@@ -1225,6 +1231,11 @@ class Router(http.server.BaseHTTPRequestHandler):
         if path in INFERENCE:   # requêtes mesurées : utilisation des modèles
             self.req_meta = {"client": "local" if r is None else r[0], "ip": self.client_address[0], "path": path,
                              "model": self.model_of(path, body) if body else None}
+            via = origin_label(self.headers.get("X-OB-Via"))
+            if via and self.client_address[0] in ("127.0.0.1", "::1"):   # relayée par la console de ce serveur pour un autre serveur du parc (seule la console locale peut l'annoncer)
+                origin = origin_label(self.headers.get("X-OB-Origin"))
+                self.req_meta["client"] = ("%s via %s" % (origin, via)) if origin and origin != "local" else "via " + via
+                self.req_meta["via"] = via
             conf = reqlog_conf()
             if conf["prompt_excerpt"] and body:   # désactivé par défaut : réglage de la console (Journaux > Requêtes)
                 excerpt = prompt_excerpt(path, body, conf["chars"], privacy.active_cats(privacy_conf()))

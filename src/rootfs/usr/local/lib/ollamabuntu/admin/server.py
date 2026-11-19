@@ -1886,6 +1886,10 @@ def update_env(changes, restart=True):
             run(["systemctl", "restart", "ollama.service"], timeout=60)
 
 
+def router_label(v):
+    return re.sub(r"[^\w .@:/+-]", "?", str(v or ""))[:60].strip()
+
+
 def ollama_exposed():
     return bool(load_publication().get("enabled"))
 
@@ -1942,6 +1946,18 @@ def ollama_log_text(unit="ollama.service"):
     return text
 
 
+_TS_RE = re.compile(r"^time=(\S+)", re.M)
+
+
+def chronological(text):
+    """Remet un extrait de journal dans l'ordre du plus ancien au plus récent. `journalctl -g … -n N` renvoie parfois les lignes du plus récent
+    au plus ancien (constaté sur Ubuntu 24.04) : lire alors « la dernière détection » donnerait la plus ancienne."""
+    ts = _TS_RE.findall(text or "")
+    if len(ts) >= 2 and ts[0] > ts[-1]:
+        return "\n".join(reversed(text.splitlines()))
+    return text or ""
+
+
 def _ollama_log_text(unit="ollama.service"):
     if OLLAMA_LOG_DIR:
         return read_text(os.path.join(OLLAMA_LOG_DIR, unit + ".log"))
@@ -1951,15 +1967,15 @@ def _ollama_log_text(unit="ollama.service"):
     # sort vite des 5000 dernières lignes du journal (une ligne par requête) et le GPU passerait à tort pour « non utilisé ».
     out = run(["journalctl", "-u", unit, "-b", "-g", JOURNAL_GREP, "-n", "20000", "--no-pager", "-o", "cat"], timeout=8)
     if out and "discovering available GPUs" in out:
-        text = out
+        text = chronological(out)
     else:
-        text = run(["journalctl", "-u", unit, "-b", "-n", "5000", "--no-pager", "-o", "cat"], timeout=15) or ""   # journalctl sans -g, ou démarrage sans détection
+        text = chronological(run(["journalctl", "-u", unit, "-b", "-n", "5000", "--no-pager", "-o", "cat"], timeout=15) or "")   # journalctl sans -g, ou démarrage sans détection
     if "inference compute" not in text:
         # Le filtre large peut être noyé (llama-server très bavard, plus de 20 000 lignes) ou échouer : requête ciblée sur la seule détection,
         # placée avant le reste pour que le dernier bloc de détection avec résultat reste celui qui compte.
         narrow = run(["journalctl", "-u", unit, "-b", "-g", DISCOVERY_GREP, "-n", "400", "--no-pager", "-o", "cat"], timeout=15)
         if narrow and "inference compute" in narrow:
-            text = narrow + "\n" + text
+            text = chronological(narrow) + "\n" + text
     return text
 
 
@@ -8315,7 +8331,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         conn = http.client.HTTPConnection(host, int(port), timeout=900)
         try:
             body = json.dumps(data).encode() if data is not None else None
-            conn.request(method, rest, body=body, headers={"Content-Type": "application/json"} if body else {})
+            hdrs = {"Content-Type": "application/json"} if body else {}
+            via = router_label(self.headers.get("X-OB-From"))
+            if via:   # l'origine de la demande reste visible dans le journal des requêtes de ce serveur
+                hdrs["X-OB-Via"] = via
+                hdrs["X-OB-Origin"] = router_label(self.headers.get("X-OB-Client"))
+            conn.request(method, rest, body=body, headers=hdrs)
             resp = conn.getresponse()
         except OSError as e:
             conn.close()
