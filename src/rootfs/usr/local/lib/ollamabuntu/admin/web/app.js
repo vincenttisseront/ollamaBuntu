@@ -2306,6 +2306,7 @@ async function loadBalance() {
   const sel = $('#bal-strategy');
   if (w_active() !== sel) sel.value = d.strategy;
   if (w_active() !== $('#bal-affinity')) $('#bal-affinity').checked = d.affinity !== false;
+  if (w_active() !== $('#bal-substitute')) $('#bal-substitute').checked = d.substitute === true;
   $('#bal-strategy-help').textContent = BAL_HELP[sel.value] || '';
   const items = [];
   if (!d.servers.length) items.push(el('li', { text: 'Aucun serveur dans le parc : ajoutez-en un (onglet « Ajouter un serveur »).' }));
@@ -3721,6 +3722,9 @@ async function keyCaps(k) {
   if (!ok) return;
   try { await api('/api/publication/keys/update', { json: { id: k.id, max_ctx: Number(ctx.value) || 0, max_output: Number(out.value) || 0, priority: prioNum(prio.value), team: team.value.trim(), words: words.value, collections: colls.value } }); await loadPublication(); } catch (e) { fail(e.message); }
 }
+$('#bal-substitute').addEventListener('change', async () => {
+  try { await api('/api/fleet/balance/strategy', { json: { substitute: $('#bal-substitute').checked } }); $('#bal-msg').className = 'small okmsg'; $('#bal-msg').textContent = 'Enregistré.'; } catch (e) { $('#bal-msg').className = 'small error'; $('#bal-msg').textContent = e.message; }
+});
 $('#bal-affinity').addEventListener('change', async () => {
   try { await api('/api/fleet/balance/strategy', { json: { affinity: $('#bal-affinity').checked } }); $('#bal-msg').className = 'small okmsg'; $('#bal-msg').textContent = 'Enregistré.'; } catch (e) { $('#bal-msg').className = 'small error'; $('#bal-msg').textContent = e.message; }
 });

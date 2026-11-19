@@ -5898,10 +5898,15 @@ def balance_affinity():
     return load_json_file(BALANCE_FILE, {}).get("affinity", True) is not False
 
 
-def set_balance_strategy(value, affinity=None):
+def balance_substitute():
+    return load_json_file(BALANCE_FILE, {}).get("substitute", False) is True
+
+
+def set_balance_strategy(value, affinity=None, substitute=None):
     if value not in BALANCE_STRATEGIES:
         raise ValueError("stratégie inconnue")
-    atomic_write(BALANCE_FILE, json.dumps({"strategy": value, "affinity": balance_affinity() if affinity is None else bool(affinity)}), 0o644)
+    atomic_write(BALANCE_FILE, json.dumps({"strategy": value, "affinity": balance_affinity() if affinity is None else bool(affinity),
+                                           "substitute": balance_substitute() if substitute is None else bool(substitute)}), 0o644)
 
 
 def balance_view():
@@ -5949,7 +5954,7 @@ def balance_view():
                         "models": len(names), "common": len(common), "served": sv.get("count", 0), "last": sv.get("last") or None, "issues": issues,
                         "failures": fails.get(s["name"], 0)})
     loc = served.get("", {})
-    return {"strategy": balance_strategy(), "affinity": balance_affinity(), "rescued": {"count": rescued, "lost": lost},
+    return {"strategy": balance_strategy(), "affinity": balance_affinity(), "substitute": balance_substitute(), "rescued": {"count": rescued, "lost": lost},
             "local": {"models": len(local), "served": loc.get("count", 0), "last": loc.get("last") or None, "failures": fails.get("local", 0)},
             "servers": servers, "models": [{"name": k, "on": v} for k, v in sorted(on.items())], "active": any(not x["issues"] for x in servers)}
 
@@ -8041,7 +8046,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 clear_requests()
                 return self.send_json(200, {"ok": True})
             if path == "/api/fleet/balance/strategy":
-                set_balance_strategy(str(data.get("strategy") or balance_strategy()), data.get("affinity") if "affinity" in data else None)
+                set_balance_strategy(str(data.get("strategy") or balance_strategy()), data.get("affinity") if "affinity" in data else None, data.get("substitute") if "substitute" in data else None)
                 return self.send_json(200, {"ok": True})
             if path == "/api/fleet/balance/test":
                 return self.send_json(200, balance_test(data.get("model")))

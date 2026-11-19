@@ -834,6 +834,7 @@
         <div class="row"><label>Stratégie <select id="bal-strategy"><option value="spread">Répartir : le serveur le moins occupé, à tour de rôle</option><option value="warm">Privilégier le modèle déjà chargé en mémoire</option></select></label><span id="bal-msg" class="small" aria-live="polite"></span></div>
         <p class="muted small" id="bal-strategy-help"></p>
         <label class="check"><input type="checkbox" id="bal-affinity"> Garder une conversation sur le même serveur (le cache du début de prompt y est déjà chaud, la première réponse est plus rapide). La charge reste prioritaire : un serveur nettement plus occupé que les autres est abandonné.</label>
+        <label class="check"><input type="checkbox" id="bal-substitute"> Accepter un modèle différent pour répartir la charge : un serveur qui n'a pas le modèle demandé répond avec son modèle le plus proche (même nature, même famille, déjà en mémoire, taille voisine), même sans modèle de remplacement réglé. Les requêtes avec images restent sur les serveurs qui ont exactement le modèle. Les réponses peuvent donc varier d'un serveur à l'autre.</label>
         <ul id="bal-issues" class="alerts"></ul>
       </div>
       <div class="card" data-panel="balance" data-label="Répartition de charge">

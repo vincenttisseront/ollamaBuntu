@@ -72,14 +72,51 @@ _health = limits.Health()
 _aff = limits.Affinity()
 
 
-def remote_use(s, model):
-    """Modèle que ce serveur du parc utiliserait pour répondre à `model` (le même, ou le modèle de remplacement choisi par l'administrateur), sinon None."""
+def _family(m):
+    d = m.get("details") or {}
+    return str(d.get("family") or (m.get("name") or m.get("model") or "").split(":")[0].split("-")[0]).lower()
+
+
+def _is_embed(m):
+    n = norm(m.get("name") or m.get("model") or "")
+    return "embed" in n or _family(m) in ("bert", "nomic-bert", "xlm-roberta")
+
+
+def auto_substitute(models, model, want, loaded):
+    """Modèle de ce serveur qui remplace `model` quand il ne l'a pas : même nature (conversation / embeddings), même famille si possible,
+    déjà en mémoire de préférence, puis le plus proche en taille. `want` : fiche du modèle demandé sur cette console (ou None)."""
+    emb = _is_embed(want) if want else ("embed" in model)
+    fam = _family(want) if want else None
+    size = float((want or {}).get("size") or 0)
+    best = None
+    for m in models:
+        n = norm(m.get("name") or m.get("model") or "")
+        if not n or is_cloud_model(n) or _is_embed(m) != emb:
+            continue
+        gap = abs(float(m.get("size") or 0) - size) / (size or 1) if size else 0
+        key = (0 if fam and _family(m) == fam else 1, 0 if n in loaded else 1, gap, n)
+        if best is None or key < best[0]:
+            best = (key, n)
+    return best[1] if best else None
+
+
+def substitute_enabled():
+    return hot_json(BALANCE_FILE, _bal).get("substitute", False) is True
+
+
+def remote_use(s, model, flex=False, want=None):
+    """Modèle que ce serveur du parc utiliserait pour répondre à `model` (le même, ou le modèle de remplacement choisi par l'administrateur,
+    ou, si `flex`, un modèle choisi automatiquement), sinon None."""
     have = {norm(m.get("name") or m.get("model")) for m in s.get("models", [])}
     if model in have:
         return model
     mp = {norm(k): norm(v) for k, v in (s.get("model_map") or {}).items() if k != "*"}
     sub = mp.get(model) or norm((s.get("model_map") or {}).get("*") or "")
-    return sub if sub and sub in have else None
+    if sub and sub in have:
+        return sub
+    if flex:
+        return auto_substitute(s.get("models", []), model, want, {norm(x) for x in s.get("loaded", [])})
+    return None
 
 
 _wake = {}   # modèle -> heure de la dernière demande dont seule la réponse d'un serveur endormi était possible (lu par la console, qui réveille ce serveur)
@@ -683,17 +720,23 @@ class Router(http.server.BaseHTTPRequestHandler):
             self.wfile.write(raw)
 
     @staticmethod
-    def candidates(model, fl, kid=None, session=None):
+    def candidates(model, fl, kid=None, session=None, flex=False):
         """Serveurs capables de répondre : le modèle déjà en mémoire d'abord, puis le moins chargé.
         Une conversation (session) retourne au serveur qui l'a déjà traitée tant qu'il n'est pas nettement plus occupé que les autres."""
         out = []
         loc = fl.get("local") or {}
+        flex = flex and substitute_enabled()
+        want = next((m for m in local_models()["tags"] if norm(m.get("name") or m.get("model")) == model), None)
         if model in local_models()["names"]:
             out.append(("local", model in {norm(x) for x in loc.get("loaded", [])}, float(loc.get("load") or 0), None))
+        elif flex and local_models()["tags"]:
+            lsub = auto_substitute(local_models()["tags"], model, None, {norm(x) for x in loc.get("loaded", [])})
+            if lsub:
+                out.append(("local", lsub in {norm(x) for x in loc.get("loaded", [])}, float(loc.get("load") or 0), {"use_model": lsub}))
         for s in fl.get("servers", []):
             if not s.get("online"):
                 continue
-            use = remote_use(s, model)
+            use = remote_use(s, model, flex, want)
             if use:
                 out.append(("remote", use in {norm(x) for x in s.get("loaded", [])}, float(s.get("load") or 0), dict(s, use_model=use)))
         t_now = time.time()
@@ -746,7 +789,15 @@ class Router(http.server.BaseHTTPRequestHandler):
                 if kind == "local":
                     target = table.get(norm(model), MAIN)
                     conn = http.client.HTTPConnection(*split(target), timeout=3600)
-                    conn.request(method, self.path, body=body, headers=headers)
+                    lbody = body
+                    if srv and srv.get("use_model") and srv["use_model"] != norm(model):   # modèle différent choisi automatiquement
+                        try:
+                            d = json.loads(body)
+                            d["model"] = srv["use_model"]
+                            lbody = json.dumps(d).encode()
+                        except (ValueError, TypeError, AttributeError):
+                            lbody = body
+                    conn.request(method, self.path, body=lbody, headers=dict(headers, **{"Content-Length": str(len(lbody))}))
                     label = target
                 else:
                     u = urllib.parse.urlsplit(srv["url"])
@@ -1278,7 +1329,8 @@ class Router(http.server.BaseHTTPRequestHandler):
         if fl.get("servers") and body and not path.startswith(MANAGEMENT) and self.category(method, path) in ("inference", "read"):
             model = self.model_of(path, body)
             if model:
-                cands = self.candidates(norm(model), fl, getattr(self, "_kid", None), limits.session_key(self.headers, body, getattr(self, "_kid", None), norm(model)))
+                cands = self.candidates(norm(model), fl, getattr(self, "_kid", None), limits.session_key(self.headers, body, getattr(self, "_kid", None), norm(model)),
+                                        flex=not uses_vision(body))   # un modèle choisi automatiquement n'est pas sûr de lire les images
                 if not cands and fl.get("rules"):
                     if esc:
                         done = self._escalate(method, path, body, allowed, esc, "aucun serveur autorisé")
@@ -1299,7 +1351,7 @@ class Router(http.server.BaseHTTPRequestHandler):
                                              ttft_ms=None, retried=[], waking=sl.get("name")))
                         return self.json_reply(503, {"error": "le serveur « %s » est en veille : réveil demandé pour le modèle « %s », réessayez dans une minute" % (sl.get("name"), model)},
                                                {"Retry-After": "60"})
-                if any(c[0] == "remote" for c in cands):
+                if any(c[0] == "remote" or c[3] for c in cands):
                     return self.balanced(method, path, body, cands, model, esc, allowed)
         target = self.target_for(method, path, body)
         if self.req_meta is not None:   # requête en cours sur ce serveur, comptée dès l'envoi
